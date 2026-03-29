@@ -65,6 +65,13 @@ class RoomPriorityPanel(QWidget):
         header.addWidget(self._add_btn)
         outer.addLayout(header)
 
+        self._fallback_note = QLabel("")
+        self._fallback_note.setStyleSheet(
+            "color:#caa56b; font-size:11px; font-style:italic;"
+        )
+        self._fallback_note.setWordWrap(True)
+        outer.addWidget(self._fallback_note)
+
         self._slots: list[dict] = []
         self._room_stats: dict[str, FurnitureRoomSummary] = {}
         self._room_expected_pairs: dict[str, int] = {}
@@ -116,6 +123,33 @@ class RoomPriorityPanel(QWidget):
     def _room_limit(self) -> int:
         return len(self._room_choices())
 
+    def _fallback_count(self) -> int:
+        return sum(1 for slot in self._slots if slot["type_btn"].isChecked())
+
+    def _refresh_fallback_feedback(self):
+        fallback_count = self._fallback_count()
+        if fallback_count <= 0:
+            self._fallback_note.setText(
+                "Best practice: keep at least one room as Fallback. Without one, calc times can increase significantly."
+            )
+            self._fallback_note.setStyleSheet(
+                "color:#d28b5a; font-size:11px; font-style:italic;"
+            )
+        elif fallback_count == 1:
+            self._fallback_note.setText(
+                "Best practice: keep at least one room as Fallback. This setup can keep calc times lower."
+            )
+            self._fallback_note.setStyleSheet(
+                "color:#caa56b; font-size:11px; font-style:italic;"
+            )
+        else:
+            self._fallback_note.setText(
+                "Best practice: keep at least one room as Fallback."
+            )
+            self._fallback_note.setStyleSheet(
+                "color:#777; font-size:11px; font-style:italic;"
+            )
+
     def _trim_excess_slots(self, *, persist: bool = False):
         """Drop any rows that exceed the current room limit."""
         limit = self._room_limit()
@@ -157,6 +191,7 @@ class RoomPriorityPanel(QWidget):
             slot["combo"].blockSignals(False)
 
         self._add_btn.setEnabled(len(self._slots) < self._room_limit())
+        self._refresh_fallback_feedback()
 
     def _update_expected_pairs_label(self, slot: dict):
         room = slot["combo"].currentData()
@@ -237,7 +272,7 @@ class RoomPriorityPanel(QWidget):
         row.addWidget(cap_lbl)
 
         cap_spin = QSpinBox()
-        cap_spin.setRange(0, 12)
+        cap_spin.setRange(0, 50)
         cap_spin.setSpecialValueText("∞")
         cap_spin.setFixedWidth(66)
         cap_spin.setMinimumWidth(66)
@@ -295,6 +330,7 @@ class RoomPriorityPanel(QWidget):
             " border-radius:3px; font-size:11px; }"
             "QPushButton:hover { background:#5a2a2a; }"
         )
+        rm_btn.setToolTip("Remove this room from the priority list.")
         row.addWidget(rm_btn)
         row.addStretch(1)
 
@@ -306,6 +342,7 @@ class RoomPriorityPanel(QWidget):
             "stim_spin": stim_spin,
             "up_btn": up_btn,
             "dn_btn": dn_btn,
+            "rm_btn": rm_btn,
             "widget": w,
             "swatch": swatch,
         }
@@ -330,6 +367,7 @@ class RoomPriorityPanel(QWidget):
         def _on_type(checked, _s=slot):
             _s["type_btn"].setText("Fallback" if checked else "Breeding")
             _s["type_btn"].setStyleSheet(self._SS_FALLBACK if checked else self._SS_BREED)
+            self._refresh_fallback_feedback()
             self._on_changed()
 
         type_btn.toggled.connect(_on_type)
@@ -401,6 +439,7 @@ class RoomPriorityPanel(QWidget):
         self._slots_layout.removeWidget(slot["widget"])
         slot["widget"].deleteLater()
         self._refresh_room_choices()
+        self._refresh_fallback_feedback()
         self._on_changed()
 
     def _on_changed(self, *, persist: bool = True):
@@ -430,6 +469,7 @@ class RoomPriorityPanel(QWidget):
                 base_stim=slot.get("base_stim", slot.get("stimulation")),
             )
         self._trim_excess_slots()
+        self._refresh_fallback_feedback()
 
     def set_available_rooms(self, rooms: list[str]):
         ordered = [room for room in ROOM_DISPLAY.keys() if room in set(rooms or [])]

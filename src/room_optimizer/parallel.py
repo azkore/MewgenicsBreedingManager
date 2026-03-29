@@ -164,6 +164,9 @@ def _sa_chain(
     def _room_cats(room_key: str, state: dict[int, str]) -> list[int]:
         return [cid for cid, r in state.items() if r == room_key]
 
+    def _room_effective_count(room_key: str, state: dict[int, str]) -> int:
+        return sum(0 if cid in fixed_ids else 1 for cid in _room_cats(room_key, state))
+
     def _room_score(cat_ids: list[int], stim: float) -> tuple[float, int] | None:
         result = _select_room_pairs_pure(
             cat_ids, pair_scores, hater_key_map, lover_key_map,
@@ -172,8 +175,15 @@ def _sa_chain(
         return result
 
     def _room_accepts_cat(room_key: str, cat_id: int, state: dict[int, str]) -> bool:
+        cats_in = _room_cats(room_key, state)
+        if cat_id in cats_in:
+            return True
+
+        max_c = room_max_cats.get(room_key)
+        if max_c is not None and _room_effective_count(room_key, state) >= max_c:
+            return False
+
         if mode_family:
-            cats_in = _room_cats(room_key, state)
             for other in cats_in:
                 if other == cat_id:
                     continue
@@ -185,8 +195,7 @@ def _sa_chain(
                 if not compat or risk > max_risk:
                     return False
             return True
-        cats_in = _room_cats(room_key, state) + [cat_id]
-        return _room_score(cats_in, room_stim.get(room_key, 50.0)) is not None
+        return _room_score(cats_in + [cat_id], room_stim.get(room_key, 50.0)) is not None
 
     def _state_score(state: dict[int, str]) -> float:
         total_quality = 0.0

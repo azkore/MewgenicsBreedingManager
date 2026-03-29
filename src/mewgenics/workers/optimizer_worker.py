@@ -142,6 +142,8 @@ class RoomOptimizerWorker(QThread):
                     room_pairs.append({
                         "cat_a": f"{a.name} ({a.gender_display})",
                         "cat_b": f"{b.name} ({b.gender_display})",
+                        "cat_a_db_key": a.db_key,
+                        "cat_b_db_key": b.db_key,
                         "is_lovers": is_mutual_lover_pair(a, b, lover_key_map),
                         "cat_a_has_lover": a.db_key in has_mutual_lover,
                         "cat_b_has_lover": b.db_key in has_mutual_lover,

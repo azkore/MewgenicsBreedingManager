@@ -7,7 +7,7 @@ from typing import Optional
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QPushButton, QTableWidget, QTableWidgetItem,
+    QLabel, QPushButton, QToolButton, QTableWidget, QTableWidgetItem,
     QHeaderView, QAbstractItemView, QSplitter, QFrame,
     QScrollArea, QSizePolicy, QLineEdit, QTextBrowser, QTabWidget,
 )
@@ -617,7 +617,7 @@ class RoomOptimizerView(QWidget):
 
         # Tab 2: Breeding Pairs (existing detail panel)
         self._details_pane = RoomOptimizerDetailPanel()
-        self._details_pane._navigate_to_cat_callback = self._navigate_to_cat_from_breeding_pairs
+        self._details_pane.set_navigate_to_cat_callback(self._navigate_to_cat_from_breeding_pairs)
         self._bottom_tabs.addTab(self._details_pane, _tr("room_optimizer.tab.breeding_pairs"))
 
         # Tab 3: Cat Locator
@@ -708,6 +708,9 @@ class RoomOptimizerView(QWidget):
 
     def get_available_rooms(self) -> list[str]:
         return list(self._available_rooms)
+
+    def set_navigate_to_pair_callback(self, callback):
+        self._details_pane.set_navigate_to_pair_callback(callback)
 
     def set_room_summaries(self, summaries: list[FurnitureRoomSummary] | dict[str, FurnitureRoomSummary]):
         if isinstance(summaries, dict):
@@ -946,13 +949,6 @@ class RoomOptimizerView(QWidget):
                 "</tr>"
             )
 
-        title = html.escape(_tr("room_optimizer.setup_info.title", default="Optimizer Setup Guide"))
-        subtitle = html.escape(
-            _tr(
-                "room_optimizer.setup_info.subtitle",
-                default="The controls on the left shape how room layouts are scored before you calculate.",
-            )
-        )
         entries = [
             row(
                 _tr("room_optimizer.min_stats"),
@@ -1012,8 +1008,6 @@ class RoomOptimizerView(QWidget):
             "td:first-child { width: 34%; font-weight: bold; color: #f0f0ff; white-space: nowrap; }"
             "td:last-child { width: 66%; }"
             "</style>"
-            f"<h2>{title}</h2>"
-            f"<p class='muted'>{subtitle}</p>"
             "<table>"
             "<thead><tr><th>Optimizer options</th><th>Description</th></tr></thead>"
             "<tbody>"
@@ -1590,9 +1584,11 @@ class RoomOptimizerDetailPanel(QWidget):
 
         self._current_data: Optional[dict] = None
         self._navigate_to_cat_callback = None  # Callback to navigate to a cat by name
+        self._navigate_to_pair_callback = None  # Callback to navigate to a cat pair
 
-        self._pairs_table = QTableWidget(0, 15)
+        self._pairs_table = QTableWidget(0, 16)
         self._pairs_table.setHorizontalHeaderLabels([
+            "",
             _tr("room_optimizer.detail.table.cat_a"),
             _tr("room_optimizer.detail.table.cat_b"),
             "\u2665",
@@ -1610,20 +1606,22 @@ class RoomOptimizerDetailPanel(QWidget):
         self._pairs_table.setWordWrap(False)
         self._pairs_table.setAlternatingRowColors(True)
         hh = self._pairs_table.horizontalHeader()
-        hh.setSectionResizeMode(0, QHeaderView.Interactive)
+        hh.setSectionResizeMode(0, QHeaderView.Fixed)
         hh.setSectionResizeMode(1, QHeaderView.Interactive)
-        for col in range(2, 14):
+        hh.setSectionResizeMode(2, QHeaderView.Interactive)
+        for col in range(3, 15):
             hh.setSectionResizeMode(col, QHeaderView.Interactive)
-        hh.setSectionResizeMode(14, QHeaderView.Stretch)
-        self._pairs_table.setColumnWidth(0, 120)
+        hh.setSectionResizeMode(15, QHeaderView.Stretch)
+        self._pairs_table.setColumnWidth(0, 34)
         self._pairs_table.setColumnWidth(1, 120)
-        self._pairs_table.setColumnWidth(2, 24)
-        for col in range(3, 10):
+        self._pairs_table.setColumnWidth(2, 120)
+        self._pairs_table.setColumnWidth(3, 24)
+        for col in range(4, 11):
             self._pairs_table.setColumnWidth(col, 40)
-        self._pairs_table.setColumnWidth(10, 60)
-        self._pairs_table.setColumnWidth(11, 50)
-        self._pairs_table.setColumnWidth(12, 75)
-        self._pairs_table.setColumnWidth(13, 50)
+        self._pairs_table.setColumnWidth(11, 60)
+        self._pairs_table.setColumnWidth(12, 50)
+        self._pairs_table.setColumnWidth(13, 75)
+        self._pairs_table.setColumnWidth(14, 50)
         self._pairs_table.setStyleSheet("""
             QTableWidget {
                 background:#0d0d1c; alternate-background-color:#131326;
@@ -1685,6 +1683,7 @@ class RoomOptimizerDetailPanel(QWidget):
         )
         self._best_pairs_btn.setToolTip(_tr("room_optimizer.detail.toggle.tooltip"))
         self._pairs_table.setHorizontalHeaderLabels([
+            "",
             _tr("room_optimizer.detail.table.cat_a"),
             _tr("room_optimizer.detail.table.cat_b"),
             "\u2665",
@@ -1703,11 +1702,17 @@ class RoomOptimizerDetailPanel(QWidget):
             _tr("room_optimizer.detail.excluded.inbred"),
         ])
 
+    def set_navigate_to_cat_callback(self, callback):
+        self._navigate_to_cat_callback = callback
+
+    def set_navigate_to_pair_callback(self, callback):
+        self._navigate_to_pair_callback = callback
+
     def _on_pair_cell_clicked(self, item):
         """Handle clicks on cat names to navigate to the cat in the main view."""
         col = self._pairs_table.column(item)
-        # Only handle clicks on Cat A (column 0) or Cat B (column 1)
-        if col not in (0, 1):
+        # Only handle clicks on Cat A (column 1) or Cat B (column 2)
+        if col not in (1, 2):
             return
 
         cat_name = item.text().replace(" \u2665", "")
@@ -1787,12 +1792,31 @@ class RoomOptimizerDetailPanel(QWidget):
 
         room = data.get("room", _tr("common.unknown", default="Unknown"))
         cats = data.get("cats", [])
+        cat_keys = list(data.get("cat_keys", []) or [])
         total_pairs = int(data.get("total_pairs", 0))
         avg_stats = float(data.get("avg_stats", 0))
         avg_risk = float(data.get("avg_risk", 0))
         pairs = data.get("pairs", [])
         excluded_cats = data.get("excluded_cats", [])
         excluded_cat_rows = data.get("excluded_cat_rows", [])
+        room_cat_lookup = {}
+        for name, key in zip(cats, cat_keys):
+            try:
+                room_cat_lookup[str(name).replace(" \u2665", "").split(" (", 1)[0]] = int(key)
+            except (TypeError, ValueError):
+                continue
+
+        def _pair_keys(pair: dict) -> tuple[Optional[int], Optional[int]]:
+            a_key = pair.get("cat_a_db_key")
+            b_key = pair.get("cat_b_db_key")
+            if a_key is not None and b_key is not None:
+                try:
+                    return int(a_key), int(b_key)
+                except (TypeError, ValueError):
+                    pass
+            a_name = str(pair.get("cat_a", "")).replace(" \u2665", "").split(" (", 1)[0]
+            b_name = str(pair.get("cat_b", "")).replace(" \u2665", "").split(" (", 1)[0]
+            return room_cat_lookup.get(a_name), room_cat_lookup.get(b_name)
 
         if room == "Excluded":
             self._pairs_table.hide()
@@ -1859,6 +1883,28 @@ class RoomOptimizerDetailPanel(QWidget):
 
         self._pairs_table.setRowCount(len(pairs))
         for i, pair in enumerate(pairs, 1):
+            jump_btn = QToolButton()
+            jump_btn.setText("↗")
+            jump_btn.setCursor(Qt.PointingHandCursor)
+            jump_btn.setToolTip(_tr(
+                "room_optimizer.detail.button.jump_to_pair",
+                default="Show these two cats in the Alive Cats view",
+            ))
+            jump_btn.setAutoRaise(True)
+            jump_btn.setFixedSize(24, 22)
+            jump_btn.setStyleSheet(
+                "QToolButton { background:#1a1a32; color:#aaddff; border:1px solid #2a2a4a;"
+                " border-radius:4px; font-size:12px; font-weight:bold; }"
+                "QToolButton:hover { background:#252545; }"
+                "QToolButton:pressed { background:#10101f; }"
+            )
+            a_key, b_key = _pair_keys(pair)
+            if self._navigate_to_pair_callback and a_key is not None and b_key is not None:
+                jump_btn.clicked.connect(lambda checked=False, ak=a_key, bk=b_key: self._navigate_to_pair_callback(ak, bk))
+            else:
+                jump_btn.setEnabled(False)
+            self._pairs_table.setCellWidget(i - 1, 0, jump_btn)
+
             # Cat A and B items with hyperlink styling
             cat_a_text = pair['cat_a']
             cat_b_text = pair['cat_b']
@@ -1912,21 +1958,21 @@ class RoomOptimizerDetailPanel(QWidget):
             else:
                 risk_item.setForeground(QBrush(QColor(98, 194, 135)))
 
-            self._pairs_table.setItem(i - 1, 0, cat_a_item)
-            self._pairs_table.setItem(i - 1, 1, cat_b_item)
+            self._pairs_table.setItem(i - 1, 1, cat_a_item)
+            self._pairs_table.setItem(i - 1, 2, cat_b_item)
             # Lovers indicator column
             lover_item = QTableWidgetItem("\u2665" if pair.get("is_lovers") else "")
             lover_item.setTextAlignment(Qt.AlignCenter)
             if pair.get("is_lovers"):
                 lover_item.setForeground(QBrush(QColor(220, 100, 120)))
                 lover_item.setToolTip("Mutual lovers")
-            self._pairs_table.setItem(i - 1, 2, lover_item)
-            for j, item in enumerate(stat_items, 3):
+            self._pairs_table.setItem(i - 1, 3, lover_item)
+            for j, item in enumerate(stat_items, 4):
                 self._pairs_table.setItem(i - 1, j, item)
-            self._pairs_table.setItem(i - 1, 10, sum_item)
-            self._pairs_table.setItem(i - 1, 11, avg_item)
-            self._pairs_table.setItem(i - 1, 12, risk_item)
-            self._pairs_table.setItem(i - 1, 13, rank_item)
+            self._pairs_table.setItem(i - 1, 11, sum_item)
+            self._pairs_table.setItem(i - 1, 12, avg_item)
+            self._pairs_table.setItem(i - 1, 13, risk_item)
+            self._pairs_table.setItem(i - 1, 14, rank_item)
 
             mutations = pair.get("mutations") or []
             if mutations:
@@ -1939,4 +1985,4 @@ class RoomOptimizerDetailPanel(QWidget):
                 mut_item.setToolTip("\n".join(tooltip_lines))
             else:
                 mut_item = QTableWidgetItem("—")
-            self._pairs_table.setItem(i - 1, 14, mut_item)
+            self._pairs_table.setItem(i - 1, 15, mut_item)

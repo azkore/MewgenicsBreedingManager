@@ -473,7 +473,7 @@ def optimize_room_distribution(
         )
 
     if params.mode_family:
-        max_cats_per_room = 6
+        room_caps = {room.key: room.max_cats for room in room_configs}
         family_assignments: dict[str, dict[str, list[Cat]]] = {
             room.key: {"males": [], "females": [], "unknown": []} for room in room_configs
         }
@@ -481,6 +481,15 @@ def optimize_room_distribution(
         def _room_cats(room_key: str) -> list[Cat]:
             rd = family_assignments[room_key]
             return rd["males"] + rd["females"] + rd["unknown"]
+
+        def _room_effective_count(room_key: str) -> int:
+            return sum(0 if _has_eternal_youth(cat) else 1 for cat in _room_cats(room_key))
+
+        def _room_has_space(room_key: str) -> bool:
+            max_cats = room_caps.get(room_key)
+            if max_cats is None:
+                return True
+            return _room_effective_count(room_key) < max_cats
 
         def _preferred_rooms(cat: Cat) -> list[str]:
             if not params.avoid_lovers:
@@ -510,7 +519,7 @@ def optimize_room_distribution(
                     placed = False
                     for room_key in _preferred_rooms(cat):
                         rc = _room_cats(room_key)
-                        if len(rc) >= max_cats_per_room:
+                        if not _room_has_space(room_key):
                             continue
                         if any(family_group_ids.get(ec.db_key) == fid or _room_conflict(cat, ec) for ec in rc):
                             continue
@@ -519,13 +528,13 @@ def optimize_room_distribution(
                         break
                     if not placed:
                         best_room = min(
-                            (r for r in _preferred_rooms(cat) if len(_room_cats(r)) < max_cats_per_room),
+                            (r for r in _preferred_rooms(cat) if _room_has_space(r)),
                             key=lambda r: sum(
                                 _score_pair_cached(cat, ec, params.stimulation).risk
                                 for ec in _room_cats(r)
                                 if not is_hater_conflict(cat, ec, hater_key_map)
                             ),
-                            default=min(room_order, key=lambda r: len(_room_cats(r))),
+                            default=min(room_order, key=lambda r: _room_effective_count(r)),
                         )
                         family_assignments[best_room][gender_key].append(cat)
 
@@ -533,19 +542,19 @@ def optimize_room_distribution(
                 placed = False
                 for room_key in _preferred_rooms(cat):
                     rc = _room_cats(room_key)
-                    if len(rc) < max_cats_per_room and not any(_room_conflict(cat, ec) for ec in rc):
+                    if _room_has_space(room_key) and not any(_room_conflict(cat, ec) for ec in rc):
                         family_assignments[room_key][gender_key].append(cat)
                         placed = True
                         break
                 if not placed:
                     best_room = min(
-                        (r for r in _preferred_rooms(cat) if len(_room_cats(r)) < max_cats_per_room),
+                        (r for r in _preferred_rooms(cat) if _room_has_space(r)),
                         key=lambda r: sum(
                             _score_pair_cached(cat, ec, params.stimulation).risk
                             for ec in _room_cats(r)
                             if not is_hater_conflict(cat, ec, hater_key_map)
                         ),
-                        default=min(room_order, key=lambda r: len(_room_cats(r))),
+                        default=min(room_order, key=lambda r: _room_effective_count(r)),
                     )
                     family_assignments[best_room][gender_key].append(cat)
 
@@ -823,4 +832,3 @@ def optimize_room_distribution(
     )
 
     return OptimizationResult(rooms=room_results, excluded_cats=excluded, stats=stats)
-

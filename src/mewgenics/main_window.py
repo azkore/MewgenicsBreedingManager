@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QMessageBox, QProgressBar, QMenu,
 )
 from PySide6.QtCore import (
-    Qt, QModelIndex,
+    Qt, QModelIndex, QItemSelection, QItemSelectionModel,
     QFileSystemWatcher, QTimer,
 )
 from PySide6.QtGui import (
@@ -220,6 +220,7 @@ class MainWindow(QMainWindow):
         self._room_btns: dict = {}
         self._active_btn = None
         self._show_lineage: bool = False
+        self._pair_detail_override: bool = False
         self._pedigree_coi_memos: dict[tuple[int, int], float] = {}
         self._tree_view: Optional[FamilyTreeBrowserView] = None
         self._safe_breeding_view: Optional[SafeBreedingView] = None
@@ -1175,6 +1176,7 @@ class MainWindow(QMainWindow):
         # Allow cat locator tables to navigate to cat in Alive Cats view
         self._mutation_planner_view.set_navigate_to_cat_callback(self._navigate_to_cat)
         self._room_optimizer_view.cat_locator.set_navigate_to_cat_callback(self._navigate_to_cat)
+        self._room_optimizer_view.set_navigate_to_pair_callback(self._navigate_to_cat_pair)
         self._perfect_planner_view.cat_locator.set_navigate_to_cat_callback(self._navigate_to_cat)
         self._perfect_planner_view.offspring_tracker.set_navigate_to_cat_callback(self._navigate_to_cat)
 
@@ -1210,7 +1212,7 @@ class MainWindow(QMainWindow):
             for idx in self._table.selectionModel().selectedRows()
         })
         cats = [c for r in rows[:2] if (c := self._source_model.cat_at(r)) is not None]
-        if len(cats) == 2 and _is_hater_pair(cats[0], cats[1]):
+        if len(cats) == 2 and _is_hater_pair(cats[0], cats[1]) and not self._pair_detail_override:
             cats = cats[:1]
         was_collapsed = self._detail.maximumHeight() == 0
         self._detail.show_cats(cats)
@@ -1964,22 +1966,100 @@ class MainWindow(QMainWindow):
     def _navigate_to_cat(self, db_key: int):
         """Switch to Alive Cats view and select the given cat by db_key."""
         self._filter(None, self._btn_all)
-        for row in range(self._proxy_model.rowCount()):
-            src_idx = self._proxy_model.mapToSource(self._proxy_model.index(row, 0))
-            cat = self._source_model.cat_at(src_idx.row())
-            if cat is not None and cat.db_key == db_key:
-                self._table.scrollTo(self._proxy_model.index(row, 0))
-                self._table.selectRow(row)
-                return
+        if self._select_cats_by_db_keys([db_key]):
+            return
         # Not found in Alive filter — try All Cats
         self._filter("__all__", self._btn_everyone)
+        self._select_cats_by_db_keys([db_key])
+
+    def _find_visible_cat_row(self, db_key: int) -> Optional[int]:
         for row in range(self._proxy_model.rowCount()):
             src_idx = self._proxy_model.mapToSource(self._proxy_model.index(row, 0))
             cat = self._source_model.cat_at(src_idx.row())
             if cat is not None and cat.db_key == db_key:
-                self._table.scrollTo(self._proxy_model.index(row, 0))
-                self._table.selectRow(row)
-                return
+                return row
+        return None
+
+    def _select_cats_by_db_keys(self, db_keys: list[int]) -> int:
+        selection_model = self._table.selectionModel()
+        if selection_model is None:
+            return 0
+
+        indexes = []
+        for db_key in db_keys:
+            row = self._find_visible_cat_row(db_key)
+            if row is None:
+                continue
+            indexes.append(self._proxy_model.index(row, 0))
+
+        if not indexes:
+            return 0
+
+        selection_model.blockSignals(True)
+        try:
+            selection = QItemSelection()
+            for idx in indexes:
+                selection.select(idx, idx)
+            selection_model.select(
+                selection,
+                QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows,
+            )
+            self._table.scrollTo(indexes[0])
+            selection_model.setCurrentIndex(indexes[0], QItemSelectionModel.NoUpdate)
+        finally:
+            selection_model.blockSignals(False)
+
+        self._on_selection()
+        return len(selection_model.selectedRows())
+
+    def _cats_by_db_keys(self, db_keys: list[int]) -> list[Cat]:
+        lookup = getattr(self, "_cat_lookup", None) or {cat.db_key: cat for cat in self._cats}
+        cats: list[Cat] = []
+        seen: set[int] = set()
+        for db_key in db_keys:
+            if db_key in seen:
+                continue
+            seen.add(db_key)
+            cat = lookup.get(db_key)
+            if cat is not None:
+                cats.append(cat)
+        return cats
+
+    def _navigate_to_cat_pair(self, db_key_a: int, db_key_b: int):
+        """Switch to Alive Cats view and select both cats in the pair."""
+        self._pair_detail_override = True
+        try:
+            self._clear_pair_navigation_filters()
+            self._filter(None, self._btn_all)
+            pair_cats = self._cats_by_db_keys([db_key_a, db_key_b])
+            if self._select_cats_by_db_keys([db_key_a, db_key_b]) < 2:
+                # Fall back to All Cats if one of the cats is hidden by the Alive filter.
+                self._clear_pair_navigation_filters()
+                self._filter("__all__", self._btn_everyone)
+                self._select_cats_by_db_keys([db_key_a, db_key_b])
+            if len(pair_cats) == 2:
+                self._source_model.set_focus_cat(None)
+                self._detail.show_cats(pair_cats)
+        finally:
+            self._pair_detail_override = False
+
+    def _clear_pair_navigation_filters(self):
+        """Clear filters that can hide one cat from a pair jump."""
+        if hasattr(self, "_search") and self._search.text():
+            self._search.clear()
+            self._proxy_model.set_name_filter("")
+
+        if getattr(self._proxy_model, "tag_filter", set()):
+            self._clear_tag_filter()
+
+        if hasattr(self, "_pin_toggle") and self._pin_toggle.isChecked():
+            self._pin_toggle.blockSignals(True)
+            try:
+                self._pin_toggle.setChecked(False)
+            finally:
+                self._pin_toggle.blockSignals(False)
+            self._proxy_model.set_pinned_only(False)
+            self._update_count()
 
     def _navigate_to_cat_by_name(self, cat_name_formatted: str):
         """Navigate to a cat by its formatted name (e.g. 'Fluffy (Female)')."""
