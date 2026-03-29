@@ -20,7 +20,7 @@ pip install pyinstaller
 
 echo ""
 echo "Cleaning previous build output..."
-rm -f "$APP_ZIP_OUT"
+rm -f "$DIST_ROOT"/MewgenicsManager-*.zip
 if [ -f "$APP_EXE_OUT" ]; then
     rm -f "$APP_EXE_OUT"
 fi

@@ -21,7 +21,7 @@ pip install pyinstaller
 
 echo.
 echo Cleaning previous build output...
-if exist "%APP_ZIP_OUT%" del /F /Q "%APP_ZIP_OUT%" >nul 2>nul
+del /F /Q "%DIST_ROOT%\MewgenicsManager-*.zip" >nul 2>nul
 if exist "%APP_DIR_OUT%" (
     attrib -R /S /D "%APP_DIR_OUT%\*" >nul 2>nul
     rmdir /S /Q "%APP_DIR_OUT%"

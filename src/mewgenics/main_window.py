@@ -59,6 +59,7 @@ from mewgenics.utils.tags import (
 from mewgenics.utils.thresholds import (
     _load_threshold_preferences, _save_threshold_preferences,
     _apply_threshold_preferences, _current_threshold_summary,
+    _set_donation_planner_traits,
 )
 from mewgenics.utils.optimizer_settings import (
     _OPTIMIZER_SEARCH_DEFAULTS,
@@ -71,6 +72,7 @@ from mewgenics.utils.calibration import (
 from mewgenics.utils.cat_persistence import (
     _save_blacklist, _save_must_breed, _save_pinned, _save_tags,
 )
+from mewgenics.utils.planner_state import _planner_import_traits_summary
 from mewgenics.utils.cat_analysis import (
     _is_exceptional_breeder, _is_donation_candidate,
 )
@@ -228,6 +230,7 @@ class MainWindow(QMainWindow):
         self._room_optimizer_view: Optional[RoomOptimizerView] = None
         self._perfect_planner_view: Optional[PerfectCatPlannerView] = None
         self._calibration_view: Optional[CalibrationView] = None
+        self._mutation_planner_view: Optional['MutationDisorderPlannerView'] = None
         self._furniture_view: Optional[FurnitureView] = None
         self._breeding_cache: Optional[BreedingCache] = None
         self._cache_worker: Optional[BreedingCacheWorker] = None
@@ -795,6 +798,19 @@ class MainWindow(QMainWindow):
         base_exceptional = summary["base_exceptional"]
         base_donation = summary["base_donation"]
         adaptive = summary["adaptive_enabled"]
+        planner_traits = self._mutation_planner_view.get_selected_traits() if self._mutation_planner_view is not None else []
+        mutation_ability_traits = [t for t in planner_traits if t.get("category") in {"mutation", "ability"}]
+        planner_note = ""
+        if summary.get("donation_missing_planner_traits"):
+            if mutation_ability_traits:
+                planner_note = (
+                    " Cats missing selected mutation/ability traits will count as donation candidates unless they are above the stat line"
+                    f" ({_planner_import_traits_summary(mutation_ability_traits)})."
+                )
+            else:
+                planner_note = (
+                    " Cats missing selected mutation/ability traits will count as donation candidates unless they are above the stat line."
+                )
         if adaptive:
             self._btn_exceptional.setToolTip(
                 "Exceptional breeders follow the living-cat average curve: "
@@ -805,7 +821,7 @@ class MainWindow(QMainWindow):
                 "Donation candidates follow the living-cat average curve: "
                 f"base {base_donation}, reference avg {summary['adaptive_reference_avg_sum']:.1f}, "
                 f"curve {summary['adaptive_curve_strength']:.2f}, current avg {avg_sum:.1f} -> {donation}, "
-                f"top stat cap {top_stat}."
+                f"top stat cap {top_stat}." + planner_note
             )
         else:
             self._btn_exceptional.setToolTip(
@@ -814,11 +830,23 @@ class MainWindow(QMainWindow):
             self._btn_donation.setToolTip(
                 "Donation candidates use documented heuristics: "
                 f"base stat sum <= {donation}, "
-                f"top stat <= {top_stat}, and/or high aggression."
+                f"top stat <= {top_stat}, and/or high aggression." + planner_note
             )
 
     def _refresh_threshold_runtime(self, cats: list[Cat] | None = None):
         _apply_threshold_preferences(_load_threshold_preferences(), cats if cats is not None else self._cats)
+
+    def _sync_donation_planner_traits(self):
+        traits = self._mutation_planner_view.get_selected_traits() if self._mutation_planner_view is not None else []
+        _set_donation_planner_traits(traits)
+        room_key = None
+        if self._active_btn is not None:
+            for key, btn in self._room_btns.items():
+                if btn is self._active_btn:
+                    room_key = key
+                    break
+        self._refresh_threshold_sensitive_ui(room_key)
+        self._update_threshold_button_copy()
 
     def _refresh_threshold_sensitive_ui(self, room_key=None):
         if hasattr(self, "_proxy_model"):
@@ -1172,6 +1200,7 @@ class MainWindow(QMainWindow):
         # Wire planner to optimizer so traits can be imported
         self._room_optimizer_view.set_planner_view(self._mutation_planner_view)
         self._perfect_planner_view.set_mutation_planner_view(self._mutation_planner_view)
+        self._mutation_planner_view.traitsChanged.connect(self._sync_donation_planner_traits)
         self._room_optimizer_view.room_priority_panel.configChanged.connect(self._sync_room_config_views)
         # Allow cat locator tables to navigate to cat in Alive Cats view
         self._mutation_planner_view.set_navigate_to_cat_callback(self._navigate_to_cat)
@@ -2636,6 +2665,7 @@ class MainWindow(QMainWindow):
                 self._perfect_planner_view.set_cats(cats)
             if self._calibration_view is not None and self._calibration_view.isVisible():
                 self._calibration_view.set_context(self._current_save, cats)
+            self._sync_donation_planner_traits()
             name = os.path.basename(self._current_save)
             self._save_lbl.setText(name)
             self.setWindowTitle(_tr("app.title_with_save", name=name))

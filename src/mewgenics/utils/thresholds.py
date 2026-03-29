@@ -15,12 +15,16 @@ from mewgenics.utils.cat_analysis import _cat_base_sum
 EXCEPTIONAL_SUM_THRESHOLD = int(_BASE_EXCEPTIONAL)
 DONATION_SUM_THRESHOLD = int(_BASE_DONATION)
 DONATION_MAX_TOP_STAT = int(_BASE_TOP_STAT)
+DONATION_MISSING_PLANNER_TRAITS = False
+
+_DONATION_PLANNER_TRAITS: tuple[dict, ...] = ()
 
 _THRESHOLD_CONFIG_KEY = "threshold_preferences"
 _THRESHOLD_DEFAULTS = {
     "exceptional_sum_threshold": int(_BASE_EXCEPTIONAL),
     "donation_sum_threshold": int(_BASE_DONATION),
     "donation_max_top_stat": int(_BASE_TOP_STAT),
+    "donation_missing_planner_traits": False,
     "adaptive_enabled": False,
     "adaptive_reference_avg_sum": 28.0,
     "adaptive_curve_strength": 0.2,
@@ -46,6 +50,10 @@ def _normalize_threshold_preferences(data: dict | None) -> dict:
             data.get("donation_max_top_stat"),
             _THRESHOLD_DEFAULTS["donation_max_top_stat"],
             min_value=0,
+        ),
+        "donation_missing_planner_traits": _coerce_bool(
+            data.get("donation_missing_planner_traits"),
+            _THRESHOLD_DEFAULTS["donation_missing_planner_traits"],
         ),
         "adaptive_enabled": _coerce_bool(
             data.get("adaptive_enabled"),
@@ -78,6 +86,33 @@ def _save_threshold_preferences(prefs: dict) -> bool:
     return True
 
 
+def _set_donation_planner_traits(traits: list[dict] | None):
+    global _DONATION_PLANNER_TRAITS
+    normalized: list[dict] = []
+    for trait in traits or []:
+        if not isinstance(trait, dict):
+            continue
+        category = str(trait.get("category") or "").strip()
+        key = str(trait.get("key") or "").strip().lower()
+        if not category or not key:
+            continue
+        try:
+            weight = int(trait.get("weight", 5) or 5)
+        except (TypeError, ValueError):
+            weight = 5
+        normalized.append({
+            "category": category,
+            "key": key,
+            "display": str(trait.get("display") or trait.get("name") or key).strip() or key,
+            "weight": weight,
+        })
+    _DONATION_PLANNER_TRAITS = tuple(normalized)
+
+
+def _donation_planner_traits() -> tuple[dict, ...]:
+    return _DONATION_PLANNER_TRAITS
+
+
 def _effective_thresholds_for_cats(
     prefs: dict | None = None,
     cats: list[Cat] | None = None,
@@ -96,9 +131,10 @@ def _effective_thresholds_for_cats(
 
 
 def _apply_threshold_preferences(prefs: dict | None = None, cats: list[Cat] | None = None):
-    global _THRESHOLD_PREFERENCES, EXCEPTIONAL_SUM_THRESHOLD, DONATION_SUM_THRESHOLD, DONATION_MAX_TOP_STAT
+    global _THRESHOLD_PREFERENCES, EXCEPTIONAL_SUM_THRESHOLD, DONATION_SUM_THRESHOLD, DONATION_MAX_TOP_STAT, DONATION_MISSING_PLANNER_TRAITS
     normalized = _normalize_threshold_preferences(prefs or _load_threshold_preferences())
     _THRESHOLD_PREFERENCES = normalized
+    DONATION_MISSING_PLANNER_TRAITS = bool(normalized.get("donation_missing_planner_traits"))
     EXCEPTIONAL_SUM_THRESHOLD, DONATION_SUM_THRESHOLD, DONATION_MAX_TOP_STAT, _ = _effective_thresholds_for_cats(normalized, cats)
 
 
@@ -112,6 +148,7 @@ def _current_threshold_summary(cats: list[Cat] | None = None) -> dict:
         "adaptive_enabled": bool(_THRESHOLD_PREFERENCES.get("adaptive_enabled")),
         "adaptive_reference_avg_sum": float(_THRESHOLD_PREFERENCES.get("adaptive_reference_avg_sum", 0.0)),
         "adaptive_curve_strength": float(_THRESHOLD_PREFERENCES.get("adaptive_curve_strength", 0.0)),
+        "donation_missing_planner_traits": bool(_THRESHOLD_PREFERENCES.get("donation_missing_planner_traits")),
         "base_exceptional": int(_THRESHOLD_PREFERENCES.get("exceptional_sum_threshold", _THRESHOLD_DEFAULTS["exceptional_sum_threshold"])),
         "base_donation": int(_THRESHOLD_PREFERENCES.get("donation_sum_threshold", _THRESHOLD_DEFAULTS["donation_sum_threshold"])),
     }

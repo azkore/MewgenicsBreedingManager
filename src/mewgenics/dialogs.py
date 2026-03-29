@@ -297,6 +297,17 @@ class ThresholdPreferencesDialog(QDialog):
         self._top_stat_spin.setValue(self._prefs["donation_max_top_stat"])
         self._top_stat_spin.valueChanged.connect(self._update_preview)
 
+        self._planner_trait_check = QCheckBox(_tr(
+            "thresholds.planner_trait_toggle",
+            default="Count cats missing selected mutation/ability traits as donation candidates",
+        ))
+        self._planner_trait_check.setChecked(bool(self._prefs["donation_missing_planner_traits"]))
+        self._planner_trait_check.setToolTip(_tr(
+            "thresholds.planner_trait_toggle.tooltip",
+            default="When enabled, cats that do not carry any selected mutation or ability traits will count as donation candidates unless they are above the stat line.",
+        ))
+        self._planner_trait_check.toggled.connect(self._update_preview)
+
         self._adaptive_check = QCheckBox(_tr(
             "thresholds.adaptive_toggle",
             default="Adjust thresholds from the living-cat average",
@@ -324,11 +335,12 @@ class ThresholdPreferencesDialog(QDialog):
         grid.addWidget(self._donation_spin, 1, 1)
         grid.addWidget(QLabel(_tr("thresholds.donation_top_stat", default="Donation max top stat")), 2, 0)
         grid.addWidget(self._top_stat_spin, 2, 1)
-        grid.addWidget(self._adaptive_check, 3, 0, 1, 2)
-        grid.addWidget(QLabel(_tr("thresholds.reference_average", default="Reference living average")), 4, 0)
-        grid.addWidget(self._reference_spin, 4, 1)
-        grid.addWidget(QLabel(_tr("thresholds.curve_strength", default="Curve strength")), 5, 0)
-        grid.addWidget(self._curve_spin, 5, 1)
+        grid.addWidget(self._planner_trait_check, 3, 0, 1, 2)
+        grid.addWidget(self._adaptive_check, 4, 0, 1, 2)
+        grid.addWidget(QLabel(_tr("thresholds.reference_average", default="Reference living average")), 5, 0)
+        grid.addWidget(self._reference_spin, 5, 1)
+        grid.addWidget(QLabel(_tr("thresholds.curve_strength", default="Curve strength")), 6, 0)
+        grid.addWidget(self._curve_spin, 6, 1)
         root.addLayout(grid)
 
         self._current_avg_label = QLabel()
@@ -364,6 +376,7 @@ class ThresholdPreferencesDialog(QDialog):
             "exceptional_sum_threshold": int(self._exceptional_spin.value()),
             "donation_sum_threshold": int(self._donation_spin.value()),
             "donation_max_top_stat": int(self._top_stat_spin.value()),
+            "donation_missing_planner_traits": bool(self._planner_trait_check.isChecked()),
             "adaptive_enabled": bool(self._adaptive_check.isChecked()),
             "adaptive_reference_avg_sum": float(self._reference_spin.value()),
             "adaptive_curve_strength": float(self._curve_spin.value()),
@@ -388,32 +401,32 @@ class ThresholdPreferencesDialog(QDialog):
                 )
             )
         if prefs["adaptive_enabled"] and self._cats:
-            self._preview_label.setText(
-                _tr(
-                    "thresholds.preview",
-                    default="Effective now: Exceptional >= {exceptional}, Donation <= {donation}, Donation top stat <= {top_stat}",
-                    exceptional=exceptional,
-                    donation=donation,
-                    top_stat=top_stat,
-                )
+            preview_text = _tr(
+                "thresholds.preview",
+                default="Effective now: Exceptional >= {exceptional}, Donation <= {donation}, Donation top stat <= {top_stat}",
+                exceptional=exceptional,
+                donation=donation,
+                top_stat=top_stat,
             )
         elif prefs["adaptive_enabled"]:
-            self._preview_label.setText(
-                _tr(
-                    "thresholds.preview_no_save",
-                    default="Adaptive mode is on, but there is no save loaded yet.",
-                )
+            preview_text = _tr(
+                "thresholds.preview_no_save",
+                default="Adaptive mode is on, but there is no save loaded yet.",
             )
         else:
-            self._preview_label.setText(
-                _tr(
-                    "thresholds.preview_fixed",
-                    default="Fixed thresholds: Exceptional >= {exceptional}, Donation <= {donation}, Donation top stat <= {top_stat}",
-                    exceptional=exceptional,
-                    donation=donation,
-                    top_stat=top_stat,
-                )
+            preview_text = _tr(
+                "thresholds.preview_fixed",
+                default="Fixed thresholds: Exceptional >= {exceptional}, Donation <= {donation}, Donation top stat <= {top_stat}",
+                exceptional=exceptional,
+                donation=donation,
+                top_stat=top_stat,
             )
+        if prefs.get("donation_missing_planner_traits"):
+            preview_text += _tr(
+                "thresholds.preview.planner_trait_note",
+                default=" Cats missing the selected mutation/ability traits will count as donation candidates unless they are above the stat line.",
+            )
+        self._preview_label.setText(preview_text)
 
     def preferences(self) -> dict:
         return _normalize_threshold_preferences(self._collect_preferences())

@@ -23,6 +23,8 @@ def _has_eternal_youth(cat: "Cat") -> bool:
 
 def _donation_candidate_base_reason(cat: "Cat") -> Optional[str]:
     from mewgenics.utils.thresholds import EXCEPTIONAL_SUM_THRESHOLD, DONATION_SUM_THRESHOLD, DONATION_MAX_TOP_STAT
+    from mewgenics.utils.thresholds import DONATION_MISSING_PLANNER_TRAITS, _donation_planner_traits
+    from mewgenics.utils.abilities import _cat_has_trait
     if _has_eternal_youth(cat):
         return None
     if _is_exceptional_breeder(cat):
@@ -30,6 +32,16 @@ def _donation_candidate_base_reason(cat: "Cat") -> Optional[str]:
     total = _cat_base_sum(cat)
     top_stat = max(cat.base_stats.values()) if cat.base_stats else 0
     reasons: list[str] = []
+    planner_trait_reason = False
+    if DONATION_MISSING_PLANNER_TRAITS:
+        planner_traits = [
+            t for t in _donation_planner_traits()
+            if t.get("category") in {"mutation", "ability"}
+        ]
+        if planner_traits and not any(_cat_has_trait(cat, t["category"], t["key"]) for t in planner_traits):
+            missing = ", ".join(str(t.get("display") or t.get("key") or "?") for t in planner_traits[:4])
+            reasons.append(f"missing selected planner traits{f' ({missing})' if missing else ''}")
+            planner_trait_reason = True
     if total <= DONATION_SUM_THRESHOLD:
         reasons.append(f"base sum {total} <= {DONATION_SUM_THRESHOLD}")
     if top_stat <= DONATION_MAX_TOP_STAT:
@@ -39,7 +51,9 @@ def _donation_candidate_base_reason(cat: "Cat") -> Optional[str]:
         reasons.append("high aggression")
     if not reasons:
         return None
-    if total > DONATION_SUM_THRESHOLD and top_stat > DONATION_MAX_TOP_STAT:
+    if planner_trait_reason and total > DONATION_SUM_THRESHOLD and top_stat > DONATION_MAX_TOP_STAT:
+        return None
+    if not planner_trait_reason and total > DONATION_SUM_THRESHOLD and top_stat > DONATION_MAX_TOP_STAT:
         return None
     return ", ".join(reasons)
 
