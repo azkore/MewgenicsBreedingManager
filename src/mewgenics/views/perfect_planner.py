@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox, QFrame,
     QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMenu,
     QPushButton, QScrollArea, QSizePolicy, QSpinBox, QSplitter,
-    QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
+    QProgressBar, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
 )
 from PySide6.QtCore import Qt, QByteArray, QSize, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QIcon
@@ -1857,6 +1857,17 @@ class PerfectCatPlannerView(QWidget):
         header.addWidget(self._title)
         header.addStretch()
         header.addWidget(self._summary)
+        self._loading_bar = QProgressBar()
+        self._loading_bar.setRange(0, 0)
+        self._loading_bar.setFixedWidth(110)
+        self._loading_bar.setFixedHeight(10)
+        self._loading_bar.setTextVisible(False)
+        self._loading_bar.setStyleSheet(
+            "QProgressBar { background:#151527; border:1px solid #2a2a4a; border-radius:4px; }"
+            "QProgressBar::chunk { background:#4a86c5; border-radius:4px; }"
+        )
+        self._loading_bar.hide()
+        header.addWidget(self._loading_bar)
         root.addLayout(header)
 
         self._desc = QLabel()
@@ -2119,6 +2130,9 @@ class PerfectCatPlannerView(QWidget):
         PerfectCatPlannerView._restore_session_state(self)
         _enforce_min_font_in_widget_tree(self)
 
+    def set_loading_state(self, loading: bool):
+        self._loading_bar.setVisible(bool(loading))
+
     def retranslate_ui(self):
         self._title.setText(_tr("perfect_planner.title"))
         self._desc.setText(_tr("perfect_planner.description"))
@@ -2242,23 +2256,27 @@ class PerfectCatPlannerView(QWidget):
         self._save_session_state(**kwargs)
 
     def set_cats(self, cats: list[Cat], excluded_keys: set[int] = None):
-        self._cats = cats
-        blacklisted_keys = {c.db_key for c in cats if c.is_blacklisted}
-        self._excluded_keys = (excluded_keys or set()) | blacklisted_keys
-        alive_count = len([c for c in cats if c.status != "Gone"])
-        excluded_count = len([c for c in cats if c.status != "Gone" and c.db_key in self._excluded_keys])
-        if excluded_count > 0:
-            self._summary.setText(_tr("perfect_planner.summary.with_excluded", alive=alive_count, excluded=excluded_count))
-        else:
-            self._summary.setText(_tr("perfect_planner.summary.no_excluded", alive=alive_count))
-        self._sync_mutation_traits()
-        self._foundation_panel.set_cats([c for c in cats if c.status != "Gone" and c.db_key not in self._excluded_keys])
-        if self._session_state.get("has_run") and len([c for c in cats if c.status != "Gone" and c.db_key not in self._excluded_keys]) >= 2:
-            cached = self._load_cached_results()
-            if cached is not None:
-                self._restore_from_cached_results(cached)
+        self.set_loading_state(True)
+        try:
+            self._cats = cats
+            blacklisted_keys = {c.db_key for c in cats if c.is_blacklisted}
+            self._excluded_keys = (excluded_keys or set()) | blacklisted_keys
+            alive_count = len([c for c in cats if c.status != "Gone"])
+            excluded_count = len([c for c in cats if c.status != "Gone" and c.db_key in self._excluded_keys])
+            if excluded_count > 0:
+                self._summary.setText(_tr("perfect_planner.summary.with_excluded", alive=alive_count, excluded=excluded_count))
             else:
-                self._calculate_plan()
+                self._summary.setText(_tr("perfect_planner.summary.no_excluded", alive=alive_count))
+            self._sync_mutation_traits()
+            self._foundation_panel.set_cats([c for c in cats if c.status != "Gone" and c.db_key not in self._excluded_keys])
+            if self._session_state.get("has_run") and len([c for c in cats if c.status != "Gone" and c.db_key not in self._excluded_keys]) >= 2:
+                cached = self._load_cached_results()
+                if cached is not None:
+                    self._restore_from_cached_results(cached)
+                else:
+                    self._calculate_plan()
+        finally:
+            self.set_loading_state(False)
 
     def set_cache(self, cache: Optional[BreedingCache]):
         self._cache = cache

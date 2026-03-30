@@ -27,21 +27,40 @@ def _donation_candidate_base_reason(cat: "Cat") -> Optional[str]:
     from mewgenics.utils.abilities import _cat_has_trait
     if _has_eternal_youth(cat):
         return None
-    if _is_exceptional_breeder(cat):
-        return None
-    total = _cat_base_sum(cat)
-    top_stat = max(cat.base_stats.values()) if cat.base_stats else 0
-    reasons: list[str] = []
-    planner_trait_reason = False
+    planner_trait_reason: Optional[str] = None
+    planner_mode = False
     if DONATION_MISSING_PLANNER_TRAITS:
         planner_traits = [
             t for t in _donation_planner_traits()
             if t.get("category") in {"mutation", "ability"}
         ]
-        if planner_traits and not any(_cat_has_trait(cat, t["category"], t["key"]) for t in planner_traits):
+        if planner_traits:
+            planner_mode = True
+            if any(_cat_has_trait(cat, t["category"], t["key"]) for t in planner_traits):
+                return None
             missing = ", ".join(str(t.get("display") or t.get("key") or "?") for t in planner_traits[:4])
-            reasons.append(f"missing selected planner traits{f' ({missing})' if missing else ''}")
-            planner_trait_reason = True
+            planner_trait_reason = f"missing selected planner traits{f' ({missing})' if missing else ''}"
+    total = _cat_base_sum(cat)
+    top_stat = max(cat.base_stats.values()) if cat.base_stats else 0
+    if planner_mode:
+        if planner_trait_reason is None:
+            return None
+        floor_reasons: list[str] = []
+        if total <= DONATION_SUM_THRESHOLD:
+            floor_reasons.append(f"base sum {total} <= {DONATION_SUM_THRESHOLD}")
+        if top_stat <= DONATION_MAX_TOP_STAT:
+            floor_reasons.append(f"top base stat {top_stat} <= {DONATION_MAX_TOP_STAT}")
+        if not floor_reasons:
+            return None
+        reasons: list[str] = [planner_trait_reason, *floor_reasons]
+        aggression = cat.aggression
+        if aggression is not None and aggression >= 0.66:
+            reasons.append("high aggression")
+        return ", ".join(reasons)
+
+    if _is_exceptional_breeder(cat):
+        return None
+    reasons: list[str] = []
     if total <= DONATION_SUM_THRESHOLD:
         reasons.append(f"base sum {total} <= {DONATION_SUM_THRESHOLD}")
     if top_stat <= DONATION_MAX_TOP_STAT:
@@ -51,9 +70,7 @@ def _donation_candidate_base_reason(cat: "Cat") -> Optional[str]:
         reasons.append("high aggression")
     if not reasons:
         return None
-    if planner_trait_reason and total > DONATION_SUM_THRESHOLD and top_stat > DONATION_MAX_TOP_STAT:
-        return None
-    if not planner_trait_reason and total > DONATION_SUM_THRESHOLD and top_stat > DONATION_MAX_TOP_STAT:
+    if total > DONATION_SUM_THRESHOLD and top_stat > DONATION_MAX_TOP_STAT:
         return None
     return ", ".join(reasons)
 

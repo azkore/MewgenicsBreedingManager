@@ -33,9 +33,19 @@ _THRESHOLD_DEFAULTS = {
 _THRESHOLD_PREFERENCES = dict(_THRESHOLD_DEFAULTS)
 
 
+def _normalize_exceptional_and_donation(data: dict) -> dict:
+    exceptional = int(data.get("exceptional_sum_threshold", _THRESHOLD_DEFAULTS["exceptional_sum_threshold"]))
+    donation = int(data.get("donation_sum_threshold", _THRESHOLD_DEFAULTS["donation_sum_threshold"]))
+    if exceptional < donation:
+        exceptional = donation
+    data["exceptional_sum_threshold"] = exceptional
+    data["donation_sum_threshold"] = donation
+    return data
+
+
 def _normalize_threshold_preferences(data: dict | None) -> dict:
     data = data if isinstance(data, dict) else {}
-    return {
+    normalized = {
         "exceptional_sum_threshold": _coerce_int(
             data.get("exceptional_sum_threshold"),
             _THRESHOLD_DEFAULTS["exceptional_sum_threshold"],
@@ -70,6 +80,7 @@ def _normalize_threshold_preferences(data: dict | None) -> dict:
             min_value=0.0,
         ),
     }
+    return _normalize_exceptional_and_donation(normalized)
 
 
 def _load_threshold_preferences() -> dict:

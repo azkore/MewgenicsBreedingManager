@@ -304,7 +304,7 @@ class ThresholdPreferencesDialog(QDialog):
         self._planner_trait_check.setChecked(bool(self._prefs["donation_missing_planner_traits"]))
         self._planner_trait_check.setToolTip(_tr(
             "thresholds.planner_trait_toggle.tooltip",
-            default="When enabled, cats that do not carry any selected mutation or ability traits will count as donation candidates unless they are above the stat line.",
+            default="When enabled, cats that do not carry any selected mutation or ability traits will count as donation candidates.",
         ))
         self._planner_trait_check.toggled.connect(self._update_preview)
 
@@ -371,6 +371,14 @@ class ThresholdPreferencesDialog(QDialog):
         self._reference_spin.setEnabled(enabled)
         self._curve_spin.setEnabled(enabled)
 
+    def _sync_exceptional_floor(self):
+        if self._exceptional_spin.value() < self._donation_spin.value():
+            self._exceptional_spin.blockSignals(True)
+            try:
+                self._exceptional_spin.setValue(self._donation_spin.value())
+            finally:
+                self._exceptional_spin.blockSignals(False)
+
     def _collect_preferences(self) -> dict:
         return {
             "exceptional_sum_threshold": int(self._exceptional_spin.value()),
@@ -383,7 +391,8 @@ class ThresholdPreferencesDialog(QDialog):
         }
 
     def _update_preview(self, *_args):
-        prefs = self._collect_preferences()
+        self._sync_exceptional_floor()
+        prefs = _normalize_threshold_preferences(self._collect_preferences())
         exceptional, donation, top_stat, avg_sum = _effective_thresholds_for_cats(prefs, self._cats)
         if self._cats:
             self._current_avg_label.setText(
@@ -424,7 +433,7 @@ class ThresholdPreferencesDialog(QDialog):
         if prefs.get("donation_missing_planner_traits"):
             preview_text += _tr(
                 "thresholds.preview.planner_trait_note",
-                default=" Cats missing the selected mutation/ability traits will count as donation candidates unless they are above the stat line.",
+                default=" Cats missing the selected mutation/ability traits will count as donation candidates if they are still under the stat floor.",
             )
         self._preview_label.setText(preview_text)
 

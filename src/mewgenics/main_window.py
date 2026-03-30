@@ -804,12 +804,12 @@ class MainWindow(QMainWindow):
         if summary.get("donation_missing_planner_traits"):
             if mutation_ability_traits:
                 planner_note = (
-                    " Cats missing selected mutation/ability traits will count as donation candidates unless they are above the stat line"
+                    " Donation candidates are cats missing selected mutation/ability traits and still under the stat floor"
                     f" ({_planner_import_traits_summary(mutation_ability_traits)})."
                 )
             else:
                 planner_note = (
-                    " Cats missing selected mutation/ability traits will count as donation candidates unless they are above the stat line."
+                    " Donation candidates are cats missing selected mutation/ability traits and still under the stat floor."
                 )
         if adaptive:
             self._btn_exceptional.setToolTip(
@@ -1845,8 +1845,10 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_furniture_view") and self._furniture_view is not None:
             self._furniture_view.hide()
         if self._perfect_planner_view is not None:
-            self._perfect_planner_view.set_cats(self._cats)
             self._perfect_planner_view.show()
+            self._perfect_planner_view.set_loading_state(True)
+            cats = list(self._cats)
+            QTimer.singleShot(0, lambda cats=cats: self._perfect_planner_view.set_cats(cats))
         if hasattr(self, "_btn_tree_view"):
             self._btn_tree_view.setChecked(False)
         if hasattr(self, "_btn_safe_breeding_view"):
