@@ -15,6 +15,7 @@ env/
 # Save files (never commit personal data)
 *.sav
 *.savbak
+*.breeding_cache.json
 
 # IDE
 .vscode/
