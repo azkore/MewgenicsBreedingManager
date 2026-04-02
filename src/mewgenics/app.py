@@ -53,7 +53,7 @@ def main():
             None,
             "Locate Mewgenics",
             "Ability and mutation descriptions need the game's resources.gpak.\n"
-            "Select your Mewgenics install folder to enable them.",
+            "If the app needs you to browse for it, the chooser will start from your configured save root first.",
         )
         _ensure_gpak_path_interactive()
 

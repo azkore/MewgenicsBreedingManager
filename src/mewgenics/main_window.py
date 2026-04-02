@@ -50,6 +50,7 @@ from mewgenics.utils.config import (
     _saved_accessibility_preset, _set_accessibility_preset,
     _saved_total_stats_display, _set_total_stats_display,
     _saved_stat_icon_mode, _set_stat_icon_mode,
+    _gpak_search_start_dir,
     _candidate_gpak_paths,
 )
 from mewgenics.utils.localization import (
@@ -560,15 +561,7 @@ class MainWindow(QMainWindow):
             save_path_label.setText(_save_root_dir())
 
         def _choose_game_dir():
-            start_dir = os.path.dirname(_GPAK_PATH) if _GPAK_PATH else (
-                r"C:\Program Files (x86)\Steam\steamapps\common\Mewgenics"
-                if os.path.isdir(r"C:\Program Files (x86)\Steam\steamapps\common\Mewgenics")
-                else (
-                    r"C:\Program Files\Steam\steamapps\common\Mewgenics"
-                    if os.path.isdir(r"C:\Program Files\Steam\steamapps\common\Mewgenics")
-                    else str(Path.home())
-                )
-            )
+            start_dir = os.path.dirname(_GPAK_PATH) if _GPAK_PATH else _gpak_search_start_dir()
             chosen_dir = QFileDialog.getExistingDirectory(
                 dlg,
                 _tr("dialog.locations.select_game_folder"),
@@ -3364,14 +3357,7 @@ def _ensure_gpak_path_interactive(parent: Optional[QWidget] = None):
     if _GPAK_PATH:
         return
 
-    if os.path.isdir(r"C:\Program Files (x86)\Steam\steamapps\common\Mewgenics"):
-        start_dir = r"C:\Program Files (x86)\Steam\steamapps\common\Mewgenics"
-    elif os.path.isdir(r"C:\Program Files\Steam\steamapps\common\Mewgenics"):
-        start_dir = r"C:\Program Files\Steam\steamapps\common\Mewgenics"
-    elif os.path.isdir(r"D:\Games\Mewgenics"):
-        start_dir = r"D:\Games\Mewgenics"
-    else:
-        start_dir = str(Path.home())
+    start_dir = _gpak_search_start_dir()
     chosen_dir = QFileDialog.getExistingDirectory(
         parent,
         "Select Mewgenics Install Folder",

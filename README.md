@@ -37,7 +37,7 @@ pip install -r requirements.txt
 python src/mewgenics_manager.py
 ```
 
-The app will automatically look for `resources.gpak` in common Steam install paths or in the current working directory.
+The app will automatically look for `resources.gpak` in common Steam install paths, the app's configured save root, or in the current working directory.
 
 ## Build
 

@@ -82,6 +82,38 @@ def _saved_gpak_path() -> str:
     return value.strip() if isinstance(value, str) else ""
 
 
+def _gpak_search_start_dir() -> str:
+    """Return the best starting directory for locating resources.gpak."""
+    saved_path = _saved_gpak_path()
+    if saved_path:
+        saved_dir = os.path.dirname(saved_path)
+        if saved_dir and os.path.isdir(saved_dir):
+            return saved_dir
+
+    save_root = _save_root_dir()
+    if save_root and os.path.isdir(save_root):
+        return save_root
+
+    candidates = [
+        os.path.join(
+            os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
+            "Steam", "steamapps", "common", "Mewgenics",
+        ),
+        os.path.join(
+            os.environ.get("ProgramFiles", r"C:\Program Files"),
+            "Steam", "steamapps", "common", "Mewgenics",
+        ),
+        r"D:\Games\Mewgenics",
+        os.getcwd(),
+        _app_dir(),
+        _bundle_dir(),
+    ]
+    for path in candidates:
+        if path and os.path.isdir(path):
+            return path
+    return str(Path.home())
+
+
 def _saved_save_dir() -> str:
     data = _load_app_config()
     value = data.get("save_dir", "")
@@ -308,6 +340,10 @@ def _candidate_gpak_paths() -> list[str]:
 
     for library in _steam_library_paths():
         candidates.append(os.path.join(library, "steamapps", "common", "Mewgenics", "resources.gpak"))
+
+    save_root_gpak = os.path.join(_save_root_dir(), "resources.gpak")
+    if save_root_gpak:
+        candidates.append(save_root_gpak)
 
     saved_path = _saved_gpak_path()
     if saved_path:
