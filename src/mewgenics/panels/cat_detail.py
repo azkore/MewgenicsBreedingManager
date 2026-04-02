@@ -35,6 +35,7 @@ from mewgenics.utils.abilities import (
     _trait_inheritance_probabilities,
 )
 from mewgenics.utils.game_data import _GPAK_PATH
+from mewgenics.utils.tags import _game_tag_color, _game_tag_tooltip
 from mewgenics.utils.styling import (
     _chip, _defect_chip, _sec, _vsep, _hsep,
     _detail_text_block, _enforce_min_font_in_widget_tree,
@@ -98,6 +99,20 @@ def _defect_chip_row(items, tooltip_fn=None) -> QWidget:
         row.addWidget(_defect_chip(text, tip))
     row.addStretch()
     return w
+
+
+def _game_tag_badge(text: str) -> QLabel:
+    tag_text = str(text or "").strip()
+    badge = QLabel(tag_text)
+    color = QColor(_game_tag_color(tag_text))
+    fg = "#111111" if color.lightness() >= 140 else "#f5f7ff"
+    badge.setStyleSheet(
+        f"color:{fg}; background:{color.name()}; border:1px solid {color.darker(140).name()};"
+        " border-radius:2px; padding:1px 6px; font-size:10px; font-weight:bold;"
+    )
+    badge.setToolTip(_game_tag_tooltip(tag_text) or _tr("cat_detail.game_tag", default="Game tag from save file"))
+    badge.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+    return badge
 
 
 class CatDetailPanel(QWidget):
@@ -169,6 +184,8 @@ class CatDetailPanel(QWidget):
         gl = QLabel(cat.gender_display)
         gl.setStyleSheet("color:#7ac; font-size:12px; font-weight:bold;")
         name_row.addWidget(nl); name_row.addWidget(gl); name_row.addStretch()
+        if getattr(cat, "name_tag", ""):
+            name_row.addWidget(_game_tag_badge(str(cat.name_tag).strip()))
         id_col.addLayout(name_row)
 
         id_col.addWidget(QLabel(cat.room_display or "—", styleSheet=_META_STYLE))
@@ -453,6 +470,8 @@ class CatDetailPanel(QWidget):
             gl = QLabel(cat.gender_display)
             gl.setStyleSheet("color:#7ac; font-size:12px; font-weight:bold;")
             hdr.addWidget(gl)
+            if getattr(cat, "name_tag", ""):
+                hdr.addWidget(_game_tag_badge(str(cat.name_tag).strip()))
             rl = QLabel(f"  {cat.room_display}" if cat.room_display else "")
             rl.setStyleSheet(_META_STYLE)
             hdr.addWidget(rl)

@@ -7,6 +7,7 @@ from typing import Optional
 from PySide6.QtWidgets import QWidget, QSplitter
 from PySide6.QtCore import QByteArray
 
+from mewgenics.constants import _ZOOM_MIN, _ZOOM_MAX
 from mewgenics.utils.paths import (
     APP_CONFIG_PATH, APPDATA_CONFIG_DIR, APPDATA_SAVE_DIR,
     _app_dir, _bundle_dir, _steam_library_paths,
@@ -119,6 +120,153 @@ def _set_save_dir(path: str):
     data = _load_app_config()
     data["save_dir"] = cleaned
     _save_app_config(data)
+
+
+def _saved_zoom_percent(default: int = 100) -> int:
+    data = _load_app_config()
+    return _coerce_int(data.get("zoom_percent"), default, min_value=_ZOOM_MIN, max_value=_ZOOM_MAX)
+
+
+def _set_zoom_percent(percent: int):
+    data = _load_app_config()
+    data["zoom_percent"] = _coerce_int(percent, 100, min_value=_ZOOM_MIN, max_value=_ZOOM_MAX)
+    _save_app_config(data)
+
+
+def _saved_font_size_offset(default: int = 0) -> int:
+    data = _load_app_config()
+    return _coerce_int(data.get("font_size_offset"), default, min_value=-6, max_value=12)
+
+
+def _set_font_size_offset_config(offset: int):
+    data = _load_app_config()
+    data["font_size_offset"] = _coerce_int(offset, 0, min_value=-6, max_value=12)
+    _save_app_config(data)
+
+
+def _saved_last_seen_version() -> str:
+    data = _load_app_config()
+    value = data.get("last_seen_version", "")
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _set_last_seen_version(version: str):
+    data = _load_app_config()
+    cleaned = version.strip() if isinstance(version, str) else ""
+    if cleaned:
+        data["last_seen_version"] = cleaned
+    else:
+        data.pop("last_seen_version", None)
+    _save_app_config(data)
+
+
+def _saved_accessibility_preset(default: str = "Default") -> str:
+    data = _load_app_config()
+    value = data.get("accessibility_preset", default)
+    return value.strip() if isinstance(value, str) and value.strip() else default
+
+
+def _set_accessibility_preset(name: str):
+    data = _load_app_config()
+    cleaned = name.strip() if isinstance(name, str) else ""
+    if cleaned:
+        data["accessibility_preset"] = cleaned
+    else:
+        data.pop("accessibility_preset", None)
+    _save_app_config(data)
+
+
+def _saved_total_stats_display(default: bool = False) -> bool:
+    data = _load_app_config()
+    return _coerce_bool(data.get("show_total_stats"), default)
+
+
+def _set_total_stats_display(enabled: bool):
+    data = _load_app_config()
+    data["show_total_stats"] = bool(enabled)
+    _save_app_config(data)
+
+
+def _saved_stat_icon_mode(default: bool = False) -> bool:
+    data = _load_app_config()
+    return _coerce_bool(data.get("show_stat_icons"), default)
+
+
+def _set_stat_icon_mode(enabled: bool):
+    data = _load_app_config()
+    data["show_stat_icons"] = bool(enabled)
+    _save_app_config(data)
+
+
+# ── Tag color palette persistence ──────────────────────────────────────────
+
+def _normalize_tag_color_hex(value, default: str = "") -> str:
+    text = str(value or "").strip()
+    if not text:
+        return default
+    if text.lower().startswith("0x"):
+        text = text[2:]
+    if text.startswith("#"):
+        text = text[1:]
+    if len(text) == 3:
+        text = "".join(ch * 2 for ch in text)
+    if len(text) != 6:
+        return default
+    try:
+        int(text, 16)
+    except ValueError:
+        return default
+    return f"#{text.lower()}"
+
+
+def _normalize_tag_color_history(colors, limit: int = 12) -> list[str]:
+    max_items = _coerce_int(limit, 12, min_value=1, max_value=64)
+
+    if not isinstance(colors, list):
+        return []
+
+    history: list[str] = []
+    seen: set[str] = set()
+    for value in colors:
+        color = _normalize_tag_color_hex(value)
+        if not color or color in seen:
+            continue
+        seen.add(color)
+        history.append(color)
+        if len(history) >= max_items:
+            break
+    return history
+
+
+def _saved_tag_color_history(default: Optional[list[str]] = None, limit: int = 12) -> list[str]:
+    data = _load_app_config()
+    history = _normalize_tag_color_history(data.get("tag_color_history", []), limit=limit)
+    if history:
+        return history
+    if default:
+        return _normalize_tag_color_history(list(default), limit=limit)
+    return []
+
+
+def _set_tag_color_history(colors: list[str], limit: int = 12):
+    data = _load_app_config()
+    history = _normalize_tag_color_history(colors, limit=limit)
+    if history:
+        data["tag_color_history"] = history
+    else:
+        data.pop("tag_color_history", None)
+    _save_app_config(data)
+
+
+def _remember_tag_color_history(color: str, limit: int = 12) -> list[str]:
+    history = _saved_tag_color_history(limit=limit)
+    normalized = _normalize_tag_color_hex(color)
+    if not normalized:
+        return history
+    history = [normalized] + [c for c in history if c != normalized]
+    history = history[:_coerce_int(limit, 12, min_value=1, max_value=64)]
+    _set_tag_color_history(history, limit=limit)
+    return history
 
 
 def _save_current_view(name: str):

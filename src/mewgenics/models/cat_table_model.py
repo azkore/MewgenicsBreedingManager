@@ -9,7 +9,7 @@ from PySide6.QtCore import (
     Qt, QAbstractTableModel, QModelIndex, Signal,
 )
 from PySide6.QtGui import (
-    QColor, QBrush, QPalette, QPainter, QIcon,
+    QColor, QBrush, QPalette, QPainter, QIcon, QPixmap, QFont,
 )
 
 from save_parser import (
@@ -20,12 +20,15 @@ from save_parser import (
 )
 from mewgenics.constants import (
     STAT_COLORS, STATUS_COLOR,
-    COL_NAME, COL_AGE, COL_GEN, COL_ROOM, COL_STAT, COL_BL, COL_MB, COL_PIN,
+    COL_NAME, COL_AGE, COL_GEN, COL_ROOM, COL_STAT, COL_ADV, COL_BL, COL_MB, COL_PIN,
     STAT_COLS, COL_SUM, COL_AGG, COL_LIB, COL_INBRD, COL_SEXUALITY,
     COL_RELNS, COL_REL, COL_ABIL, COL_MUTS, COL_GEN_DEPTH, COL_SRC,
 )
 from mewgenics.utils.localization import ROOM_DISPLAY, STATUS_ABBREV, COLUMNS, _tr
-from mewgenics.utils.tags import _TAG_DEFS, _tag_color, _tag_name, _cat_tags
+from mewgenics.utils.tags import (
+    _TAG_DEFS, _tag_color, _tag_name, _cat_tags,
+    _game_tag_color, _game_tag_token,
+)
 from mewgenics.utils.thresholds import EXCEPTIONAL_SUM_THRESHOLD
 from mewgenics.utils.cat_analysis import (
     _cat_base_sum, _is_exceptional_breeder,
@@ -35,6 +38,43 @@ from mewgenics.utils.calibration import _trait_label_from_value, _trait_level_co
 from mewgenics.utils.abilities import (
     _mutation_display_name, _abilities_tooltip, _mutations_tooltip,
 )
+
+
+_STAT_ICON_CACHE: dict[tuple[str, int], QIcon] = {}
+_STAT_ICON_COLORS = {
+    "STR": QColor(212, 82, 82),
+    "DEX": QColor(92, 170, 220),
+    "CON": QColor(102, 190, 104),
+    "INT": QColor(155, 124, 220),
+    "SPD": QColor(214, 164, 72),
+    "CHA": QColor(214, 110, 176),
+    "LCK": QColor(90, 205, 176),
+}
+
+
+def _make_stat_header_icon(stat_name: str, size: int = 16) -> QIcon:
+    key = (stat_name, int(size))
+    cached = _STAT_ICON_CACHE.get(key)
+    if cached is not None:
+        return cached
+    pix = QPixmap(size, size)
+    pix.fill(Qt.transparent)
+    painter = QPainter(pix)
+    painter.setRenderHint(QPainter.Antialiasing)
+    color = _STAT_ICON_COLORS.get(stat_name, QColor(100, 100, 115))
+    painter.setBrush(QBrush(color))
+    painter.setPen(QColor(color.darker(150)))
+    painter.drawRoundedRect(1, 1, size - 2, size - 2, 3, 3)
+    font = QFont()
+    font.setBold(True)
+    font.setPointSize(max(6, size // 3))
+    painter.setFont(font)
+    painter.setPen(QColor(255, 255, 255))
+    painter.drawText(pix.rect(), Qt.AlignCenter, stat_name[:1])
+    painter.end()
+    icon = QIcon(pix)
+    _STAT_ICON_CACHE[key] = icon
+    return icon
 
 
 # ── Compatibility check ───────────────────────────────────────────────────────
@@ -120,8 +160,9 @@ class NameTagDelegate(QStyledItemDelegate):
         cat = self._get_cat(index)
         tags = set(_cat_tags(cat)) if cat else set()
         valid = [td["id"] for td in _TAG_DEFS if td["id"] in tags]
+        game_tag = str(getattr(cat, "name_tag", "") or "").strip()
 
-        if not valid:
+        if not valid and not game_tag:
             # No tags — just draw normally
             super().paint(painter, option, index)
             return
@@ -148,6 +189,19 @@ class NameTagDelegate(QStyledItemDelegate):
             painter.setBrush(QBrush(c))
             painter.setPen(Qt.NoPen)
             painter.drawEllipse(dot_x, dot_y, self._DOT, self._DOT)
+            dot_x += self._DOT + self._GAP
+
+        if game_tag:
+            c = QColor(_game_tag_color(game_tag))
+            painter.setBrush(QBrush(c))
+            painter.setPen(QColor(c.darker(150)))
+            painter.drawRect(dot_x, dot_y, self._DOT, self._DOT)
+            font = QFont(opt.font)
+            font.setBold(True)
+            font.setPointSize(max(6, font.pointSize() - 3 if font.pointSize() > 0 else 6))
+            painter.setFont(font)
+            painter.setPen(QColor(255, 255, 255))
+            painter.drawText(dot_x, dot_y, self._DOT, self._DOT, Qt.AlignCenter, _game_tag_token(game_tag))
             dot_x += self._DOT + self._GAP
 
         # Draw the name text after the dots
@@ -178,6 +232,9 @@ class CatTableModel(QAbstractTableModel):
         self._parent_ids_cache: dict[int, frozenset[int]] = {}
         self._hater_ids_cache: dict[int, frozenset[int]] = {}
         self._breeding_cache = None  # Optional[BreedingCache]
+        self._show_total_stats: bool = False
+        self._show_stat_icons: bool = False
+        self._accessible_cat_keys: set[int] = set()
 
     def set_breeding_cache(self, cache):
         self._breeding_cache = cache
@@ -212,9 +269,37 @@ class CatTableModel(QAbstractTableModel):
                 [Qt.BackgroundRole, Qt.ForegroundRole],
             )
 
-    def load(self, cats: list[Cat]):
+    def set_show_total_stats(self, show: bool):
+        if self._show_total_stats == bool(show):
+            return
+        self._show_total_stats = bool(show)
+        if self._cats:
+            self.dataChanged.emit(
+                self.index(0, STAT_COLS[0]),
+                self.index(len(self._cats) - 1, STAT_COLS[-1]),
+                [Qt.DisplayRole, Qt.UserRole, Qt.BackgroundRole, Qt.ForegroundRole, Qt.ToolTipRole],
+            )
+            self.dataChanged.emit(
+                self.index(0, COL_SUM),
+                self.index(len(self._cats) - 1, COL_SUM),
+                [Qt.DisplayRole, Qt.UserRole, Qt.ToolTipRole],
+            )
+
+    def show_total_stats(self) -> bool:
+        return self._show_total_stats
+
+    def set_show_stat_icons(self, show: bool):
+        if self._show_stat_icons == bool(show):
+            return
+        self._show_stat_icons = bool(show)
+        if self._cats:
+            self.headerDataChanged.emit(Qt.Horizontal, STAT_COLS[0], STAT_COLS[-1])
+
+    def load(self, cats: list[Cat], accessible_cats: Optional[set[int]] = None):
         self.beginResetModel()
         self._cats = cats
+        if accessible_cats is not None:
+            self._accessible_cat_keys = set(accessible_cats)
         self._relation_cache.clear()
         self._compat_cache.clear()
         # Cheap caches — computed inline
@@ -328,6 +413,14 @@ class CatTableModel(QAbstractTableModel):
     def headerData(self, section, orientation, role=Qt.DisplayRole):
         if orientation == Qt.Horizontal and role == Qt.DisplayRole:
             return COLUMNS[section]
+        if orientation == Qt.Horizontal and role == Qt.ToolTipRole and section == COL_ADV:
+            return _tr(
+                "table.tooltip.adventure_ready",
+                default="Cats that can go on the next adventure. Sort this column to bring them to the top.",
+            )
+        if orientation == Qt.Horizontal and role == Qt.DecorationRole and self._show_stat_icons and section in STAT_COLS:
+            stat_name = STAT_NAMES[section - STAT_COLS[0]]
+            return _make_stat_header_icon(stat_name)
         return None
 
     def data(self, index, role=Qt.DisplayRole):
@@ -335,9 +428,11 @@ class CatTableModel(QAbstractTableModel):
             return None
         cat = self._cats[index.row()]
         col = index.column()
+        display_stats = cat.total_stats if self._show_total_stats else cat.base_stats
         is_exceptional = _is_exceptional_breeder(cat)
         donation_reason = _donation_candidate_reason(cat)
         is_donation = donation_reason is not None
+        can_adventure = cat.db_key in self._accessible_cat_keys
 
         def _badge_background() -> Optional[QColor]:
             if is_exceptional:
@@ -357,13 +452,15 @@ class CatTableModel(QAbstractTableModel):
             if col == COL_GEN:  return cat.gender_display
             if col == COL_ROOM: return cat.room_display
             if col == COL_STAT: return STATUS_ABBREV.get(cat.status, cat.status)
+            if col == COL_ADV:  return "✓" if can_adventure else "—"
             if col == COL_BL:   return "X" if cat.is_blacklisted else ""
             if col == COL_MB:   return "★" if cat.must_breed else ""
             if col == COL_PIN:  return "\u25C6" if cat.is_pinned else ""
             if col in STAT_COLS:
-                return str(cat.base_stats[STAT_NAMES[col - STAT_COLS[0]]])
+                stat_name = STAT_NAMES[col - STAT_COLS[0]]
+                return str(display_stats[stat_name])
             if col == COL_SUM:
-                return str(sum(cat.base_stats.values()))
+                return str(sum(display_stats.values()))
             if col == COL_MUTS:
                 parts = [_mutation_display_name(m) for m in cat.mutations]
                 if cat.defects:
@@ -399,9 +496,11 @@ class CatTableModel(QAbstractTableModel):
             if col == COL_NAME:
                 return (cat.name or "").lower()
             if col in STAT_COLS:
-                return cat.base_stats[STAT_NAMES[col - STAT_COLS[0]]]
+                return display_stats[STAT_NAMES[col - STAT_COLS[0]]]
             if col == COL_SUM:
-                return sum(cat.base_stats.values())
+                return sum(display_stats.values())
+            if col == COL_ADV:
+                return 0 if can_adventure else 1
             if col == COL_REL:
                 return self._relation_for(cat) if self._focus_cat is not None else -1.0
             if col == COL_AGE:
@@ -426,7 +525,8 @@ class CatTableModel(QAbstractTableModel):
             if compat == 'risky' and not self._show_lineage:
                 compat = 'ok'
             if col in STAT_COLS:
-                base_c = STAT_COLORS.get(cat.base_stats[STAT_NAMES[col - STAT_COLS[0]]], QColor(100, 100, 115))
+                stat_name = STAT_NAMES[col - STAT_COLS[0]]
+                base_c = STAT_COLORS.get(display_stats[stat_name], QColor(100, 100, 115))
                 if compat == 'incompatible':
                     return QBrush(QColor(base_c.red() // 4, base_c.green() // 4, base_c.blue() // 4))
                 if compat == 'risky':
@@ -439,6 +539,10 @@ class CatTableModel(QAbstractTableModel):
                 if compat == 'risky':
                     return QBrush(QColor(sc.red() // 2, sc.green() // 2, sc.blue() // 2))
                 return QBrush(sc)
+            if col == COL_ADV:
+                if can_adventure:
+                    return QBrush(QColor(36, 96, 64))
+                return QBrush(QColor(48, 48, 58))
             if col in (COL_AGG, COL_LIB, COL_INBRD):
                 if col == COL_AGG:
                     base = _trait_level_color(_trait_label_from_value("aggression", cat.aggression))
@@ -473,6 +577,8 @@ class CatTableModel(QAbstractTableModel):
                 return QBrush(QColor(65, 55, 60))
             if compat == 'risky':
                 return QBrush(QColor(130, 110, 60))
+            if col == COL_ADV:
+                return QBrush(QColor(230, 255, 240)) if can_adventure else QBrush(QColor(150, 160, 170))
             if col in STAT_COLS or col == COL_STAT or col in (COL_AGG, COL_LIB, COL_INBRD, COL_NAME, COL_SUM):
                 return QBrush(QColor(255, 255, 255))
 
@@ -482,6 +588,8 @@ class CatTableModel(QAbstractTableModel):
                 tag_names = [_tag_name(t) for t in _cat_tags(cat) if any(td["id"] == t for td in _TAG_DEFS)]
                 if tag_names:
                     notes.append("Tags: " + ", ".join(tag_names))
+                if getattr(cat, "name_tag", ""):
+                    notes.append(f"Game tag: {str(cat.name_tag).strip()}")
                 if is_exceptional:
                     notes.append(
                         f"Exceptional breeder: base stat sum {_cat_base_sum(cat)} >= {EXCEPTIONAL_SUM_THRESHOLD}"
@@ -495,10 +603,20 @@ class CatTableModel(QAbstractTableModel):
                 n = STAT_NAMES[col - STAT_COLS[0]]
                 b = cat.base_stats[n]
                 t = cat.total_stats[n]
-                extra = f"  (+{t - b})" if t != b else ""
-                return f"{n}  base: {b}{extra}  |  total: {t}"
+                shown = display_stats[n]
+                mode = "total" if self._show_total_stats else "base"
+                extra = f"  (base: {b}, total: {t})" if t != b else f"  (base: {b})"
+                return f"{n}  {mode}: {shown}{extra}"
             if col == COL_ROOM:
                 return cat.room
+            if col == COL_ADV:
+                if can_adventure:
+                    if cat.status == "Adventure":
+                        return "Adventure-ready, currently away on adventure."
+                    return "Eligible for the next adventure."
+                if cat.status == "Adventure":
+                    return "Currently on adventure."
+                return "Not eligible for the next adventure."
             if col == COL_BL:
                 return _tr("table.tooltip.excluded") if cat.is_blacklisted else _tr("table.tooltip.included")
             if col == COL_MB:
@@ -530,6 +648,8 @@ class CatTableModel(QAbstractTableModel):
                 return f"Inbredness: {cat.inbredness:.3f} ({_trait_label_from_value('inbredness', cat.inbredness)})"
             if col == COL_SUM:
                 notes: list[str] = [f"Base stat sum: {_cat_base_sum(cat)}"]
+                if self._show_total_stats:
+                    notes.append(f"Total stat sum: {sum(cat.total_stats.values())}")
                 if is_exceptional:
                     notes.append(f"Exceptional threshold: >= {EXCEPTIONAL_SUM_THRESHOLD}")
                 if donation_reason:
@@ -545,7 +665,7 @@ class CatTableModel(QAbstractTableModel):
                 return Qt.Checked if cat.is_pinned else Qt.Unchecked
 
         elif role == Qt.TextAlignmentRole:
-            if col in STAT_COLS or col in (COL_GEN, COL_STAT, COL_AGE, COL_BL, COL_MB, COL_PIN, COL_SUM, COL_REL, COL_GEN_DEPTH, COL_AGG, COL_LIB, COL_INBRD, COL_SEXUALITY):
+            if col in STAT_COLS or col in (COL_GEN, COL_STAT, COL_ADV, COL_AGE, COL_BL, COL_MB, COL_PIN, COL_SUM, COL_REL, COL_GEN_DEPTH, COL_AGG, COL_LIB, COL_INBRD, COL_SEXUALITY):
                 return Qt.AlignCenter
 
         return None

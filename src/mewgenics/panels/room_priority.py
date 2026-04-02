@@ -303,13 +303,19 @@ class RoomPriorityPanel(QWidget):
             "QSpinBox { background:#0d0d1c; color:#ccc; border:1px solid #2a2a4a;"
             " border-radius:3px; padding:2px 4px; font-size:11px; }"
         )
-        stim_spin.setToolTip("Base stimulation from the room's furniture.")
+        stim_spin.setToolTip("User override for the room's base stimulation. The calculated value is shown beside it.")
         stim_value = base_stim if base_stim is not None else self._default_room_stim(room)
         try:
             stim_spin.setValue(max(0, min(200, int(round(float(stim_value))))))
         except (TypeError, ValueError):
             stim_spin.setValue(max(0, min(200, int(round(self._default_room_stim(room))))))
         row.addWidget(stim_spin)
+
+        calc_lbl = QLabel("(calc: —)")
+        calc_lbl.setStyleSheet("color:#999; font-size:10px; font-style:italic;")
+        calc_lbl.setToolTip("Calculated from the room's current furniture.")
+        calc_lbl.setFixedWidth(82)
+        row.addWidget(calc_lbl)
 
         up_btn = QPushButton("↑")
         up_btn.setFixedWidth(22)
@@ -340,6 +346,7 @@ class RoomPriorityPanel(QWidget):
             "pairs_lbl": pairs_lbl,
             "cap_spin": cap_spin,
             "stim_spin": stim_spin,
+            "calc_lbl": calc_lbl,
             "up_btn": up_btn,
             "dn_btn": dn_btn,
             "rm_btn": rm_btn,
@@ -397,6 +404,7 @@ class RoomPriorityPanel(QWidget):
         a_fb, b_fb = a["type_btn"].isChecked(), b["type_btn"].isChecked()
         a_cap, b_cap = a["cap_spin"].value(), b["cap_spin"].value()
         a_stim, b_stim = a["stim_spin"].value(), b["stim_spin"].value()
+        a_calc, b_calc = a["calc_lbl"].text(), b["calc_lbl"].text()
         for s in (a, b):
             s["combo"].blockSignals(True)
             s["type_btn"].blockSignals(True)
@@ -410,6 +418,8 @@ class RoomPriorityPanel(QWidget):
         b["cap_spin"].setValue(a_cap)
         a["stim_spin"].setValue(b_stim)
         b["stim_spin"].setValue(a_stim)
+        a["calc_lbl"].setText(b_calc)
+        b["calc_lbl"].setText(a_calc)
         for s in (a, b):
             s["combo"].blockSignals(False)
             s["type_btn"].blockSignals(False)
@@ -512,14 +522,14 @@ class RoomPriorityPanel(QWidget):
             room = slot["combo"].currentData()
             summary = room_map.get(room)
             if summary is None:
+                slot["calc_lbl"].setText("(calc: —)")
+                slot["calc_lbl"].setToolTip("Calculated from the room's current furniture.")
                 continue
             stim = max(0, min(200, int(round(float(summary.raw_effects.get("Stimulation", 0.0) or 0.0)))))
-            slot["stim_spin"].blockSignals(True)
-            slot["stim_spin"].setValue(stim)
-            slot["stim_spin"].setToolTip(
-                f"Base stimulation from furniture. Current room value: {stim}"
+            slot["calc_lbl"].setText(f"(calc: {stim})")
+            slot["calc_lbl"].setToolTip(
+                f"Calculated stimulation from furniture: {stim}"
             )
-            slot["stim_spin"].blockSignals(False)
 
         self.configChanged.emit()
 

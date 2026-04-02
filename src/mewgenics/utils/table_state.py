@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QByteArray, QTimer
 from PySide6.QtGui import QColor, QPalette
 
+from mewgenics.constants import COL_ADV
 from mewgenics.utils.config import _load_ui_state, _save_ui_state
 
 
@@ -85,6 +86,13 @@ def _restore_table_view_state(widget: QWidget):
             header.restoreState(QByteArray.fromBase64(header_state.encode("ascii")))
         except Exception:
             pass
+    if bool(widget.property("_keep_adv_ready_last")) and COL_ADV < header.count():
+        try:
+            adv_visual = header.visualIndex(COL_ADV)
+            if adv_visual >= 0 and adv_visual != header.count() - 1:
+                header.moveSection(adv_visual, header.count() - 1)
+        except Exception:
+            pass
     sort_column = state.get("sort_column")
     if isinstance(sort_column, int) and sort_column >= 0:
         sort_order = Qt.SortOrder(int(state.get("sort_order", int(Qt.AscendingOrder.value))))
@@ -131,6 +139,13 @@ def _restore_table_view_states(root: Optional[QWidget], states: dict):
         if isinstance(header_state, str) and header_state:
             try:
                 header.restoreState(QByteArray.fromBase64(header_state.encode("ascii")))
+            except Exception:
+                pass
+        if bool(widget.property("_keep_adv_ready_last")) and COL_ADV < header.count():
+            try:
+                adv_visual = header.visualIndex(COL_ADV)
+                if adv_visual >= 0 and adv_visual != header.count() - 1:
+                    header.moveSection(adv_visual, header.count() - 1)
             except Exception:
                 pass
         sort_column = state.get("sort_column")

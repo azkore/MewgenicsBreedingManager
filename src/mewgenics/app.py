@@ -18,8 +18,10 @@ logger = logging.getLogger("mewgenics")
 
 def main():
     # Configure logging
+    log_level_name = os.environ.get("MEWGENICS_LOG_LEVEL", "INFO").strip().upper()
+    log_level = getattr(logging, log_level_name, logging.INFO)
     logging.basicConfig(
-        level=logging.DEBUG,
+        level=log_level,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         handlers=[logging.StreamHandler()],
     )

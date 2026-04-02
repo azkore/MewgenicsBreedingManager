@@ -3,7 +3,7 @@ from typing import Optional
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QTableWidget, QTableWidgetItem,
-    QSizePolicy, QHeaderView, QAbstractItemView,
+    QSizePolicy, QHeaderView, QAbstractItemView, QMenu,
 )
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QColor, QBrush, QFont
@@ -37,6 +37,7 @@ class BreedingPartnersView(QWidget):
         )
         self._cats: list[Cat] = []
         self._pairs: list[dict[str, object]] = []
+        self._all_by_key: dict[int, Cat] = {}
         self._navigate_to_cat_callback = None
 
         root = QVBoxLayout(self)
@@ -71,6 +72,7 @@ class BreedingPartnersView(QWidget):
         self._table.setSelectionMode(QAbstractItemView.NoSelection)
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._table.setSortingEnabled(True)
+        self._table.setContextMenuPolicy(Qt.CustomContextMenu)
         hh = self._table.horizontalHeader()
         hh.setStretchLastSection(False)
         hh.setSortIndicatorShown(True)
@@ -90,6 +92,7 @@ class BreedingPartnersView(QWidget):
 
         self._search.textChanged.connect(self._refresh_table)
         self._table.itemClicked.connect(self._on_cat_cell_clicked)
+        self._table.customContextMenuRequested.connect(self._show_context_menu)
         _enforce_min_font_in_widget_tree(self)
         self._table.sortByColumn(self.COL_RELATION, Qt.AscendingOrder)
         self.retranslate_ui()
@@ -134,6 +137,7 @@ class BreedingPartnersView(QWidget):
     def set_cats(self, cats: list[Cat]):
         self._cats = cats
         self._pairs = []
+        self._all_by_key = {cat.db_key: cat for cat in cats if cat is not None}
         seen: set[tuple[str, int, int]] = set()
         all_cats = [cat for cat in cats if cat is not None]
         cat_keys = {cat.db_key for cat in all_cats}
@@ -222,12 +226,14 @@ class BreedingPartnersView(QWidget):
             relation_font = item_relation.font()
             relation_font.setBold(True)
             item_relation.setFont(relation_font)
+            item_relation.setData(Qt.UserRole, pair["cat_a"].db_key)
 
             item_a = QTableWidgetItem(self._cat_label(pair["cat_a"], hide_gone=True))
             link_font = QFont()
             link_font.setUnderline(True)
             item_a.setFont(link_font)
             item_a.setForeground(QBrush(QColor(100, 149, 237)))
+            item_a.setData(Qt.UserRole, pair["cat_a"].db_key)
             if item_a.text():
                 icon_a = _make_tag_icon(_cat_tags(pair['cat_a']), dot_size=14, spacing=4)
                 if not icon_a.isNull():
@@ -235,6 +241,7 @@ class BreedingPartnersView(QWidget):
             item_b = QTableWidgetItem(self._cat_label(pair["cat_b"]))
             item_b.setFont(link_font)
             item_b.setForeground(QBrush(QColor(100, 149, 237)))
+            item_b.setData(Qt.UserRole, pair["cat_b"].db_key)
             icon_b = _make_tag_icon(_cat_tags(pair['cat_b']), dot_size=14, spacing=4)
             if not icon_b.isNull():
                 item_b.setIcon(icon_b)
@@ -248,6 +255,9 @@ class BreedingPartnersView(QWidget):
             ]
             items[self.COL_STATUS].setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
             items[self.COL_STATUS].setForeground(QBrush(relation_color))
+            items[self.COL_ROOM_A].setData(Qt.UserRole, pair["cat_a"].db_key)
+            items[self.COL_ROOM_B].setData(Qt.UserRole, pair["cat_b"].db_key)
+            items[self.COL_STATUS].setData(Qt.UserRole, pair["cat_a"].db_key)
             if not same_room:
                 for item in items[:5]:
                     item.setBackground(QBrush(QColor(48, 36, 14)))
@@ -275,6 +285,46 @@ class BreedingPartnersView(QWidget):
 
         # Call the navigate callback with the cat name
         self._navigate_to_cat_callback(cat_name)
+
+    def _show_context_menu(self, pos):
+        index = self._table.indexAt(pos)
+        if not index.isValid():
+            return
+
+        item = self._table.item(index.row(), index.column())
+        if item is None:
+            return
+
+        db_key = item.data(Qt.UserRole)
+        if db_key is None and index.column() != self.COL_CAT_A:
+            fallback = self._table.item(index.row(), self.COL_CAT_A)
+            if fallback is not None:
+                db_key = fallback.data(Qt.UserRole)
+        if db_key is None:
+            return
+
+        cat = self._all_by_key.get(int(db_key))
+        if cat is None:
+            return
+
+        window = self.window()
+        menu = QMenu(self)
+        open_tree = menu.addAction(_tr("menu.context.open_tree", default="Open Family Tree"))
+        find_best = menu.addAction(_tr("menu.context.find_best_pair", default="Find Best Pair"))
+        jump_planner = menu.addAction(_tr("menu.context.jump_planner", default="Jump to Planner"))
+        menu.addSeparator()
+        toggle_pin = menu.addAction(_tr("menu.context.toggle_pin", default="Toggle Pin"))
+        toggle_mb = menu.addAction(_tr("menu.context.toggle_must_breed", default="Toggle Must Breed"))
+        toggle_block = menu.addAction(_tr("menu.context.toggle_block", default="Toggle Block"))
+
+        open_tree.triggered.connect(lambda: getattr(window, "_open_tree_for_cat", lambda _cat: None)(cat))
+        find_best.triggered.connect(lambda: getattr(window, "_open_safe_breeding_for_cat", lambda _cat, quality=None: None)(cat, quality=True))
+        jump_planner.triggered.connect(lambda: getattr(window, "_open_perfect_planner_for_cat", lambda _cat: None)(cat))
+        toggle_pin.triggered.connect(lambda: getattr(window, "_toggle_single_cat_pin", lambda _cat: None)(cat))
+        toggle_mb.triggered.connect(lambda: getattr(window, "_toggle_single_cat_must_breed", lambda _cat: None)(cat))
+        toggle_block.triggered.connect(lambda: getattr(window, "_toggle_single_cat_blacklist", lambda _cat: None)(cat))
+
+        menu.exec(self._table.viewport().mapToGlobal(pos))
 
     def retranslate_ui(self):
         self._title.setText(_tr("breeding_partners.title"))

@@ -208,4 +208,5 @@ def _refresh_localized_constants():
         _tr("table.column.mutations"),
         _tr("table.column.generation"),
         _tr("table.column.source"),
+        _tr("table.column.adventure_ready", default="Adv Ready"),
     ])

@@ -119,6 +119,59 @@ def _sidebar_btn(label: str) -> QPushButton:
     return btn
 
 
+def _high_contrast_stylesheet() -> str:
+    """Return a high-contrast stylesheet overlay for accessibility presets."""
+    return """
+        QWidget {
+            color: #f4f6ff;
+        }
+        QDialog, QMainWindow, QMenu {
+            background: #05050b;
+        }
+        QLabel {
+            color: #f4f6ff;
+        }
+        QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox, QDoubleSpinBox, QComboBox {
+            background: #05050b;
+            color: #ffffff;
+            border: 1px solid #ffd34d;
+            selection-background-color: #0057d9;
+            selection-color: #ffffff;
+        }
+        QTableView, QTableWidget {
+            background: #05050b;
+            color: #ffffff;
+            gridline-color: #707070;
+            selection-background-color: #0057d9;
+            selection-color: #ffffff;
+        }
+        QHeaderView::section {
+            background: #14142a;
+            color: #ffffff;
+            border: 1px solid #ffd34d;
+        }
+        QPushButton, QToolButton {
+            background: #14142a;
+            color: #ffffff;
+            border: 1px solid #ffd34d;
+        }
+        QPushButton:hover, QToolButton:hover {
+            background: #20203c;
+        }
+        QGroupBox {
+            border: 1px solid #ffd34d;
+            color: #ffffff;
+            margin-top: 12px;
+        }
+        QScrollBar:vertical, QScrollBar:horizontal {
+            background: #05050b;
+        }
+        QMenu::item:selected {
+            background: #0057d9;
+        }
+    """
+
+
 def _detail_text_block(lines: list[str], style: str = _DETAIL_TEXT_STYLE) -> QWidget:
     box = QWidget()
     layout = QVBoxLayout(box)

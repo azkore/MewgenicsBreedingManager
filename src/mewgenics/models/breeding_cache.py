@@ -246,7 +246,7 @@ class BreedingCacheWorker(QThread):
 
         self.progress.emit(n, total_steps)
 
-        # Emit phase1_ready so Safe Breeding / main table become usable now
+        # Emit phase1_ready so Mating Pair Search / main table become usable now
         cache.ready = True  # ancestry complete; risk_pct still empty for dirty pairs
         self.phase1_ready.emit(cache)
 

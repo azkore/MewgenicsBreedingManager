@@ -28,7 +28,7 @@ from save_parser import (
 )
 
 from mewgenics.constants import (
-    COL_NAME, COL_AGE, COL_GEN, COL_ROOM, COL_STAT, COL_BL, COL_MB, COL_PIN,
+    COL_NAME, COL_AGE, COL_GEN, COL_ROOM, COL_STAT, COL_ADV, COL_BL, COL_MB, COL_PIN,
     STAT_COLS, COL_SUM, COL_AGG, COL_LIB, COL_INBRD, COL_SEXUALITY,
     COL_RELNS, COL_REL, COL_ABIL, COL_MUTS, COL_GEN_DEPTH, COL_SRC,
     _W_STATUS, _W_STAT, _W_GEN, _W_RELNS, _W_REL, _W_TRAIT, _W_TRAIT_NARROW,
@@ -44,6 +44,12 @@ from mewgenics.utils.config import (
     _set_save_dir, find_save_files,
     _saved_room_optimizer_auto_recalc, _set_room_optimizer_auto_recalc,
     _save_splitter_state, _bind_splitter_persistence,
+    _saved_zoom_percent, _set_zoom_percent,
+    _saved_font_size_offset, _set_font_size_offset_config,
+    _saved_last_seen_version, _set_last_seen_version,
+    _saved_accessibility_preset, _set_accessibility_preset,
+    _saved_total_stats_display, _set_total_stats_display,
+    _saved_stat_icon_mode, _set_stat_icon_mode,
     _candidate_gpak_paths,
 )
 from mewgenics.utils.localization import (
@@ -82,7 +88,7 @@ from mewgenics.utils.game_data import (
 from mewgenics.utils.styling import (
     _ACCESSIBILITY_MIN_FONT_PX, _ACCESSIBILITY_MIN_FONT_PT,
     _enforce_min_font_in_widget_tree, _apply_font_offset_to_tree,
-    _hsep, _sidebar_btn,
+    _hsep, _sidebar_btn, _high_contrast_stylesheet,
 )
 from mewgenics.models.breeding_cache import (
     BreedingCache, BreedingCacheWorker,
@@ -98,6 +104,9 @@ from mewgenics.dialogs import (
     ThresholdPreferencesDialog,
     SharedOptimizerSearchSettingsDialog,
     SaveSelectorDialog,
+    AboutDialog,
+    OnboardingDialog,
+    WhatsNewDialog,
 )
 from mewgenics.panels.cat_detail import CatDetailPanel
 
@@ -237,8 +246,12 @@ class MainWindow(QMainWindow):
         self._save_load_worker: Optional[SaveLoadWorker] = None
         self._quick_refresh_worker: Optional[QuickRoomRefreshWorker] = None
         self._prev_parent_keys: dict[int, tuple] = {}
-        self._zoom_percent: int = 100
-        self._font_size_offset: int = 0   # pt offset applied on top of zoom
+        self._zoom_percent: int = _saved_zoom_percent()
+        self._font_size_offset: int = _saved_font_size_offset()   # pt offset applied on top of zoom
+        self._accessibility_preset: str = _saved_accessibility_preset()
+        self._safe_breeding_quality_mode: bool = True
+        self._startup_dialogs_shown: bool = False
+        self._default_app_stylesheet: str = QApplication.instance().styleSheet()
         self._base_font: QFont = QApplication.instance().font()
         self._base_sidebar_width = 190
         self._base_header_height = 46
@@ -247,6 +260,7 @@ class MainWindow(QMainWindow):
             COL_NAME: 160,
             COL_GEN: _W_GEN,
             COL_STAT: _W_STATUS,
+            COL_ADV: 72,
             COL_BL: 34,
             COL_MB: 34,
             COL_PIN: 34,
@@ -265,6 +279,9 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
         self._build_menu()
+        self._source_model.set_show_total_stats(_saved_total_stats_display())
+        self._source_model.set_show_stat_icons(_saved_stat_icon_mode())
+        self._apply_accessibility_style(self._accessibility_preset)
         self._apply_zoom()
 
         # Progress bar for breeding cache computation
@@ -451,6 +468,48 @@ class MainWindow(QMainWindow):
         self._reset_ui_settings_action.triggered.connect(self._reset_ui_settings_to_defaults)
         sm.addAction(self._reset_ui_settings_action)
 
+        sm.addSeparator()
+        self._roster_display_menu = sm.addMenu(_tr("menu.settings.roster_display", default="Roster Display"))
+        self._total_stats_action = QAction(_tr("menu.settings.show_total_stats", default="Show Total Stats"), self)
+        self._total_stats_action.setCheckable(True)
+        self._total_stats_action.setShortcut("Ctrl+T")
+        self._total_stats_action.setChecked(_saved_total_stats_display())
+        self._total_stats_action.triggered.connect(self._toggle_total_stats_display)
+        self._roster_display_menu.addAction(self._total_stats_action)
+
+        self._stat_icons_action = QAction(_tr("menu.settings.show_stat_icons", default="Stat Icons"), self)
+        self._stat_icons_action.setCheckable(True)
+        self._stat_icons_action.setChecked(_saved_stat_icon_mode())
+        self._stat_icons_action.triggered.connect(self._toggle_stat_icon_mode)
+        self._roster_display_menu.addAction(self._stat_icons_action)
+
+        self._accessibility_menu = sm.addMenu(_tr("menu.settings.accessibility", default="Accessibility"))
+        self._accessibility_group = QActionGroup(self)
+        self._accessibility_group.setExclusive(True)
+        self._accessibility_actions: dict[str, QAction] = {}
+        for preset in ("Default", "Comfort", "High Contrast", "Large Table"):
+            action = QAction(preset, self)
+            action.setCheckable(True)
+            action.setChecked(preset == self._accessibility_preset)
+            action.triggered.connect(lambda checked=False, name=preset: self._apply_accessibility_preset(name))
+            self._accessibility_group.addAction(action)
+            self._accessibility_menu.addAction(action)
+            self._accessibility_actions[preset] = action
+
+        hm = self.menuBar().addMenu(_tr("menu.help", default="Help"))
+        self._getting_started_action = QAction(_tr("menu.help.getting_started", default="Getting Started"), self)
+        self._getting_started_action.triggered.connect(self._show_onboarding_dialog)
+        hm.addAction(self._getting_started_action)
+
+        self._whats_new_action = QAction(_tr("menu.help.whats_new", default="What's New"), self)
+        self._whats_new_action.triggered.connect(self._show_whats_new_dialog)
+        hm.addAction(self._whats_new_action)
+
+        hm.addSeparator()
+        self._about_action = QAction(_tr("menu.help.about", default="About"), self)
+        self._about_action.triggered.connect(self._show_about_dialog)
+        hm.addAction(self._about_action)
+
     def _refresh_recent_save_actions(self):
         if not hasattr(self, "_recent_saves_menu"):
             return
@@ -595,6 +654,82 @@ class MainWindow(QMainWindow):
             _tr("status.optimizer_search_settings_saved", default="Optimizer search settings saved")
         )
 
+    def _show_about_dialog(self):
+        AboutDialog(self).exec()
+
+    def _show_whats_new_dialog(self, mark_seen: bool = True):
+        dlg = WhatsNewDialog(self, APP_VERSION)
+        dlg.exec()
+        if mark_seen:
+            _set_last_seen_version(APP_VERSION)
+
+    def _show_onboarding_dialog(self, mark_seen: bool = False):
+        OnboardingDialog(self).exec()
+        if mark_seen:
+            _set_last_seen_version(APP_VERSION)
+
+    def _maybe_show_startup_dialogs(self):
+        if self._startup_dialogs_shown:
+            return
+        self._startup_dialogs_shown = True
+        last_seen = _saved_last_seen_version()
+        if not last_seen:
+            self._show_onboarding_dialog(mark_seen=True)
+            return
+        if last_seen != APP_VERSION:
+            self._show_whats_new_dialog(mark_seen=True)
+
+    def _apply_accessibility_style(self, preset: str):
+        app = QApplication.instance()
+        if preset == "High Contrast":
+            app.setStyleSheet(_high_contrast_stylesheet())
+        else:
+            app.setStyleSheet(self._default_app_stylesheet)
+
+    def _refresh_accessibility_action_checks(self):
+        for name, action in getattr(self, "_accessibility_actions", {}).items():
+            action.blockSignals(True)
+            try:
+                action.setChecked(name == self._accessibility_preset)
+            finally:
+                action.blockSignals(False)
+
+    def _apply_accessibility_preset(self, preset_name: str, persist: bool = True):
+        presets = {
+            "Default": {"zoom": 100, "font": 0},
+            "Comfort": {"zoom": 110, "font": 2},
+            "High Contrast": {"zoom": 100, "font": 1},
+            "Large Table": {"zoom": 100, "font": 3},
+        }
+        preset_name = preset_name if preset_name in presets else "Default"
+        self._accessibility_preset = preset_name
+        self._apply_accessibility_style(preset_name)
+        preset = presets[preset_name]
+        if persist:
+            _set_accessibility_preset(preset_name)
+            self._set_zoom(preset["zoom"])
+            self._set_font_size_offset(preset["font"])
+        self._refresh_accessibility_action_checks()
+
+    def _toggle_total_stats_display(self, checked: bool):
+        enabled = bool(checked)
+        _set_total_stats_display(enabled)
+        if hasattr(self, "_source_model"):
+            self._source_model.set_show_total_stats(enabled)
+        self._update_header(self._current_room_key())
+        self.statusBar().showMessage(
+            _tr("status.total_stats_display", default="Roster total-stat display {state}", state=_tr("common.on", default="on") if enabled else _tr("common.off", default="off"))
+        )
+
+    def _toggle_stat_icon_mode(self, checked: bool):
+        enabled = bool(checked)
+        _set_stat_icon_mode(enabled)
+        if hasattr(self, "_source_model"):
+            self._source_model.set_show_stat_icons(enabled)
+        self.statusBar().showMessage(
+            _tr("status.stat_icons_display", default="Roster stat icons {state}", state=_tr("common.on", default="on") if enabled else _tr("common.off", default="off"))
+        )
+
     # ── Layout ────────────────────────────────────────────────────────────
 
     def _build_ui(self):
@@ -679,7 +814,7 @@ class MainWindow(QMainWindow):
         self._btn_mutation_planner = _sidebar_btn(_tr("sidebar.button.mutation_planner"))
         self._btn_mutation_planner.clicked.connect(self._open_mutation_planner_view)
         vb.addWidget(self._btn_mutation_planner)
-        self._btn_safe_breeding_view = _sidebar_btn(_tr("sidebar.button.safe_breeding"))
+        self._btn_safe_breeding_view = _sidebar_btn(_tr("sidebar.button.mating_pair_search", default="Mating Pair Search"))
         self._btn_safe_breeding_view.clicked.connect(self._open_safe_breeding_view)
         vb.addWidget(self._btn_safe_breeding_view)
         self._btn_breeding_partners_view = _sidebar_btn(_tr("sidebar.button.breeding_partners"))
@@ -721,9 +856,13 @@ class MainWindow(QMainWindow):
 
         vb.addStretch()
 
-        self._version_lbl = QLabel(f"v{APP_VERSION}")
+        self._version_lbl = QLabel(f'<a href="whats-new://{APP_VERSION}">v{APP_VERSION}</a>')
+        self._version_lbl.setTextFormat(Qt.RichText)
+        self._version_lbl.setTextInteractionFlags(Qt.TextBrowserInteraction)
+        self._version_lbl.setOpenExternalLinks(False)
+        self._version_lbl.linkActivated.connect(lambda _link: self._show_whats_new_dialog())
         self._version_lbl.setStyleSheet("color:#666; font-size:10px; padding:0 4px 2px 4px;")
-        self._version_lbl.setToolTip(f"Application version: {APP_VERSION}")
+        self._version_lbl.setToolTip(f"Click to view release notes for {APP_VERSION}")
         vb.addWidget(self._version_lbl)
 
         self._save_lbl = QLabel(_tr("sidebar.no_save_loaded"))
@@ -780,7 +919,7 @@ class MainWindow(QMainWindow):
         self._btn_room_optimizer.setText(_tr("sidebar.button.room_optimizer"))
         self._btn_perfect_planner.setText(_tr("sidebar.button.perfect_7_planner"))
         self._btn_mutation_planner.setText(_tr("sidebar.button.mutation_planner"))
-        self._btn_safe_breeding_view.setText(_tr("sidebar.button.safe_breeding"))
+        self._btn_safe_breeding_view.setText(_tr("sidebar.button.mating_pair_search", default="Mating Pair Search"))
         self._btn_breeding_partners_view.setText(_tr("sidebar.button.breeding_partners"))
         self._btn_tree_view.setText(_tr("sidebar.button.family_tree_view"))
         self._btn_calibration.setText(_tr("sidebar.button.calibration"))
@@ -938,6 +1077,13 @@ class MainWindow(QMainWindow):
         hb = QHBoxLayout(hdr); hb.setContentsMargins(14, 0, 14, 0)
         self._header_lbl = QLabel(_tr("header.filter.all_cats"))
         self._header_lbl.setStyleSheet("color:#eee; font-size:15px; font-weight:bold;")
+        self._mode_badge_lbl = QLabel(_tr("header.badge.total_stats", default="TOTAL STATS"))
+        self._mode_badge_lbl.setVisible(False)
+        self._mode_badge_lbl.setStyleSheet(
+            "QLabel { color:#ffe8a3; background:#5a4516; border:1px solid #9f7b2c;"
+            " border-radius:10px; padding:2px 8px; font-size:10px; font-weight:bold;"
+            " letter-spacing:0.8px; }"
+        )
         self._count_lbl = QLabel("")
         self._count_lbl.setStyleSheet("color:#555; font-size:12px; padding-left:8px;")
         self._summary_lbl = QLabel("")
@@ -1035,6 +1181,7 @@ class MainWindow(QMainWindow):
         self._tags_btn.clicked.connect(self._show_tags_menu)
 
         hb.addWidget(self._header_lbl)
+        hb.addWidget(self._mode_badge_lbl)
         hb.addWidget(self._count_lbl)
         hb.addStretch()
         hb.addWidget(self._room_actions_box)
@@ -1070,6 +1217,7 @@ class MainWindow(QMainWindow):
 
         self._table = QTableView()
         self._table.setModel(self._proxy_model)
+        self._table.setProperty("_keep_adv_ready_last", True)
         self._table.setSortingEnabled(True)
         self._table.sortByColumn(COL_NAME, Qt.AscendingOrder)
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -1097,6 +1245,7 @@ class MainWindow(QMainWindow):
         for col, width in [
             (COL_GEN, _W_GEN),
             (COL_STAT, _W_STATUS),
+            (COL_ADV, 72),
             (COL_BL, 34),
             (COL_MB, 34),
             (COL_PIN, 34),
@@ -1135,6 +1284,8 @@ class MainWindow(QMainWindow):
         # Source: Stretch — absorbs blank space, hidden by default (behind lineage toggle)
         hh.setSectionResizeMode(COL_SRC, QHeaderView.Stretch)
         self._table.setColumnHidden(COL_SRC, True)
+        self._table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._table.customContextMenuRequested.connect(self._on_table_context_menu)
 
         self._table.setStyleSheet("""
             QTableView {
@@ -1268,6 +1419,40 @@ class MainWindow(QMainWindow):
         next_state = Qt.Unchecked if current == Qt.Checked else Qt.Checked
         if self._source_model.setData(src_index, next_state, Qt.CheckStateRole):
             self._on_selection()
+
+    def _on_table_context_menu(self, pos):
+        index = self._table.indexAt(pos)
+        selection_model = self._table.selectionModel()
+        if index.isValid() and selection_model is not None and not selection_model.isSelected(index):
+            self._table.clearSelection()
+            self._table.selectRow(index.row())
+        cats = self._selected_cats()
+        if not cats and index.isValid():
+            src_index = self._proxy_model.mapToSource(index)
+            if src_index.isValid():
+                cat = self._source_model.cat_at(src_index.row())
+                cats = [cat] if cat is not None else []
+        if not cats:
+            return
+        cat = cats[0]
+
+        menu = QMenu(self)
+        find_best = menu.addAction(_tr("menu.context.find_best_pair", default="Find Best Pair"))
+        open_tree = menu.addAction(_tr("menu.context.open_tree", default="Open Family Tree"))
+        jump_planner = menu.addAction(_tr("menu.context.jump_planner", default="Jump to Planner"))
+        menu.addSeparator()
+        toggle_pin = menu.addAction(_tr("menu.context.toggle_pin", default="Toggle Pin"))
+        toggle_mb = menu.addAction(_tr("menu.context.toggle_must_breed", default="Toggle Must Breed"))
+        toggle_block = menu.addAction(_tr("menu.context.toggle_block", default="Toggle Block"))
+
+        find_best.triggered.connect(lambda: self._open_safe_breeding_for_cat(cat, quality=True))
+        open_tree.triggered.connect(lambda: self._open_tree_for_cat(cat))
+        jump_planner.triggered.connect(lambda: self._open_perfect_planner_for_cat(cat))
+        toggle_pin.triggered.connect(self._toggle_pin_filtered_cats)
+        toggle_mb.triggered.connect(self._toggle_must_breed_filtered_cats)
+        toggle_block.triggered.connect(self._toggle_blacklist_filtered_cats)
+
+        menu.exec(self._table.viewport().mapToGlobal(pos))
 
     # ── Filtering ──────────────────────────────────────────────────────────
 
@@ -1719,6 +1904,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_furniture_view") and self._furniture_view is not None:
             self._furniture_view.hide()
         if self._safe_breeding_view is not None:
+            self._safe_breeding_view.set_quality_mode(self._safe_breeding_quality_mode, refresh=False)
             self._safe_breeding_view.set_cats(self._cats)
             self._safe_breeding_view.show()
         if hasattr(self, "_btn_tree_view"):
@@ -2104,18 +2290,33 @@ class MainWindow(QMainWindow):
     def _update_header(self, room_key):
         if room_key == "__all__":
             self._header_lbl.setText(_tr("header.filter.all_cats"))
+            self._mode_badge_lbl.setVisible(False)
         elif room_key is None:
             self._header_lbl.setText(_tr("header.filter.alive"))
+            total_stats_mode = hasattr(self, "_source_model") and self._source_model is not None and self._source_model.show_total_stats()
+            self._mode_badge_lbl.setText(_tr("header.badge.total_stats", default="TOTAL STATS"))
+            self._mode_badge_lbl.setToolTip(
+                _tr(
+                    "header.badge.total_stats.tooltip",
+                    default="Roster is showing total stats instead of base stats.",
+                )
+            )
+            self._mode_badge_lbl.setVisible(total_stats_mode)
         elif room_key == "__exceptional__":
             self._header_lbl.setText(_tr("header.filter.exceptional"))
+            self._mode_badge_lbl.setVisible(False)
         elif room_key == "__donation__":
             self._header_lbl.setText(_tr("header.filter.donation"))
+            self._mode_badge_lbl.setVisible(False)
         elif room_key == "__gone__":
             self._header_lbl.setText(_tr("header.filter.gone"))
+            self._mode_badge_lbl.setVisible(False)
         elif room_key == "__adventure__":
             self._header_lbl.setText(_tr("header.filter.adventure"))
+            self._mode_badge_lbl.setVisible(False)
         else:
             self._header_lbl.setText(ROOM_DISPLAY.get(room_key, room_key))
+            self._mode_badge_lbl.setVisible(False)
 
     def _current_room_key(self):
         if self._active_btn is None:
@@ -2517,7 +2718,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(_tr("status.cache_missing"))
 
     def _on_phase1_ready(self, cache: BreedingCache):
-        """Ancestry computed — push to table and Safe Breeding so they're usable immediately."""
+        """Ancestry computed — push to table and Mating Pair Search so they're usable immediately."""
         self._breeding_cache = cache
         self._source_model.set_breeding_cache(cache)
         if self._safe_breeding_view is not None:
@@ -2610,6 +2811,7 @@ class MainWindow(QMainWindow):
             cats = result["cats"]
             errors = result["errors"]
             unlocked_house_rooms = result.get("unlocked_house_rooms", [])
+            accessible_cats = result.get("accessible_cats", set())
             furniture = result.get("furniture", [])
             furniture_by_room = result.get("furniture_by_room", {})
             applied_overrides = result["applied_overrides"]
@@ -2644,7 +2846,7 @@ class MainWindow(QMainWindow):
             if self._perfect_planner_view is not None:
                 self._perfect_planner_view.set_cache(None)
             self._refresh_threshold_runtime(cats)
-            self._source_model.load(cats)
+            self._source_model.load(cats, accessible_cats=accessible_cats)
             self._rebuild_room_buttons(cats)
             self._refresh_filter_button_counts()
             self._filter(None, self._btn_all)
@@ -2733,6 +2935,11 @@ class MainWindow(QMainWindow):
         self._flush_persistent_view_state()
         super().closeEvent(event)
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self._startup_dialogs_shown:
+            QTimer.singleShot(0, self._maybe_show_startup_dialogs)
+
     def _reset_ui_settings_to_defaults(self):
         """Reset pane sizes and planner inputs without touching save-file data."""
         confirm = QMessageBox.question(
@@ -2762,6 +2969,26 @@ class MainWindow(QMainWindow):
             self._room_optimizer_auto_recalc_action.blockSignals(False)
         if self._room_optimizer_view is not None and hasattr(self._room_optimizer_view, "set_auto_recalculate"):
             self._room_optimizer_view.set_auto_recalculate(False)
+
+        self._apply_accessibility_preset("Default")
+
+        _set_total_stats_display(False)
+        _set_stat_icon_mode(False)
+        if hasattr(self, "_source_model"):
+            self._source_model.set_show_total_stats(False)
+            self._source_model.set_show_stat_icons(False)
+        if hasattr(self, "_total_stats_action"):
+            self._total_stats_action.blockSignals(True)
+            try:
+                self._total_stats_action.setChecked(False)
+            finally:
+                self._total_stats_action.blockSignals(False)
+        if hasattr(self, "_stat_icons_action"):
+            self._stat_icons_action.blockSignals(True)
+            try:
+                self._stat_icons_action.setChecked(False)
+            finally:
+                self._stat_icons_action.blockSignals(False)
 
         if hasattr(self, "_detail_splitter") and self._detail_splitter is not None:
             total = max(20, self._detail_splitter.height())
@@ -2962,7 +3189,15 @@ class MainWindow(QMainWindow):
         if cats and self._tree_view is not None:
             self._tree_view.select_cat(cats[0])
 
-    def _open_safe_breeding_view(self):
+    def _open_tree_for_cat(self, cat: Cat):
+        if cat is None:
+            return
+        self._navigate_to_cat(cat.db_key)
+        self._open_tree_browser()
+
+    def _open_safe_breeding_view(self, quality: Optional[bool] = None):
+        if quality is not None:
+            self._safe_breeding_quality_mode = bool(quality)
         _save_current_view("safe_breeding")
         self._show_safe_breeding_view()
         rows = list({
@@ -2973,9 +3208,21 @@ class MainWindow(QMainWindow):
         if cats and self._safe_breeding_view is not None:
             self._safe_breeding_view.select_cat(cats[0])
 
+    def _open_safe_breeding_for_cat(self, cat: Cat, quality: Optional[bool] = None):
+        if cat is None:
+            return
+        self._navigate_to_cat(cat.db_key)
+        self._open_safe_breeding_view(quality=quality)
+
     def _open_breeding_partners_view(self):
         _save_current_view("breeding_partners")
         self._show_breeding_partners_view()
+
+    def _open_perfect_planner_for_cat(self, cat: Cat):
+        if cat is None:
+            return
+        self._navigate_to_cat(cat.db_key)
+        self._open_perfect_planner_view()
 
     def _open_room_optimizer(self):
         _save_current_view("room_optimizer")
@@ -3014,6 +3261,31 @@ class MainWindow(QMainWindow):
         if fn:
             fn()
 
+    def _toggle_single_cat_pin(self, cat: Cat):
+        if cat is None:
+            return
+        cat.is_pinned = not cat.is_pinned
+        self._emit_bulk_toggle_refresh()
+        self.statusBar().showMessage(_tr("bulk.status.toggled_pin", default="Toggled pin for 1 selected cat", count=1))
+
+    def _toggle_single_cat_must_breed(self, cat: Cat):
+        if cat is None:
+            return
+        cat.must_breed = not cat.must_breed
+        if cat.must_breed:
+            cat.is_blacklisted = False
+        self._emit_bulk_toggle_refresh()
+        self.statusBar().showMessage(_tr("bulk.status.toggled_must_breed", default="Toggled must breed for 1 selected cat", count=1))
+
+    def _toggle_single_cat_blacklist(self, cat: Cat):
+        if cat is None:
+            return
+        cat.is_blacklisted = not cat.is_blacklisted
+        if cat.is_blacklisted:
+            cat.must_breed = False
+        self._emit_bulk_toggle_refresh()
+        self.statusBar().showMessage(_tr("bulk.status.toggled_breeding_block", default="Toggled breeding block for 1 selected cat", count=1))
+
     # ── UI zoom ───────────────────────────────────────────────────────────
 
     def _scaled(self, value: int) -> int:
@@ -3028,6 +3300,7 @@ class MainWindow(QMainWindow):
         if clamped == self._zoom_percent:
             return
         self._zoom_percent = clamped
+        _set_zoom_percent(clamped)
         self._apply_zoom()
         self._update_zoom_info_action()
         self.statusBar().showMessage(_tr("status.zoom_changed", default="UI zoom set to {percent}%", percent=self._zoom_percent))
@@ -3046,6 +3319,7 @@ class MainWindow(QMainWindow):
         if clamped == self._font_size_offset:
             return
         self._font_size_offset = clamped
+        _set_font_size_offset_config(clamped)
         self._apply_zoom()
         self._update_font_size_info_action()
         label = _font_size_offset_label(clamped)

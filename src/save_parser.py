@@ -10,6 +10,7 @@ from __future__ import annotations
 import struct
 import sqlite3
 import lz4.block
+import zlib
 import re
 import os
 import math
@@ -248,6 +249,8 @@ class GameData:
 
     visual_mutation_data: dict[str, dict[int, tuple[str, str]]] = field(default_factory=dict)
     furniture_data: dict[str, "FurnitureDefinition"] = field(default_factory=dict)
+    game_tag_data: list[dict[str, str]] = field(default_factory=list)
+    swf_symbol_data: dict[str, list[str]] = field(default_factory=dict)
 
     @classmethod
     def from_gpak(cls, gpak_path: str | None) -> "GameData":
@@ -280,10 +283,10 @@ class GameData:
                 )
                 result: dict[str, dict[int, tuple[str, str]]] = {}
                 furniture_data: dict[str, FurnitureDefinition] = {}
+                game_tag_data: list[dict[str, str]] = []
+                swf_symbol_data: dict[str, list[str]] = {}
                 for fname, (foff, fsz) in file_offsets.items():
-                    if not (fname.startswith("data/mutations/") and fname.endswith(".gon")):
-                        if fname != "data/furniture_effects.gon":
-                            continue
+                    lowered = fname.lower()
                     if fname.startswith("data/mutations/") and fname.endswith(".gon"):
                         category = fname.split("/")[-1].replace(".gon", "")
                         f.seek(foff)
@@ -293,7 +296,17 @@ class GameData:
                         f.seek(foff)
                         content = f.read(fsz).decode("utf-8", errors="replace")
                         furniture_data = _parse_furniture_gon(content, furniture_strings)
-                return cls(result, furniture_data)
+                    elif _looks_like_game_tag_resource(lowered):
+                        f.seek(foff)
+                        content = f.read(fsz).decode("utf-8", errors="replace")
+                        game_tag_data.extend(_parse_game_tag_resource(fname, content))
+                    elif lowered.endswith(".swf") and any(token in lowered for token in ("icon", "portrait")):
+                        f.seek(foff)
+                        raw = f.read(fsz)
+                        symbol_names = _parse_swf_symbol_names(raw)
+                        if symbol_names:
+                            swf_symbol_data[fname] = symbol_names
+                return cls(result, furniture_data, game_tag_data, swf_symbol_data)
         except Exception:
             return cls()
 
@@ -356,12 +369,80 @@ def _load_gpak_csv_strings(
                 if column in {key_column, "notes"}:
                     continue
                 candidate = (row.get(column) or "").strip()
-                if candidate:
-                    value = candidate
-                    break
+            if candidate:
+                value = candidate
+                break
         if value:
             values[key] = html.unescape(value)
     return values
+
+
+def _swf_rect_size(data: bytes, offset: int) -> int:
+    """Return the size in bytes of the SWF RECT header at offset."""
+    if offset >= len(data):
+        return 0
+    nbits = data[offset] >> 3
+    bit_length = 5 + (4 * nbits)
+    return (bit_length + 7) // 8
+
+
+def _parse_swf_symbol_names(raw: bytes) -> list[str]:
+    """Extract SymbolClass names from a SWF file."""
+    if len(raw) < 12 or raw[:3] not in {b"FWS", b"CWS"}:
+        return []
+
+    data = raw
+    if raw[:3] == b"CWS":
+        try:
+            data = raw[:8] + zlib.decompress(raw[8:])
+        except Exception:
+            return []
+
+    try:
+        pos = 8 + _swf_rect_size(data, 8) + 4
+    except Exception:
+        return []
+    if pos >= len(data):
+        return []
+
+    names: list[str] = []
+    seen: set[str] = set()
+    while pos + 2 <= len(data):
+        record = struct.unpack_from("<H", data, pos)[0]
+        pos += 2
+        code = record >> 6
+        length = record & 0x3F
+        if length == 0x3F:
+            if pos + 4 > len(data):
+                break
+            length = struct.unpack_from("<I", data, pos)[0]
+            pos += 4
+        if pos + length > len(data):
+            break
+
+        payload = data[pos:pos + length]
+        pos += length
+
+        if code == 76 and len(payload) >= 2:  # SymbolClass
+            count = struct.unpack_from("<H", payload, 0)[0]
+            off = 2
+            for _ in range(count):
+                if off + 2 > len(payload):
+                    break
+                off += 2  # symbol ID
+                end = payload.find(b"\x00", off)
+                if end == -1:
+                    break
+                name = payload[off:end].decode("utf-8", errors="replace").strip()
+                off = end + 1
+                if not name or name in seen:
+                    continue
+                seen.add(name)
+                names.append(name)
+        elif code == 0:
+            break
+
+    return names
 
 
 def _resolve_game_string(value: str, game_strings: dict[str, str]) -> str:
@@ -524,6 +605,108 @@ def _parse_furniture_gon(content: str, furniture_strings: dict[str, str]) -> dic
     return definitions
 
 
+def _looks_like_game_tag_resource(filename: str) -> bool:
+    lowered = filename.lower()
+    return any(token in lowered for token in ("tag", "badge", "name_tag", "name-tag"))
+
+
+def _coerce_game_tag_definition_value(value: object) -> str:
+    return str(value or "").strip()
+
+
+def _parse_game_tag_csv(content: str, source_name: str) -> list[dict[str, str]]:
+    records: list[dict[str, str]] = []
+    reader = csv.DictReader(io.StringIO(content))
+    if not reader.fieldnames:
+        return records
+
+    field_names = [str(field or "").strip() for field in reader.fieldnames]
+    interesting = any(
+        any(token in field.lower() for token in ("tag", "name", "icon", "color", "image", "badge", "tooltip", "desc"))
+        for field in field_names
+    )
+    if not interesting:
+        return records
+
+    for row in reader:
+        record: dict[str, str] = {"source": source_name}
+        for key, value in row.items():
+            k = str(key or "").strip().lower()
+            v = _coerce_game_tag_definition_value(value)
+            if not v:
+                continue
+            if k in {"id", "key", "tag", "tag_id", "name_tag"} and "id" not in record:
+                record["id"] = v
+                continue
+            if k in {"name", "title", "label", "display_name", "text"} and "name" not in record:
+                record["name"] = v
+                continue
+            if k in {"color", "colour", "hex", "tint"} and "color" not in record:
+                record["color"] = v
+                continue
+            if k in {"image", "image_path", "icon", "texture", "sprite"} and "image_path" not in record:
+                record["image_path"] = v
+                continue
+            if k in {"tooltip", "description", "desc", "details"} and "tooltip" not in record:
+                record["tooltip"] = v
+                continue
+        if "id" not in record and "name" in record:
+            record["id"] = record["name"]
+        if "id" in record or "name" in record or "image_path" in record:
+            records.append(record)
+    return records
+
+
+def _parse_game_tag_gon(content: str, source_name: str) -> list[dict[str, str]]:
+    records: list[dict[str, str]] = []
+
+    for block_name, block in _iter_gon_blocks(content):
+        block_key = block_name.strip()
+        lowered = block_key.lower()
+        if not any(token in lowered for token in ("tag", "badge", "name_tag", "name-tag")):
+            lines = block.lower()
+            if not any(token in lines for token in (" tag ", "color ", "icon ", "image ", "badge ")):
+                continue
+
+        record: dict[str, str] = {"source": source_name}
+        for raw_line in block.splitlines():
+            line = raw_line.split("//", 1)[0].strip()
+            if not line:
+                continue
+            parts = line.split(None, 1)
+            if len(parts) != 2:
+                continue
+            key = parts[0].strip().lower()
+            value = parts[1].strip().strip('"')
+            if not value:
+                continue
+            if key in {"id", "key", "tag", "tag_id", "name_tag"} and "id" not in record:
+                record["id"] = value
+            elif key in {"name", "title", "label", "display_name", "text"} and "name" not in record:
+                record["name"] = value
+            elif key in {"color", "colour", "hex", "tint"} and "color" not in record:
+                record["color"] = value
+            elif key in {"image", "image_path", "icon", "texture", "sprite"} and "image_path" not in record:
+                record["image_path"] = value
+            elif key in {"tooltip", "description", "desc", "details"} and "tooltip" not in record:
+                record["tooltip"] = value
+        if "id" not in record and block_key:
+            record["id"] = block_key
+        if "id" in record or "name" in record or "image_path" in record:
+            records.append(record)
+
+    return records
+
+
+def _parse_game_tag_resource(source_name: str, content: str) -> list[dict[str, str]]:
+    lower = source_name.lower()
+    if lower.endswith(".csv"):
+        return _parse_game_tag_csv(content, source_name)
+    if lower.endswith(".gon"):
+        return _parse_game_tag_gon(content, source_name)
+    return []
+
+
 def _format_furniture_effect_value(value: float) -> str:
     number = float(value)
     if number.is_integer():
@@ -618,47 +801,86 @@ def build_furniture_room_summaries(
 
 def _read_visual_mutation_entries(table: list[int]) -> list[dict[str, object]]:
     fallback_names = load_visual_mutation_names()
+    verbose_logs = os.environ.get("MEWGENICS_VERBOSE_PARSER", "").strip().lower() in {"1", "true", "yes", "on"}
     entries: list[dict[str, object]] = []
     for slot_key, table_index, group_key, gpak_category, fallback_part, slot_label in _VISUAL_MUTATION_FIELDS:
         mutation_id = table[table_index] if table_index < len(table) else 0
         if mutation_id in (0, 0xFFFF_FFFF):
             continue
 
+        part_label = _VISUAL_MUTATION_PART_LABELS.get(group_key, slot_label)
         display_name = ""
         detail = ""
+        source = "generic"
+        catalog_name = fallback_names.get((fallback_part, mutation_id))
         gpak_info = _VISUAL_MUT_DATA.get(gpak_category, {}).get(mutation_id)
         if gpak_info:
             raw_name, stat_desc = gpak_info
-            if re.match(r'^Mutation \d+$', raw_name):
-                display_name = f"{_VISUAL_MUTATION_PART_LABELS.get(group_key, slot_label)} Mutation"
-            else:
+            raw_name = str(raw_name).strip()
+            detail = str(stat_desc).strip()
+            if raw_name and not re.match(r'^Mutation \d+$', raw_name):
                 display_name = raw_name
-            detail = stat_desc
+                source = f"gpak:{gpak_category}"
+            elif catalog_name:
+                display_name = str(catalog_name).strip()
+                source = f"catalog:{fallback_part}"
+            else:
+                display_name = f"{part_label} Mutation"
+                source = f"generic:{gpak_category}"
+        elif catalog_name:
+            display_name = str(catalog_name).strip()
+            source = f"catalog:{fallback_part}"
         else:
-            fallback_name = fallback_names.get((fallback_part, mutation_id))
-            if fallback_name is None:
-                if mutation_id < 300:
-                    continue
-                if mutation_id == 0xFFFF_FFFE:
-                    fallback_name = f"No {_VISUAL_MUTATION_PART_LABELS.get(group_key, slot_label)}"
-                else:
-                    fallback_name = f"{_VISUAL_MUTATION_PART_LABELS.get(group_key, slot_label)} {mutation_id}"
-            display_name = fallback_name
+            if mutation_id == 0xFFFF_FFFE:
+                display_name = f"No {part_label}"
+            else:
+                display_name = f"{part_label} {mutation_id}"
 
         is_defect = (700 <= mutation_id <= 706) or mutation_id == 0xFFFF_FFFE
 
         display_name = str(display_name).strip() or f"{slot_label} {mutation_id}"
+        if logger.isEnabledFor(logging.DEBUG) and (verbose_logs or not _is_synthetic_visual_mutation_name(display_name, part_label, slot_label, mutation_id)):
+            logger.debug(
+                "visual mutation slot=%s table_index=%s mutation_id=%s gpak_category=%s source=%s name=%s detail=%s",
+                slot_key,
+                table_index,
+                mutation_id,
+                gpak_category,
+                source,
+                display_name,
+                detail,
+            )
         entries.append({
             "slot_key": slot_key,
             "slot_label": slot_label,
             "group_key": group_key,
-            "part_label": _VISUAL_MUTATION_PART_LABELS.get(group_key, slot_label),
+            "part_label": part_label,
             "mutation_id": mutation_id,
             "name": display_name,
             "detail": str(detail).strip(),
             "is_defect": is_defect,
         })
     return entries
+
+
+def _is_synthetic_visual_mutation_name(display_name: str, part_label: str, slot_label: str, mutation_id: int) -> bool:
+    """Return True when the resolved name is still just a generic fallback."""
+    normalized = str(display_name or "").strip().casefold()
+    if not normalized:
+        return True
+
+    part = str(part_label or "").strip()
+    slot = str(slot_label or "").strip()
+    candidates = {
+        f"{part} {mutation_id}".casefold(),
+        f"{slot} {mutation_id}".casefold(),
+        f"{part} mutation".casefold(),
+        f"{slot} mutation".casefold(),
+        f"mutation {mutation_id}".casefold(),
+        f"no {part}".casefold(),
+        f"no {slot}".casefold(),
+    }
+    return normalized in candidates
 
 
 def _visual_mutation_chip_items(entries: list[dict[str, object]]) -> list[tuple[str, str, bool]]:

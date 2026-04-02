@@ -5,6 +5,15 @@ from PySide6.QtGui import QColor
 
 _IDENT_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
 
+
+def _blend_color(a: QColor, b: QColor, t: float) -> QColor:
+    t = max(0.0, min(1.0, float(t)))
+    return QColor(
+        round(a.red() + (b.red() - a.red()) * t),
+        round(a.green() + (b.green() - a.green()) * t),
+        round(a.blue() + (b.blue() - a.blue()) * t),
+    )
+
 # ── Stat / room / pair colors ────────────────────────────────────────────────
 
 STAT_COLORS = {
@@ -16,6 +25,11 @@ STAT_COLORS = {
     6: QColor(50,  195, 80),
     7: QColor(30,  215, 100),
 }
+
+_STAT_COLOR_START = STAT_COLORS[7]
+_STAT_COLOR_END = QColor(10, 245, 180)
+for value in range(8, 21):
+    STAT_COLORS[value] = _blend_color(_STAT_COLOR_START, _STAT_COLOR_END, (value - 7) / 13.0)
 
 ROOM_COLORS = {
     "Floor1_Large":   QColor(60, 100, 180),    # blue
@@ -96,6 +110,7 @@ COL_ABIL  = 22
 COL_MUTS  = 23
 COL_GEN_DEPTH = 24
 COL_SRC   = 25
+COL_ADV   = 26
 
 # ── Layout widths ────────────────────────────────────────────────────────────
 

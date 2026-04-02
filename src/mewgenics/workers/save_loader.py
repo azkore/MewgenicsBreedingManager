@@ -32,6 +32,7 @@ class SaveLoadWorker(QThread):
             "cats": cats,
             "errors": errors,
             "unlocked_house_rooms": unlocked_house_rooms,
+            "accessible_cats": save.accessible_cats,
             "furniture": save.furniture,
             "furniture_by_room": save.furniture_by_room,
             "pedigree_coi_memos": save.pedigree_coi_memos,
