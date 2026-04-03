@@ -247,6 +247,10 @@ class MainWindow(QMainWindow):
         self._save_load_worker: Optional[SaveLoadWorker] = None
         self._quick_refresh_worker: Optional[QuickRoomRefreshWorker] = None
         self._prev_parent_keys: dict[int, tuple] = {}
+        self._accessible_cat_keys: set[int] = set()
+        self._fight_club_layout_active: bool = False
+        self._fight_club_prev_total_stats: bool = _saved_total_stats_display()
+        self._fight_club_hidden_state: dict[int, bool] = {}
         self._zoom_percent: int = _saved_zoom_percent()
         self._font_size_offset: int = _saved_font_size_offset()   # pt offset applied on top of zoom
         self._accessibility_preset: str = _saved_accessibility_preset()
@@ -779,6 +783,11 @@ class MainWindow(QMainWindow):
         vb.addWidget(self._btn_all)
         self._room_btns[None] = self._btn_all
 
+        self._btn_fight_club = _sidebar_btn(_tr("sidebar.button.fight_club", default="Fight Club"))
+        self._btn_fight_club.clicked.connect(lambda: self._filter("__fight_club__", self._btn_fight_club))
+        vb.addWidget(self._btn_fight_club)
+        self._room_btns["__fight_club__"] = self._btn_fight_club
+
         self._btn_exceptional = _sidebar_btn("")
         self._btn_exceptional.setToolTip("")
         self._btn_exceptional.clicked.connect(
@@ -900,11 +909,20 @@ class MainWindow(QMainWindow):
         alive = sum(1 for c in self._cats if c.status != "Gone")
         exceptional = sum(1 for c in self._cats if c.status != "Gone" and _is_exceptional_breeder(c))
         donation = sum(1 for c in self._cats if c.status != "Gone" and _is_donation_candidate(c))
+        fight_club = sum(
+            1 for c in self._cats
+            if c.status != "Gone" and c.db_key in self._accessible_cat_keys
+        )
         adv = sum(1 for c in self._cats if c.status == "Adventure")
         gone = sum(1 for c in self._cats if c.status == "Gone")
 
         self._btn_everyone.setText(f"{_tr('sidebar.button.all_cats')}  ({total})" if total else _tr("sidebar.button.all_cats"))
         self._btn_all.setText(f"{_tr('sidebar.button.alive_cats')}  ({alive})" if total else _tr("sidebar.button.alive_cats"))
+        if hasattr(self, "_btn_fight_club"):
+            self._btn_fight_club.setText(
+                f"{_tr('sidebar.button.fight_club', default='Fight Club')}  ({fight_club})"
+                if total else _tr("sidebar.button.fight_club", default="Fight Club")
+            )
         self._btn_exceptional.setText(f"{_tr('sidebar.button.exceptional')}  ({exceptional})")
         self._btn_donation.setText(f"{_tr('sidebar.button.donation_candidates')}  ({donation})")
         self._btn_adventure.setText(f"{_tr('sidebar.button.on_adventure')}  ({adv})" if total else _tr("sidebar.button.on_adventure"))
@@ -999,6 +1017,8 @@ class MainWindow(QMainWindow):
         current_room_key = next((key for key, btn in self._room_btns.items() if btn is self._active_btn), None)
         _refresh_localized_constants()
         self._build_menu()
+        if getattr(self, "_fight_club_layout_active", False):
+            self._apply_fight_club_layout(True, force=True)
         self._filters_section_label.setText(_tr("sidebar.section.filters"))
         self._breeding_section_label.setText(_tr("sidebar.section.breeding"))
         self._info_section_label.setText(_tr("sidebar.section.info"))
@@ -1451,7 +1471,7 @@ class MainWindow(QMainWindow):
 
     def _filter(self, room_key, btn: QPushButton):
         if not getattr(self, "_save_view_disabled", False):
-            _save_current_view("table")
+            _save_current_view("fight_club" if room_key == "__fight_club__" else "table")
         self._show_table_view()
         if self._active_btn and self._active_btn is not btn:
             self._active_btn.setChecked(False)
@@ -1460,7 +1480,12 @@ class MainWindow(QMainWindow):
         self._proxy_model.set_room(room_key)
 
         # Set multi-column sort for donation candidates and exceptional breeders
-        if room_key in ("__donation__", "__exceptional__"):
+        if room_key == "__fight_club__":
+            self._proxy_model.set_sort_columns([
+                (COL_SUM, Qt.DescendingOrder),
+                (COL_NAME, Qt.AscendingOrder),
+            ])
+        elif room_key in ("__donation__", "__exceptional__"):
             self._proxy_model.set_sort_columns([
                 (COL_ROOM, Qt.AscendingOrder),
                 (COL_AGE, Qt.AscendingOrder),
@@ -1469,6 +1494,7 @@ class MainWindow(QMainWindow):
         else:
             self._proxy_model.set_sort_columns([])
 
+        self._apply_fight_club_layout(room_key == "__fight_club__")
         self._refresh_bulk_view_buttons(room_key)
         self._update_header(room_key)
         self._update_count()
@@ -1831,6 +1857,10 @@ class MainWindow(QMainWindow):
             self._btn_mutation_planner.setChecked(False)
         if hasattr(self, "_btn_furniture_view"):
             self._btn_furniture_view.setChecked(False)
+
+    def _show_fight_club_view(self):
+        if hasattr(self, "_btn_fight_club"):
+            self._filter("__fight_club__", self._btn_fight_club)
 
     def _show_tree_view(self):
         if self._active_btn is not None:
@@ -2304,12 +2334,68 @@ class MainWindow(QMainWindow):
         elif room_key == "__gone__":
             self._header_lbl.setText(_tr("header.filter.gone"))
             self._mode_badge_lbl.setVisible(False)
+        elif room_key == "__fight_club__":
+            self._header_lbl.setText(_tr("header.filter.fight_club", default="Fight Club"))
+            self._mode_badge_lbl.setText(_tr("header.badge.full_stats", default="FULL STATS"))
+            self._mode_badge_lbl.setToolTip(
+                _tr(
+                    "header.badge.full_stats.tooltip",
+                    default="Fight Club shows total stats and the adventure attributes for eligible cats.",
+                )
+            )
+            self._mode_badge_lbl.setVisible(True)
         elif room_key == "__adventure__":
             self._header_lbl.setText(_tr("header.filter.adventure"))
             self._mode_badge_lbl.setVisible(False)
         else:
             self._header_lbl.setText(ROOM_DISPLAY.get(room_key, room_key))
             self._mode_badge_lbl.setVisible(False)
+
+    def _apply_fight_club_layout(self, enabled: bool, force: bool = False):
+        enabled = bool(enabled)
+        if enabled == self._fight_club_layout_active and not force:
+            return
+        if not hasattr(self, "_table") or self._table.model() is None or not hasattr(self, "_source_model"):
+            self._fight_club_layout_active = enabled
+            return
+
+        self._fight_club_layout_active = enabled
+        col_count = self._table.model().columnCount()
+        if enabled:
+            if not self._fight_club_hidden_state or not force:
+                self._fight_club_hidden_state = {
+                    col: self._table.isColumnHidden(col)
+                    for col in range(col_count)
+                }
+                self._fight_club_prev_total_stats = self._source_model.show_total_stats()
+            self._source_model.set_show_total_stats(True)
+            if hasattr(self, "_total_stats_action"):
+                self._total_stats_action.blockSignals(True)
+                try:
+                    self._total_stats_action.setChecked(True)
+                    self._total_stats_action.setEnabled(False)
+                finally:
+                    self._total_stats_action.blockSignals(False)
+
+            for col in (COL_GEN, COL_AGE, COL_BL, COL_MB, COL_PIN, COL_RELNS, COL_REL, COL_ABIL, COL_MUTS, COL_GEN_DEPTH, COL_SRC):
+                if col < col_count:
+                    self._table.setColumnHidden(col, True)
+            for col in (COL_NAME, COL_ROOM, COL_STAT, COL_SUM, COL_AGG, COL_LIB, COL_INBRD, COL_SEXUALITY, COL_ADV):
+                if col < col_count:
+                    self._table.setColumnHidden(col, False)
+        else:
+            self._source_model.set_show_total_stats(self._fight_club_prev_total_stats)
+            if hasattr(self, "_total_stats_action"):
+                self._total_stats_action.blockSignals(True)
+                try:
+                    self._total_stats_action.setEnabled(True)
+                    self._total_stats_action.setChecked(self._fight_club_prev_total_stats)
+                finally:
+                    self._total_stats_action.blockSignals(False)
+            hidden_state = self._fight_club_hidden_state or {}
+            for col in range(col_count):
+                self._table.setColumnHidden(col, hidden_state.get(col, False))
+            self._fight_club_hidden_state = {}
 
     def _current_room_key(self):
         if self._active_btn is None:
@@ -2343,6 +2429,15 @@ class MainWindow(QMainWindow):
                         threshold=summary["donation"],
                     )
                 )
+        elif room_key == "__fight_club__":
+            self._count_lbl.setText(
+                _tr(
+                    "header.count_fight_club",
+                    visible=visible,
+                    total=total,
+                    default="  {visible} / {total} adventure-ready cats",
+                )
+            )
         else:
             self._count_lbl.setText(_tr("header.count", visible=visible, total=total))
 
@@ -2805,6 +2900,7 @@ class MainWindow(QMainWindow):
             errors = result["errors"]
             unlocked_house_rooms = result.get("unlocked_house_rooms", [])
             accessible_cats = result.get("accessible_cats", set())
+            self._accessible_cat_keys = set(accessible_cats)
             furniture = result.get("furniture", [])
             furniture_by_room = result.get("furniture_by_room", {})
             applied_overrides = result["applied_overrides"]
@@ -2982,6 +3078,9 @@ class MainWindow(QMainWindow):
                 self._stat_icons_action.setChecked(False)
             finally:
                 self._stat_icons_action.blockSignals(False)
+        if getattr(self, "_fight_club_layout_active", False):
+            self._fight_club_prev_total_stats = False
+            self._apply_fight_club_layout(True, force=True)
 
         if hasattr(self, "_detail_splitter") and self._detail_splitter is not None:
             total = max(20, self._detail_splitter.height())
@@ -3242,6 +3341,7 @@ class MainWindow(QMainWindow):
         view = _load_current_view()
         _restore_map = {
             "tree":               self._show_tree_view,
+            "fight_club":         self._show_fight_club_view,
             "safe_breeding":      self._show_safe_breeding_view,
             "breeding_partners":  self._show_breeding_partners_view,
             "room_optimizer":     self._show_room_optimizer_view,

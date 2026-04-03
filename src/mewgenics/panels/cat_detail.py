@@ -252,6 +252,73 @@ class CatDetailPanel(QWidget):
 
         id_col.addWidget(stats_box)
 
+        # Attributes: quick-read combat traits that matter for adventure cats.
+        id_col.addWidget(_sec("ATTRIBUTES"))
+        attr_box = QWidget()
+        attr_box.setStyleSheet("background:#101024; border:1px solid #1e1e38; border-radius:4px;")
+        attr_grid = QGridLayout(attr_box)
+        attr_grid.setContentsMargins(6, 4, 6, 4)
+        attr_grid.setHorizontalSpacing(6)
+        attr_grid.setVerticalSpacing(4)
+        attr_box.setMinimumWidth(280)
+
+        def _attr_chip(label: str, value: str, color: QColor, tooltip: str) -> QLabel:
+            chip = QLabel(f"{label}: {value}")
+            fg = "#111111" if color.lightness() >= 140 else "#f5f7ff"
+            chip.setStyleSheet(
+                f"background:{color.name()}; color:{fg}; font-size:9px; font-weight:bold;"
+                "border-radius:3px; padding:2px 5px;"
+            )
+            chip.setAlignment(Qt.AlignCenter)
+            chip.setToolTip(tooltip)
+            return chip
+
+        aggression_label = _trait_label_from_value("aggression", cat.aggression) or "unknown"
+        libido_label = _trait_label_from_value("libido", cat.libido) or "unknown"
+        inbred_label = _trait_label_from_value("inbredness", cat.inbredness) or "unknown"
+        sexuality_raw = str(getattr(cat, "sexuality", "") or "").strip() or "unknown"
+        sexuality_label = sexuality_raw.title() if sexuality_raw != "unknown" else "Unknown"
+        sexuality_color = QColor(72, 100, 140) if sexuality_raw != "unknown" else QColor(80, 80, 95)
+
+        attr_specs = [
+            (
+                0,
+                0,
+                "Aggression",
+                aggression_label.title(),
+                _trait_level_color(aggression_label),
+                f"Aggression: {cat.aggression:.3f} ({aggression_label})" if cat.aggression is not None else "Aggression: unknown",
+            ),
+            (
+                0,
+                1,
+                "Libido",
+                libido_label.title(),
+                _trait_level_color(libido_label),
+                f"Libido: {cat.libido:.3f} ({libido_label})" if cat.libido is not None else "Libido: unknown",
+            ),
+            (
+                1,
+                0,
+                "Inbredness",
+                inbred_label.title(),
+                _trait_level_color(inbred_label),
+                f"Inbredness: {cat.inbredness:.3f} ({inbred_label})" if cat.inbredness is not None else "Inbredness: unknown",
+            ),
+            (
+                1,
+                1,
+                "Sexuality",
+                sexuality_label,
+                sexuality_color,
+                f"Sexuality: {sexuality_raw}",
+            ),
+        ]
+        for row, col, label, value, color, tooltip in attr_specs:
+            attr_grid.addWidget(_attr_chip(label, value, color, tooltip), row, col)
+
+        id_col.addWidget(attr_box)
+
         def _navigate(target: Cat):
             mw = self.window()
             # Use "All Cats" view so gone/adventure cats are always reachable

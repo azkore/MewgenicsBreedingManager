@@ -95,6 +95,8 @@ class RoomFilterModel(QSortFilterProxyModel):
             return cat.status != "Gone" and _is_donation_candidate(cat)
         if self._room == "__gone__":
             return cat.status == "Gone"
+        if self._room == "__fight_club__":
+            return cat.status != "Gone" and cat.db_key in self._accessible_cat_keys
         if self._room == "__adventure__":
             return cat.status == "Adventure"
         return cat.room == self._room
