@@ -15,10 +15,15 @@ class RoomFilterModel(QSortFilterProxyModel):
         self._pinned_only = False
         self._tag_filter: set[str] = set()  # empty = show all
         self._sort_columns: list[tuple[int, Qt.SortOrder]] = []  # list of (column, order) for multi-column sort
+        self._accessible_cat_keys: set[int] = set()
         self.setSortRole(Qt.UserRole)
 
     def set_room(self, key):
         self._room = key
+        self.invalidate()
+
+    def set_accessible_cats(self, keys: set[int]):
+        self._accessible_cat_keys = set(keys or [])
         self.invalidate()
 
     def set_name_filter(self, text: str):
@@ -96,7 +101,8 @@ class RoomFilterModel(QSortFilterProxyModel):
         if self._room == "__gone__":
             return cat.status == "Gone"
         if self._room == "__fight_club__":
-            return cat.status != "Gone" and cat.db_key in self._accessible_cat_keys
+            accessible_keys = getattr(self, "_accessible_cat_keys", set())
+            return cat.status != "Gone" and cat.db_key in accessible_keys
         if self._room == "__adventure__":
             return cat.status == "Adventure"
         return cat.room == self._room

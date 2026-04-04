@@ -1224,6 +1224,7 @@ class MainWindow(QMainWindow):
         self._source_model.blacklistChanged.connect(self._on_blacklist_changed)
         self._proxy_model  = RoomFilterModel()
         self._proxy_model.setSourceModel(self._source_model)
+        self._proxy_model.set_accessible_cats(set())
         self._proxy_model.modelReset.connect(self._update_count)
         self._proxy_model.rowsInserted.connect(self._update_count)
         self._proxy_model.rowsRemoved.connect(self._update_count)
@@ -2901,6 +2902,7 @@ class MainWindow(QMainWindow):
             unlocked_house_rooms = result.get("unlocked_house_rooms", [])
             accessible_cats = result.get("accessible_cats", set())
             self._accessible_cat_keys = set(accessible_cats)
+            self._proxy_model.set_accessible_cats(accessible_cats)
             furniture = result.get("furniture", [])
             furniture_by_room = result.get("furniture_by_room", {})
             applied_overrides = result["applied_overrides"]
