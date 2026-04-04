@@ -123,6 +123,8 @@
   "header.count_fight_club": "  {visible} / {total} adventure-ready cats",
   "header.summary": "House: {placed}  |  Away: {adv}  |  Gone: {gone}",
   "header.search_placeholder": "Search cats, abilities, mutations…",
+  "header.filter.abilities": "Abilities",
+  "header.filter.mutations": "Mutations",
   "header.pin_toggle_tooltip": "Show only pinned cats",
   "bulk.label_template": "{label}: {state}",
   "bulk.breeding_block": "Breeding Block",

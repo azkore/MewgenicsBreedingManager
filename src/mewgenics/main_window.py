@@ -1027,6 +1027,8 @@ class MainWindow(QMainWindow):
         self._reload_btn.setText(_tr("sidebar.button.reload"))
         self._save_lbl.setText(os.path.basename(self._current_save) if self._current_save else _tr("sidebar.no_save_loaded"))
         self._search.setPlaceholderText(_tr("header.search_placeholder"))
+        self._fight_club_abilities_filter.setPlaceholderText(_tr("header.filter.abilities", default="Abilities"))
+        self._fight_club_mutations_filter.setPlaceholderText(_tr("header.filter.mutations", default="Mutations"))
         self._loading_label.setText(_tr("loading.save_file"))
         self._cache_progress.setFormat(_tr("loading.cache.computing"))
         self._refresh_filter_button_counts()
@@ -1174,6 +1176,24 @@ class MainWindow(QMainWindow):
             "QLineEdit { background:#0d0d1c; color:#ccc; border:1px solid #2a2a4a;"
             " border-radius:4px; padding:3px 8px; font-size:12px; }"
             "QLineEdit:focus { border-color:#3a3a7a; }")
+        self._fight_club_abilities_filter = QLineEdit()
+        self._fight_club_abilities_filter.setPlaceholderText(_tr("header.filter.abilities", default="Abilities"))
+        self._fight_club_abilities_filter.setClearButtonEnabled(True)
+        self._fight_club_abilities_filter.setFixedWidth(132)
+        self._fight_club_abilities_filter.setVisible(False)
+        self._fight_club_abilities_filter.setStyleSheet(
+            "QLineEdit { background:#0d0d1c; color:#ccc; border:1px solid #2a2a4a;"
+            " border-radius:4px; padding:3px 8px; font-size:12px; }"
+            "QLineEdit:focus { border-color:#3a3a7a; }")
+        self._fight_club_mutations_filter = QLineEdit()
+        self._fight_club_mutations_filter.setPlaceholderText(_tr("header.filter.mutations", default="Mutations"))
+        self._fight_club_mutations_filter.setClearButtonEnabled(True)
+        self._fight_club_mutations_filter.setFixedWidth(132)
+        self._fight_club_mutations_filter.setVisible(False)
+        self._fight_club_mutations_filter.setStyleSheet(
+            "QLineEdit { background:#0d0d1c; color:#ccc; border:1px solid #2a2a4a;"
+            " border-radius:4px; padding:3px 8px; font-size:12px; }"
+            "QLineEdit:focus { border-color:#3a3a7a; }")
         self._pin_toggle = QPushButton(_tr("header.pin_toggle", default="📌"))
         self._pin_toggle.setCheckable(True)
         self._pin_toggle.setToolTip(_tr("header.pin_toggle_tooltip", default="Show only pinned cats"))
@@ -1206,6 +1226,10 @@ class MainWindow(QMainWindow):
         hb.addWidget(self._pin_toggle)
         hb.addSpacing(4)
         hb.addWidget(self._search)
+        hb.addSpacing(6)
+        hb.addWidget(self._fight_club_abilities_filter)
+        hb.addSpacing(4)
+        hb.addWidget(self._fight_club_mutations_filter)
         hb.addSpacing(12)
         hb.addWidget(self._summary_lbl)
         vb.addWidget(hdr)
@@ -1326,6 +1350,12 @@ class MainWindow(QMainWindow):
         self._search.textChanged.connect(self._proxy_model.set_name_filter)
         self._search.textChanged.connect(self._update_count)
         self._search.textChanged.connect(lambda _: self._refresh_bulk_view_buttons())
+        self._fight_club_abilities_filter.textChanged.connect(self._proxy_model.set_abilities_filter)
+        self._fight_club_abilities_filter.textChanged.connect(self._update_count)
+        self._fight_club_abilities_filter.textChanged.connect(lambda _: self._refresh_bulk_view_buttons())
+        self._fight_club_mutations_filter.textChanged.connect(self._proxy_model.set_mutations_filter)
+        self._fight_club_mutations_filter.textChanged.connect(self._update_count)
+        self._fight_club_mutations_filter.textChanged.connect(lambda _: self._refresh_bulk_view_buttons())
         vs.addWidget(self._table)
 
         # Detail panel
@@ -1406,7 +1436,10 @@ class MainWindow(QMainWindow):
             for idx in self._table.selectionModel().selectedRows()
         })
         cats = [c for r in rows[:2] if (c := self._source_model.cat_at(r)) is not None]
-        if len(cats) == 2 and _is_hater_pair(cats[0], cats[1]) and not self._pair_detail_override:
+        room_key = self._current_room_key()
+        if room_key == "__fight_club__" and len(cats) > 1:
+            cats = cats[:1]
+        elif len(cats) == 2 and _is_hater_pair(cats[0], cats[1]) and not self._pair_detail_override:
             cats = cats[:1]
         was_collapsed = self._detail.maximumHeight() == 0
         self._detail.show_cats(cats)
@@ -1530,6 +1563,7 @@ class MainWindow(QMainWindow):
                 if btn is self._active_btn:
                     room_key = key
                     break
+        fight_club_view = room_key == "__fight_club__"
         room_visible = room_key in (None, "__all__") or room_key in ROOM_DISPLAY
         bulk_visible = room_key in ("__donation__", "__exceptional__")
         donation_view = room_key == "__donation__"
@@ -1546,6 +1580,8 @@ class MainWindow(QMainWindow):
             elif bulk_visible:
                 self._bulk_actions_layout.addWidget(self._bulk_must_breed_btn)
                 self._bulk_actions_layout.addWidget(self._bulk_blacklist_btn)
+            elif fight_club_view:
+                self._bulk_actions_layout.addWidget(self._bulk_pin_btn)
             if bulk_visible:
                 self._bulk_actions_layout.addWidget(self._bulk_pin_btn)
         if hasattr(self, "_bulk_blacklist_btn"):
@@ -1553,13 +1589,24 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_bulk_must_breed_btn"):
             self._bulk_must_breed_btn.setVisible(bulk_visible)
         if hasattr(self, "_bulk_pin_btn"):
-            self._bulk_pin_btn.setVisible(bulk_visible)
+            self._bulk_pin_btn.setVisible(bulk_visible or fight_club_view)
         if hasattr(self, "_room_actions_box"):
             self._room_actions_box.setVisible(room_visible)
-        if not (bulk_visible or room_visible):
+        if not (bulk_visible or room_visible or fight_club_view):
             return
         if room_visible:
             self._set_room_action_button_texts()
+            return
+        if fight_club_view:
+            cats = self._visible_filtered_cats()
+            all_pinned = bool(cats) and all(cat.is_pinned for cat in cats)
+            self._bulk_pin_btn.setCheckable(True)
+            self._bulk_pin_btn.blockSignals(True)
+            self._bulk_pin_btn.setChecked(all_pinned)
+            self._bulk_pin_btn.setEnabled(True)
+            self._set_bulk_toggle_label(self._bulk_pin_btn, _tr("bulk.pin", default="Pin"), all_pinned)
+            self._bulk_pin_btn.setToolTip(_tr("bulk.toggle_pin.tooltip", default="Toggle pin for selected cats"))
+            self._bulk_pin_btn.blockSignals(False)
             return
         if alive_view:
             self._bulk_blacklist_btn.blockSignals(True)
@@ -2378,12 +2425,17 @@ class MainWindow(QMainWindow):
                 finally:
                     self._total_stats_action.blockSignals(False)
 
-            for col in (COL_GEN, COL_AGE, COL_BL, COL_MB, COL_PIN, COL_RELNS, COL_REL, COL_ABIL, COL_MUTS, COL_GEN_DEPTH, COL_SRC):
+            for col in (COL_GEN, COL_BL, COL_MB, COL_LIB, COL_INBRD, COL_SEXUALITY, COL_GEN_DEPTH, COL_SRC):
                 if col < col_count:
                     self._table.setColumnHidden(col, True)
-            for col in (COL_NAME, COL_ROOM, COL_STAT, COL_SUM, COL_AGG, COL_LIB, COL_INBRD, COL_SEXUALITY, COL_ADV):
+            for col in (COL_NAME, COL_ROOM, COL_STAT, COL_SUM, COL_AGG, COL_ADV,
+                        COL_AGE, COL_PIN, COL_ABIL, COL_MUTS):
                 if col < col_count:
                     self._table.setColumnHidden(col, False)
+            if hasattr(self, "_fight_club_abilities_filter"):
+                self._fight_club_abilities_filter.setVisible(True)
+            if hasattr(self, "_fight_club_mutations_filter"):
+                self._fight_club_mutations_filter.setVisible(True)
         else:
             self._source_model.set_show_total_stats(self._fight_club_prev_total_stats)
             if hasattr(self, "_total_stats_action"):
@@ -2397,6 +2449,10 @@ class MainWindow(QMainWindow):
             for col in range(col_count):
                 self._table.setColumnHidden(col, hidden_state.get(col, False))
             self._fight_club_hidden_state = {}
+            if hasattr(self, "_fight_club_abilities_filter"):
+                self._fight_club_abilities_filter.setVisible(False)
+            if hasattr(self, "_fight_club_mutations_filter"):
+                self._fight_club_mutations_filter.setVisible(False)
 
     def _current_room_key(self):
         if self._active_btn is None:

@@ -2,6 +2,7 @@
 from PySide6.QtCore import Qt, QSortFilterProxyModel
 
 from save_parser import Cat
+from mewgenics.constants import COL_ABIL, COL_MUTS
 from mewgenics.utils.tags import _cat_tags
 from mewgenics.utils.cat_analysis import _is_exceptional_breeder, _is_donation_candidate, _relations_summary
 from mewgenics.utils.abilities import _mutation_display_name
@@ -12,6 +13,8 @@ class RoomFilterModel(QSortFilterProxyModel):
         super().__init__()
         self._room = None
         self._name_filter = ""
+        self._abilities_filter = ""
+        self._mutations_filter = ""
         self._pinned_only = False
         self._tag_filter: set[str] = set()  # empty = show all
         self._sort_columns: list[tuple[int, Qt.SortOrder]] = []  # list of (column, order) for multi-column sort
@@ -28,6 +31,14 @@ class RoomFilterModel(QSortFilterProxyModel):
 
     def set_name_filter(self, text: str):
         self._name_filter = text.strip().lower()
+        self.invalidate()
+
+    def set_abilities_filter(self, text: str):
+        self._abilities_filter = text.strip().lower()
+        self.invalidate()
+
+    def set_mutations_filter(self, text: str):
+        self._mutations_filter = text.strip().lower()
         self.invalidate()
 
     def set_pinned_only(self, enabled: bool):
@@ -78,6 +89,13 @@ class RoomFilterModel(QSortFilterProxyModel):
         )
         return self._name_filter in haystack
 
+    def _column_text(self, source_row: int, column: int) -> str:
+        source_model = self.sourceModel()
+        if source_model is None:
+            return ""
+        value = source_model.data(source_model.index(source_row, column), Qt.DisplayRole)
+        return str(value or "").lower()
+
     def filterAcceptsRow(self, source_row, source_parent):
         cat = self.sourceModel().cat_at(source_row)
         if cat is None:
@@ -102,7 +120,13 @@ class RoomFilterModel(QSortFilterProxyModel):
             return cat.status == "Gone"
         if self._room == "__fight_club__":
             accessible_keys = getattr(self, "_accessible_cat_keys", set())
-            return cat.status != "Gone" and cat.db_key in accessible_keys
+            if cat.status == "Gone" or cat.db_key not in accessible_keys:
+                return False
+            if self._abilities_filter and self._abilities_filter not in self._column_text(source_row, COL_ABIL):
+                return False
+            if self._mutations_filter and self._mutations_filter not in self._column_text(source_row, COL_MUTS):
+                return False
+            return True
         if self._room == "__adventure__":
             return cat.status == "Adventure"
         return cat.room == self._room
