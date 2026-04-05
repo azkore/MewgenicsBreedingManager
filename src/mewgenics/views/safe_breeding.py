@@ -16,6 +16,7 @@ from save_parser import (
     Cat, STAT_NAMES, can_breed, kinship_coi, risk_percent, shared_ancestor_counts, _ancestor_depths,
 )
 from breeding import score_pair, PairFactors
+from mewgenics.constants import STAT_COLORS
 from mewgenics.models.breeding_cache import BreedingCache
 from mewgenics.utils.localization import _tr
 from mewgenics.utils.calibration import _trait_label_from_value, _trait_level_color
