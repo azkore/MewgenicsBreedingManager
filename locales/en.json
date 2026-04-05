@@ -180,6 +180,7 @@
   "safe_breeding.table.cat": "Cat",
   "safe_breeding.table.risk": "Risk%",
   "safe_breeding.table.shared_ancestors": "Shared Anc.",
+  "safe_breeding.table.recent_shared_ancestors": "Recent Shared",
   "safe_breeding.table.child_outcome": "Children will be",
   "safe_breeding.tag.highly_inbred": "Highly Inbred",
   "safe_breeding.tag.moderately_inbred": "Moderately Inbred",

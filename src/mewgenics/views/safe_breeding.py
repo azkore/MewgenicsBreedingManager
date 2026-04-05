@@ -14,11 +14,13 @@ from PySide6.QtGui import QColor, QBrush, QPalette
 
 from save_parser import (
     Cat, STAT_NAMES, can_breed, kinship_coi, risk_percent, shared_ancestor_counts, _ancestor_depths,
+    _inheritance_candidates,
 )
 from breeding import score_pair, PairFactors
 from mewgenics.constants import STAT_COLORS
 from mewgenics.models.breeding_cache import BreedingCache
 from mewgenics.utils.localization import _tr
+from mewgenics.utils.abilities import _mutation_display_name, _ability_tip
 from mewgenics.utils.calibration import _trait_label_from_value, _trait_level_color
 from mewgenics.utils.tags import _cat_tags, _make_tag_icon
 from mewgenics.utils.styling import _enforce_min_font_in_widget_tree, _blend_qcolor
@@ -26,13 +28,15 @@ from mewgenics.utils.styling import _enforce_min_font_in_widget_tree, _blend_qco
 
 class SafeBreedingView(QWidget):
     """Dedicated view for ranking alive breeding candidates."""
-    _QUALITY_COLUMN_COUNT = 17
+    _QUALITY_COLUMN_COUNT = 19
     _QUALITY_STAT_START = 3
     _QUALITY_SUM_COL = _QUALITY_STAT_START + len(STAT_NAMES)
     _QUALITY_TRAIT_START = _QUALITY_SUM_COL + 1
-    _QUALITY_COMP_COL = _QUALITY_TRAIT_START + 3
-    _QUALITY_PERSON_COL = _QUALITY_COMP_COL + 1
-    _QUALITY_NOTES_COL = _QUALITY_PERSON_COL + 1
+    _QUALITY_SHARED_COL = _QUALITY_TRAIT_START + 3
+    _QUALITY_RECENT_SHARED_COL = _QUALITY_SHARED_COL + 1
+    _QUALITY_MUTS_COL = _QUALITY_RECENT_SHARED_COL + 1
+    _QUALITY_ABIL_COL = _QUALITY_MUTS_COL + 1
+    _QUALITY_NOTES_COL = _QUALITY_ABIL_COL + 1
 
     class _ColumnPaddingDelegate(QStyledItemDelegate):
         def __init__(self, extra_width: int, left_padding: int = 0, parent=None):
@@ -166,13 +170,15 @@ class SafeBreedingView(QWidget):
         self._table.setColumnWidth(1, 100)
         self._table.setColumnWidth(2, 78)
         for col in range(self._QUALITY_STAT_START, self._QUALITY_STAT_START + len(STAT_NAMES)):
-            self._table.setColumnWidth(col, 58)
-        self._table.setColumnWidth(self._QUALITY_SUM_COL, 64)
+            self._table.setColumnWidth(col, 56)
+        self._table.setColumnWidth(self._QUALITY_SUM_COL, 60)
         self._table.setColumnWidth(self._QUALITY_TRAIT_START + 0, 70)
         self._table.setColumnWidth(self._QUALITY_TRAIT_START + 1, 60)
         self._table.setColumnWidth(self._QUALITY_TRAIT_START + 2, 74)
-        self._table.setColumnWidth(self._QUALITY_COMP_COL, 96)
-        self._table.setColumnWidth(self._QUALITY_PERSON_COL, 90)
+        self._table.setColumnWidth(self._QUALITY_SHARED_COL, 84)
+        self._table.setColumnWidth(self._QUALITY_RECENT_SHARED_COL, 96)
+        self._table.setColumnWidth(self._QUALITY_MUTS_COL, 220)
+        self._table.setColumnWidth(self._QUALITY_ABIL_COL, 240)
         self._table.setColumnWidth(self._QUALITY_NOTES_COL, 180)
         self._table.horizontalHeader().setSortIndicatorShown(False)
 
@@ -221,8 +227,10 @@ class SafeBreedingView(QWidget):
             _tr("table.column.aggression"),
             _tr("table.column.libido"),
             _tr("table.column.inbred"),
-            _tr("safe_breeding.table.complementarity", default="Complementarity"),
-            _tr("safe_breeding.table.personality", default="Personality"),
+            _tr("safe_breeding.table.shared_ancestors", default="Shared Anc."),
+            _tr("safe_breeding.table.recent_shared_ancestors", default="Recent Shared"),
+            _tr("table.column.mutations"),
+            _tr("table.column.abilities"),
             _tr("safe_breeding.table.notes", default="Notes"),
         ]
         self._table.setHorizontalHeaderLabels(labels)
@@ -292,6 +300,35 @@ class SafeBreedingView(QWidget):
         bg = _trait_level_color(label)
         tip = f"{field.title()}: {value:.3f} ({label})"
         return SafeBreedingView._metric_item(label, bg, tip, row_bg=row_bg)
+
+    @staticmethod
+    def _candidate_summary(
+        chips: list[tuple[str, str]],
+        *,
+        max_items: int = 3,
+        title: str = "",
+        description_fn=None,
+    ) -> tuple[str, str]:
+        if not chips:
+            return "—", title or "No candidates"
+
+        visible = ", ".join(label for label, _ in chips[:max_items])
+        if len(chips) > max_items:
+            visible += f" +{len(chips) - max_items}"
+
+        tooltip_lines: list[str] = []
+        if title:
+            tooltip_lines.append(title)
+        for label, source in chips:
+            lines = [label]
+            if source:
+                lines.append(source)
+            if description_fn is not None:
+                desc = str(description_fn(label) or "").strip()
+                if desc:
+                    lines.append(desc)
+            tooltip_lines.append("\n".join(lines))
+        return visible, "\n\n".join(tooltip_lines)
 
     def set_quality_mode(self, enabled: bool, refresh: bool = True):
         enabled = bool(enabled)
@@ -550,6 +587,25 @@ class SafeBreedingView(QWidget):
                     "libido": (getattr(cat, "libido", 0.0) + getattr(other, "libido", 0.0)) / 2.0,
                     "inbredness": kinship_coi(cat, other),
                 }
+                stim = self._pair_stimulation()
+                active_candidates, _, _ = _inheritance_candidates(
+                    list(getattr(cat, "abilities", []) or []),
+                    list(getattr(other, "abilities", []) or []),
+                    stim,
+                    display_fn=_mutation_display_name,
+                )
+                passive_candidates, _, _ = _inheritance_candidates(
+                    list(getattr(cat, "passive_abilities", []) or []),
+                    list(getattr(other, "passive_abilities", []) or []),
+                    stim,
+                    display_fn=_mutation_display_name,
+                )
+                mutation_candidates, _, _ = _inheritance_candidates(
+                    list(getattr(cat, "mutations", []) or []),
+                    list(getattr(other, "mutations", []) or []),
+                    stim,
+                    display_fn=_mutation_display_name,
+                )
                 if quality_factors.must_breed_bonus:
                     notes.append(_tr("safe_breeding.notes.must_breed", default="Must breed"))
                 if quality_factors.lover_bonus:
@@ -562,11 +618,14 @@ class SafeBreedingView(QWidget):
                     "cat": other,
                     "quality": float(quality_factors.quality),
                     "risk": float(rel),
+                    "shared": int(shared),
+                    "recent_shared": int(recent_shared),
                     "projection": projection,
                     "expected_sum": float(expected_sum),
-                    "complementarity": float(quality_factors.complementarity_bonus),
-                    "personality": float(quality_factors.personality_bonus),
                     "trait_values": trait_values,
+                    "active_candidates": active_candidates,
+                    "passive_candidates": passive_candidates,
+                    "mutation_candidates": mutation_candidates,
                     "notes": notes,
                     "row_bg": row_bg,
                     "row_fg": row_fg,
@@ -637,11 +696,9 @@ class SafeBreedingView(QWidget):
             risk_item = QTableWidgetItem(f"{risk_pct}%")
             projection = item["projection"]
             expected_sum = float(item["expected_sum"])
-            complementarity_item = QTableWidgetItem(f"{float(item['complementarity']):.1f}")
-            personality_item = QTableWidgetItem(f"{float(item['personality']):.1f}")
             notes_item = QTableWidgetItem("; ".join(item.get("notes", [])) or "—")
             if row_bg is not None:
-                for it in (quality_item, risk_item, complementarity_item, personality_item, notes_item):
+                for it in (quality_item, risk_item, notes_item):
                     it.setBackground(QBrush(row_bg))
                     if row_fg is not None:
                         it.setForeground(QBrush(row_fg))
@@ -649,7 +706,7 @@ class SafeBreedingView(QWidget):
             name_item = QTableWidgetItem(name_text)
             if not icon.isNull():
                 name_item.setIcon(icon)
-            for it in (name_item, quality_item, risk_item, complementarity_item, personality_item):
+            for it in (name_item, quality_item, risk_item):
                 it.setTextAlignment(Qt.AlignCenter)
             font = quality_item.font()
             font.setBold(True)
@@ -667,21 +724,60 @@ class SafeBreedingView(QWidget):
                 self._projected_trait_item(field, float(trait_values.get(field, 0.0)), row_bg=row_bg)
                 for field in ("aggression", "libido", "inbredness")
             ]
-            for it in (name_item, quality_item, risk_item, complementarity_item, personality_item, notes_item):
-                it.setTextAlignment(Qt.AlignCenter)
+            shared_item = QTableWidgetItem(str(int(item.get("shared", 0))))
+            recent_shared_item = QTableWidgetItem(str(int(item.get("recent_shared", 0))))
+            mutation_text, mutation_tip = self._candidate_summary(
+                item.get("mutation_candidates", []),
+                max_items=3,
+                title="Likely mutations",
+                description_fn=_ability_tip,
+            )
+            active_text, active_tip = self._candidate_summary(
+                item.get("active_candidates", []),
+                max_items=3,
+                title="Active abilities",
+                description_fn=_ability_tip,
+            )
+            passive_text, passive_tip = self._candidate_summary(
+                item.get("passive_candidates", []),
+                max_items=3,
+                title="Passive abilities",
+                description_fn=_ability_tip,
+            )
+            ability_parts: list[str] = []
+            ability_tooltip_parts: list[str] = []
+            if item.get("active_candidates"):
+                ability_parts.append(f"A: {active_text}")
+                ability_tooltip_parts.append(active_tip)
+            if item.get("passive_candidates"):
+                ability_parts.append(f"P: {passive_text}")
+                ability_tooltip_parts.append(passive_tip)
+            ability_item = QTableWidgetItem(" | ".join(ability_parts) if ability_parts else "—")
+            mutation_item = QTableWidgetItem(mutation_text)
+            mutation_item.setToolTip(mutation_tip if item.get("mutation_candidates") else "No likely mutations")
+            ability_item.setToolTip("\n\n".join(ability_tooltip_parts) if ability_tooltip_parts else "No inherited abilities")
+            for it in (name_item, quality_item, risk_item, shared_item, recent_shared_item, mutation_item, ability_item):
+                if it in (mutation_item, ability_item):
+                    it.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+                else:
+                    it.setTextAlignment(Qt.AlignCenter)
+                if row_bg is not None:
+                    it.setBackground(QBrush(row_bg))
+                    if row_fg is not None:
+                        it.setForeground(QBrush(row_fg))
             quality_item.setData(Qt.UserRole, float(item["quality"]))
-            complementarity_item.setData(Qt.UserRole, float(item["complementarity"]))
-            personality_item.setData(Qt.UserRole, float(item["personality"]))
-            complementarity_item.setToolTip(f"Complementarity bonus: {float(item['complementarity']):.1f}")
-            personality_item.setToolTip(f"Personality bonus: {float(item['personality']):.1f}")
             notes_item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
             notes_item.setToolTip("; ".join(item.get("notes", [])) or "—")
+            shared_item.setData(Qt.UserRole, int(item.get("shared", 0)))
+            recent_shared_item.setData(Qt.UserRole, int(item.get("recent_shared", 0)))
+            shared_item.setToolTip(_tr("safe_breeding.table.shared_ancestors", default="Shared ancestors") + f": {int(item.get('shared', 0))}")
+            recent_shared_item.setToolTip(_tr("safe_breeding.table.recent_shared_ancestors", default="Recent shared") + f": {int(item.get('recent_shared', 0))}")
             if row_fg is None:
                 risk_item.setForeground(QBrush(QColor(216, 181, 106)))
             quality_item.setToolTip(
                 _tr(
                     "safe_breeding.quality_tooltip",
-                    default="Quality is a blend of offspring stat expectations, complementarity, personality, and bonus signals.",
+                    default="Quality blends offspring stat expectations, risk, and bonus signals.",
                 )
             )
             self._table.setItem(row, 0, name_item)
@@ -692,8 +788,10 @@ class SafeBreedingView(QWidget):
             self._table.setItem(row, self._QUALITY_SUM_COL, sum_item)
             for idx, trait_item in enumerate(trait_items, start=self._QUALITY_TRAIT_START):
                 self._table.setItem(row, idx, trait_item)
-            self._table.setItem(row, self._QUALITY_COMP_COL, complementarity_item)
-            self._table.setItem(row, self._QUALITY_PERSON_COL, personality_item)
+            self._table.setItem(row, self._QUALITY_SHARED_COL, shared_item)
+            self._table.setItem(row, self._QUALITY_RECENT_SHARED_COL, recent_shared_item)
+            self._table.setItem(row, self._QUALITY_MUTS_COL, mutation_item)
+            self._table.setItem(row, self._QUALITY_ABIL_COL, ability_item)
             self._table.setItem(row, self._QUALITY_NOTES_COL, notes_item)
 
         self._apply_mode_headers()
