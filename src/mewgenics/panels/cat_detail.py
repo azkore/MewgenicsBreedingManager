@@ -32,6 +32,7 @@ from mewgenics.utils.calibration import _trait_label_from_value, _trait_level_co
 from mewgenics.utils.abilities import (
     _mutation_display_name, _ability_tip,
     _ability_effect_lines, _mutation_effect_lines,
+    _mutation_effect_components,
     _trait_inheritance_probabilities,
 )
 from mewgenics.utils.game_data import _GPAK_PATH
@@ -99,6 +100,68 @@ def _defect_chip_row(items, tooltip_fn=None) -> QWidget:
         row.addWidget(_defect_chip(text, tip))
     row.addStretch()
     return w
+
+
+def _mutation_delta_chip(label: str, amount: str) -> QLabel:
+    pos = str(amount or "").strip().startswith("+")
+    bg = "#183820" if pos else "#3a1818"
+    fg = "#d8f5d8" if pos else "#f3d7d7"
+    chip = QLabel(f"{label} {amount}")
+    chip.setStyleSheet(
+        f"QLabel {{ background:{bg}; color:{fg}; border:1px solid {'#315b41' if pos else '#6b3838'};"
+        " border-radius:6px; padding:2px 7px; font-size:11px; font-weight:bold; }}"
+    )
+    chip.setToolTip(f"{label} {amount}")
+    return chip
+
+
+def _mutation_card(text: str, tip: str, defect: bool = False) -> QWidget:
+    summary, effects, affects = _mutation_effect_components(tip)
+    card = QWidget()
+    card.setObjectName("mutationCard")
+    card.setStyleSheet(
+        "QWidget#mutationCard { background:#101024; border:1px solid #1e1e38; border-radius:4px; }"
+    )
+    layout = QVBoxLayout(card)
+    layout.setContentsMargins(6, 4, 6, 4)
+    layout.setSpacing(3)
+
+    top = QHBoxLayout()
+    top.setContentsMargins(0, 0, 0, 0)
+    top.setSpacing(5)
+    top.addWidget(_defect_chip(text, tip) if defect else _chip(text, tip))
+    if effects:
+        for label, amount in effects:
+            top.addWidget(_mutation_delta_chip(label, amount))
+    else:
+        top.addWidget(_chip(_tr("cat_detail.no_stat_change", default="No stat change")))
+    top.addStretch()
+    layout.addLayout(top)
+
+    note_parts: list[str] = []
+    if summary and not summary.lower().startswith("affects:"):
+        note_parts.append(summary)
+    if affects:
+        note_parts.append(_tr("cat_detail.affects", default="Affects: {slots}", slots=", ".join(affects)))
+    if note_parts:
+        note = QLabel("  |  ".join(note_parts))
+        note.setWordWrap(True)
+        note.setStyleSheet("color:#8a8aa5; font-size:10px;")
+        layout.addWidget(note)
+
+    card.setToolTip(tip)
+    return card
+
+
+def _mutation_cards_block(items, defect: bool = False) -> QWidget:
+    box = QWidget()
+    layout = QVBoxLayout(box)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(5)
+    for text, tip in items:
+        layout.addWidget(_mutation_card(text, tip, defect=defect))
+    layout.addStretch()
+    return box
 
 
 def _game_tag_badge(text: str) -> QLabel:
@@ -436,18 +499,10 @@ class CatDetailPanel(QWidget):
             mu = QVBoxLayout(); mu.setSpacing(4)
             if cat.mutations:
                 mu.addWidget(_sec("MUTATIONS"))
-                mu.addWidget(ChipRow(cat.mutation_chip_items, tooltip_fn=_ability_tip))
-                mutation_lines = _mutation_effect_lines(cat)
-                if mutation_lines:
-                    mu.addWidget(_detail_text_block(mutation_lines))
-                elif not _GPAK_PATH:
-                    mu.addWidget(_detail_text_block(
-                        ["Mutation effect text unavailable. Set MEWGENICS_GPAK_PATH or place resources.gpak next to the app."],
-                        style=_NOTE_STYLE,
-                    ))
+                mu.addWidget(_mutation_cards_block(cat.mutation_chip_items))
             if cat.defects:
                 mu.addWidget(_sec("BIRTH DEFECTS"))
-                mu.addWidget(_defect_chip_row(cat.defect_chip_items, tooltip_fn=_ability_tip))
+                mu.addWidget(_mutation_cards_block(cat.defect_chip_items, defect=True))
             mu.addStretch()
             root.addLayout(mu)
 
@@ -755,13 +810,13 @@ class CatDetailPanel(QWidget):
                 for cat in (a, b):
                     if cat.mutations:
                         mu_col.addWidget(QLabel(f"{cat.name}:", styleSheet="color:#555; font-size:10px;"))
-                        mu_col.addWidget(_wrapped_chip_block(cat.mutation_chip_items, max_per_row=3))
+                        mu_col.addWidget(_mutation_cards_block(cat.mutation_chip_items))
             if a.defects or b.defects:
                 mu_col.addWidget(_sec("BIRTH DEFECTS"))
                 for cat in (a, b):
                     if cat.defects:
                         mu_col.addWidget(QLabel(f"{cat.name}:", styleSheet="color:#555; font-size:10px;"))
-                        mu_col.addWidget(_defect_chip_row(cat.defect_chip_items, tooltip_fn=_ability_tip))
+                        mu_col.addWidget(_mutation_cards_block(cat.defect_chip_items, defect=True))
             mu_col.addStretch()
             mid.addLayout(mu_col)
 

@@ -479,6 +479,50 @@ def _mutations_tooltip(cat: "Cat") -> str:
     return "\n\n".join(parts)
 
 
+_MUTATION_EFFECT_LABELS = {
+    "strength": "STR",
+    "dexterity": "DEX",
+    "constitution": "CON",
+    "intelligence": "INT",
+    "speed": "SPD",
+    "charisma": "CHA",
+    "luck": "LCK",
+    "all stats": "All Stats",
+    "crit chance": "Crit Chance",
+    "critical chance": "Crit Chance",
+    "critical hit chance": "Crit Chance",
+    "dodge chance": "Dodge Chance",
+    "movement range": "Move Range",
+    "range": "Range",
+    "damage": "Damage",
+    "knockback damage": "Knockback Dmg",
+    "knockback": "Knockback",
+    "shield": "Shield",
+    "brace": "Brace",
+    "armor": "Armor",
+    "vitality": "Vitality",
+    "health regeneration": "HP Regen",
+    "health regen": "HP Regen",
+    "mana regeneration": "Mana Regen",
+    "mana regen": "Mana Regen",
+    "health": "HP",
+    "mana": "Mana",
+    "magic damage": "Magic Dmg",
+    "bonus moves": "Bonus Moves",
+    "corpse hp": "Corpse HP",
+    "poison": "Poison",
+    "bleed": "Bleed",
+    "stun": "Stun",
+    "weakness": "Weakness",
+}
+
+_MUTATION_EFFECT_LABEL_RE = "|".join(sorted((re.escape(k) for k in _MUTATION_EFFECT_LABELS), key=len, reverse=True))
+_MUTATION_EFFECT_RE = re.compile(
+    rf"(?P<sign>[+-])\s*(?P<value>\d+(?:\.\d+)?)\s*(?P<pct>%?)\s*(?:to\s+)?(?P<label>{_MUTATION_EFFECT_LABEL_RE})\b",
+    re.IGNORECASE,
+)
+
+
 def _ability_effect_lines(cat: "Cat") -> list[str]:
     lines: list[str] = []
     for ability in cat.abilities:
@@ -491,6 +535,41 @@ def _ability_effect_lines(cat: "Cat") -> list[str]:
         if tip:
             lines.append(f"{name}: {tip}")
     return lines
+
+
+def _mutation_stat_effects(text: str) -> list[tuple[str, str]]:
+    """Extract compact numeric effect badges from mutation/defect text."""
+    if not text:
+        return []
+    effects: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for match in _MUTATION_EFFECT_RE.finditer(text):
+        label = _MUTATION_EFFECT_LABELS.get(match.group("label").strip().casefold(), match.group("label").strip())
+        amount = f"{match.group('sign')}{match.group('value')}{match.group('pct')}"
+        key = (label, amount)
+        if key in seen:
+            continue
+        seen.add(key)
+        effects.append((label, amount))
+    return effects
+
+
+def _mutation_effect_components(tip: str) -> tuple[str, list[tuple[str, str]], list[str]]:
+    """
+    Return a compact summary, numeric effect badges, and affected slots for a
+    mutation/defect tooltip.
+    """
+    lines = [line.strip() for line in str(tip or "").splitlines() if line.strip()]
+    detail = "\n".join(lines[2:]) if len(lines) > 2 else ""
+    summary = _trait_description_preview(detail)
+    effects = _mutation_stat_effects(detail)
+    if effects and summary.startswith(("+", "-")):
+        summary = ""
+    affects = []
+    match = re.search(r"\bAffects:\s*(.+)$", str(tip or ""), re.IGNORECASE | re.MULTILINE)
+    if match:
+        affects = [part.strip() for part in re.split(r"\s*,\s*", match.group(1).strip()) if part.strip()]
+    return summary, effects, affects
 
 
 def _mutation_effect_lines(cat: "Cat") -> list[str]:

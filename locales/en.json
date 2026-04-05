@@ -562,6 +562,8 @@
   "cat_detail.spell": "Spell",
   "cat_detail.passive": "Passive",
   "cat_detail.mutation": "Mutation",
+  "cat_detail.no_stat_change": "No stat change",
+  "cat_detail.affects": "Affects: {slots}",
   "cat_detail.appearance_preview": "Probabilistic preview from parent coat/body/part data.",
   "cat_detail.no_appearance_data": "No distinct parent appearance data detected.",
   "cat_detail.appearance.fur": "Fur",
