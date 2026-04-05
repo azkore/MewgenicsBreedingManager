@@ -253,6 +253,14 @@ class SafeBreedingView(QWidget):
         return item
 
     @staticmethod
+    def _stat_tint(color: QColor, strength: float = 0.26, lift: int = 16) -> QColor:
+        return QColor(
+            min(255, int(color.red() * strength) + lift),
+            min(255, int(color.green() * strength) + lift),
+            min(255, int(color.blue() * strength) + lift),
+        )
+
+    @staticmethod
     def _projected_stat_item(stat: str, projection: dict, *, row_bg: QColor | None = None) -> QTableWidgetItem:
         expected_stats = projection.get("expected_stats", {})
         stat_ranges = projection.get("stat_ranges", {})
