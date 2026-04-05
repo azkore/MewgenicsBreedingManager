@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Callable, Optional
 
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QListWidget, QListWidgetItem,
     QTableWidget, QTableWidgetItem, QStyledItemDelegate,
     QStyle, QStyleOptionViewItem, QAbstractItemView, QHeaderView,
-    QPushButton, QMenu,
+    QPushButton, QMenu, QToolButton,
 )
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QColor, QBrush, QPalette
@@ -28,8 +28,16 @@ from mewgenics.utils.styling import _enforce_min_font_in_widget_tree, _blend_qco
 
 class SafeBreedingView(QWidget):
     """Dedicated view for ranking alive breeding candidates."""
-    _QUALITY_COLUMN_COUNT = 19
-    _QUALITY_STAT_START = 3
+    _QUALITY_COLUMN_COUNT = 20
+    _PAIR_JUMP_COL = 0
+    _QUALITY_CAT_COL = 1
+    _QUALITY_QUALITY_COL = 2
+    _QUALITY_RISK_COL = 3
+    _SAFE_CAT_COL = 1
+    _SAFE_RISK_COL = 2
+    _SAFE_SHARED_COL = 3
+    _SAFE_OUTCOME_COL = 4
+    _QUALITY_STAT_START = 4
     _QUALITY_SUM_COL = _QUALITY_STAT_START + len(STAT_NAMES)
     _QUALITY_TRAIT_START = _QUALITY_SUM_COL + 1
     _QUALITY_SHARED_COL = _QUALITY_TRAIT_START + 3
@@ -90,6 +98,34 @@ class SafeBreedingView(QWidget):
             "QPushButton:hover { background:#1e1e38; color:#ddd; }"
         )
 
+    @staticmethod
+    def _pair_jump_button_style() -> str:
+        return (
+            "QToolButton { background:#1a1a32; color:#aaddff; border:1px solid #2a2a4a;"
+            " border-radius:4px; font-size:12px; font-weight:bold; }"
+            "QToolButton:hover { background:#252545; }"
+            "QToolButton:pressed { background:#10101f; }"
+        )
+
+    def _make_pair_jump_button(self, db_key_a: int, db_key_b: int) -> QToolButton:
+        jump_btn = QToolButton()
+        jump_btn.setText("↗")
+        jump_btn.setCursor(Qt.PointingHandCursor)
+        jump_btn.setToolTip(_tr(
+            "room_optimizer.detail.button.jump_to_pair",
+            default="Show these two cats in the Alive Cats view",
+        ))
+        jump_btn.setAutoRaise(True)
+        jump_btn.setFixedSize(24, 22)
+        jump_btn.setStyleSheet(self._pair_jump_button_style())
+        if self._navigate_to_pair_callback is not None:
+            jump_btn.clicked.connect(
+                lambda checked=False, ak=db_key_a, bk=db_key_b: self._navigate_to_pair_callback(ak, bk)
+            )
+        else:
+            jump_btn.setEnabled(False)
+        return jump_btn
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setStyleSheet(
@@ -110,6 +146,7 @@ class SafeBreedingView(QWidget):
         self._lover_key_map: dict[int, set[int]] = {}
         self._hater_key_map: dict[int, set[int]] = {}
         self._parent_key_map: dict[int, set[int]] = {}
+        self._navigate_to_pair_callback = None
 
         root = QHBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
@@ -165,10 +202,12 @@ class SafeBreedingView(QWidget):
         self._table.horizontalHeader().setStretchLastSection(False)
         for col in range(self._QUALITY_COLUMN_COUNT):
             self._table.horizontalHeader().setSectionResizeMode(col, QHeaderView.Interactive)
-        self._table.setItemDelegateForColumn(0, SafeBreedingView._ColumnPaddingDelegate(24, 8, self._table))
-        self._table.setColumnWidth(0, 180)
-        self._table.setColumnWidth(1, 100)
-        self._table.setColumnWidth(2, 78)
+        self._table.horizontalHeader().setSectionResizeMode(self._PAIR_JUMP_COL, QHeaderView.Fixed)
+        self._table.setItemDelegateForColumn(self._QUALITY_CAT_COL, SafeBreedingView._ColumnPaddingDelegate(24, 8, self._table))
+        self._table.setColumnWidth(self._PAIR_JUMP_COL, 34)
+        self._table.setColumnWidth(self._QUALITY_CAT_COL, 180)
+        self._table.setColumnWidth(self._QUALITY_QUALITY_COL, 72)
+        self._table.setColumnWidth(self._QUALITY_RISK_COL, 60)
         for col in range(self._QUALITY_STAT_START, self._QUALITY_STAT_START + len(STAT_NAMES)):
             self._table.setColumnWidth(col, 56)
         self._table.setColumnWidth(self._QUALITY_SUM_COL, 60)
@@ -218,37 +257,49 @@ class SafeBreedingView(QWidget):
         self._quality_btn.setStyleSheet(self._mode_button_style(quality_active, "#2a3a5a", "#4a6a9a"))
 
     def _apply_mode_headers(self):
-        labels = [
-            _tr("safe_breeding.table.cat", default="Partner"),
-            _tr("safe_breeding.table.quality", default="Quality"),
-            _tr("safe_breeding.table.risk"),
-            *[stat.upper() for stat in STAT_NAMES],
-            _tr("table.column.sum"),
-            _tr("table.column.aggression"),
-            _tr("table.column.libido"),
-            _tr("table.column.inbred"),
-            _tr("safe_breeding.table.shared_ancestors", default="Shared Anc."),
-            _tr("safe_breeding.table.recent_shared_ancestors", default="Recent Shared"),
-            _tr("table.column.mutations"),
-            _tr("table.column.abilities"),
-            _tr("safe_breeding.table.notes", default="Notes"),
-        ]
+        if self._quality_mode:
+            labels = [
+                "",
+                _tr("safe_breeding.table.cat", default="Partner"),
+                _tr("safe_breeding.table.quality", default="Quality"),
+                _tr("safe_breeding.table.risk"),
+                *[stat.upper() for stat in STAT_NAMES],
+                _tr("table.column.sum"),
+                _tr("table.column.aggression"),
+                _tr("table.column.libido"),
+                _tr("table.column.inbred"),
+                _tr("safe_breeding.table.shared_ancestors", default="Shared Anc."),
+                _tr("safe_breeding.table.recent_shared_ancestors", default="Recent Shared"),
+                _tr("table.column.mutations"),
+                _tr("table.column.abilities"),
+                _tr("safe_breeding.table.notes", default="Notes"),
+            ]
+        else:
+            labels = [
+                "",
+                _tr("safe_breeding.table.cat", default="Partner"),
+                _tr("safe_breeding.table.risk"),
+                _tr("safe_breeding.table.shared_ancestors", default="Shared Anc."),
+                _tr("safe_breeding.table.outcome", default="Result"),
+            ] + [""] * (self._QUALITY_COLUMN_COUNT - 5)
         self._table.setHorizontalHeaderLabels(labels)
         if self._quality_mode:
             self._table.verticalHeader().setDefaultSectionSize(30)
-            self._table.setColumnWidth(0, 168)
-            self._table.setColumnWidth(1, 72)
-            self._table.setColumnWidth(2, 60)
-            for col in range(self._QUALITY_STAT_START, self._QUALITY_NOTES_COL + 1):
+            self._table.setColumnWidth(self._PAIR_JUMP_COL, 34)
+            self._table.setColumnWidth(self._QUALITY_CAT_COL, 168)
+            self._table.setColumnWidth(self._QUALITY_QUALITY_COL, 72)
+            self._table.setColumnWidth(self._QUALITY_RISK_COL, 60)
+            for col in range(self._QUALITY_COLUMN_COUNT):
                 self._table.setColumnHidden(col, False)
         else:
             self._table.verticalHeader().setDefaultSectionSize(22)
-            self._table.setColumnWidth(0, 180)
-            self._table.setColumnWidth(1, 86)
-            self._table.setColumnWidth(2, 94)
-            self._table.setColumnWidth(3, 120)
-            for col in range(self._QUALITY_STAT_START, self._QUALITY_NOTES_COL + 1):
-                self._table.setColumnHidden(col, True)
+            self._table.setColumnWidth(self._PAIR_JUMP_COL, 34)
+            self._table.setColumnWidth(self._SAFE_CAT_COL, 180)
+            self._table.setColumnWidth(self._SAFE_RISK_COL, 86)
+            self._table.setColumnWidth(self._SAFE_SHARED_COL, 94)
+            self._table.setColumnWidth(self._SAFE_OUTCOME_COL, 120)
+            for col in range(self._QUALITY_COLUMN_COUNT):
+                self._table.setColumnHidden(col, col >= 5)
 
     @staticmethod
     def _metric_item(label: str, bg: QColor, tooltip: str, *, row_bg: QColor | None = None, align=Qt.AlignCenter) -> QTableWidgetItem:
@@ -342,6 +393,12 @@ class SafeBreedingView(QWidget):
         self._apply_mode_headers()
         if refresh:
             self._refresh_list()
+
+    def set_navigate_to_pair_callback(self, callback: Callable[[int, int], None] | None):
+        self._navigate_to_pair_callback = callback
+        current = self._focused_cat()
+        if current is not None:
+            self._render_for(current)
 
     def _focused_cat(self) -> Optional[Cat]:
         current = self._list.currentItem()
@@ -685,10 +742,11 @@ class SafeBreedingView(QWidget):
                         if row_fg is not None:
                             it.setForeground(QBrush(row_fg))
                 outcome_item.setForeground(QBrush(risk_color))
-                self._table.setItem(row, 0, name_item)
-                self._table.setItem(row, 1, risk_item)
-                self._table.setItem(row, 2, shared_item)
-                self._table.setItem(row, 3, outcome_item)
+                self._table.setCellWidget(row, self._PAIR_JUMP_COL, self._make_pair_jump_button(cat.db_key, other.db_key))
+                self._table.setItem(row, self._SAFE_CAT_COL, name_item)
+                self._table.setItem(row, self._SAFE_RISK_COL, risk_item)
+                self._table.setItem(row, self._SAFE_SHARED_COL, shared_item)
+                self._table.setItem(row, self._SAFE_OUTCOME_COL, outcome_item)
                 continue
 
             quality_item = QTableWidgetItem(f"{float(item['quality']):.1f}")
@@ -780,9 +838,10 @@ class SafeBreedingView(QWidget):
                     default="Quality blends offspring stat expectations, risk, and bonus signals.",
                 )
             )
-            self._table.setItem(row, 0, name_item)
-            self._table.setItem(row, 1, quality_item)
-            self._table.setItem(row, 2, risk_item)
+            self._table.setCellWidget(row, self._PAIR_JUMP_COL, self._make_pair_jump_button(cat.db_key, other.db_key))
+            self._table.setItem(row, self._QUALITY_CAT_COL, name_item)
+            self._table.setItem(row, self._QUALITY_QUALITY_COL, quality_item)
+            self._table.setItem(row, self._QUALITY_RISK_COL, risk_item)
             for idx, stat_item in enumerate(stat_items, start=self._QUALITY_STAT_START):
                 self._table.setItem(row, idx, stat_item)
             self._table.setItem(row, self._QUALITY_SUM_COL, sum_item)

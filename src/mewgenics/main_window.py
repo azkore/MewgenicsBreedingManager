@@ -1373,6 +1373,7 @@ class MainWindow(QMainWindow):
         self._tree_view.hide()
         vb.addWidget(self._tree_view, 1)
         self._safe_breeding_view = SafeBreedingView(self)
+        self._safe_breeding_view.set_navigate_to_pair_callback(self._navigate_to_cat_pair)
         self._safe_breeding_view.hide()
         vb.addWidget(self._safe_breeding_view, 1)
         self._breeding_partners_view = BreedingPartnersView(self)
