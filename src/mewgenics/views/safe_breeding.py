@@ -13,17 +13,26 @@ from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QColor, QBrush, QPalette
 
 from save_parser import (
-    Cat, STAT_NAMES, can_breed, risk_percent, shared_ancestor_counts, _ancestor_depths,
+    Cat, STAT_NAMES, can_breed, kinship_coi, risk_percent, shared_ancestor_counts, _ancestor_depths,
 )
 from breeding import score_pair, PairFactors
 from mewgenics.models.breeding_cache import BreedingCache
 from mewgenics.utils.localization import _tr
+from mewgenics.utils.calibration import _trait_label_from_value, _trait_level_color
 from mewgenics.utils.tags import _cat_tags, _make_tag_icon
-from mewgenics.utils.styling import _enforce_min_font_in_widget_tree
+from mewgenics.utils.styling import _enforce_min_font_in_widget_tree, _blend_qcolor
 
 
 class SafeBreedingView(QWidget):
     """Dedicated view for ranking alive breeding candidates."""
+    _QUALITY_COLUMN_COUNT = 17
+    _QUALITY_STAT_START = 3
+    _QUALITY_SUM_COL = _QUALITY_STAT_START + len(STAT_NAMES)
+    _QUALITY_TRAIT_START = _QUALITY_SUM_COL + 1
+    _QUALITY_COMP_COL = _QUALITY_TRAIT_START + 3
+    _QUALITY_PERSON_COL = _QUALITY_COMP_COL + 1
+    _QUALITY_NOTES_COL = _QUALITY_PERSON_COL + 1
+
     class _ColumnPaddingDelegate(QStyledItemDelegate):
         def __init__(self, extra_width: int, left_padding: int = 0, parent=None):
             super().__init__(parent)
@@ -138,7 +147,7 @@ class SafeBreedingView(QWidget):
         mode_layout.addWidget(self._risk_btn)
         mode_layout.addStretch(1)
 
-        self._table = QTableWidget(0, 7)
+        self._table = QTableWidget(0, self._QUALITY_COLUMN_COUNT)
         self._table.setIconSize(QSize(60, 20))
         self._table.verticalHeader().setVisible(False)
         self._table.verticalHeader().setDefaultSectionSize(22)
@@ -149,21 +158,21 @@ class SafeBreedingView(QWidget):
         self._table.setSortingEnabled(False)
         self._table.setContextMenuPolicy(Qt.CustomContextMenu)
         self._table.horizontalHeader().setStretchLastSection(False)
-        self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Interactive)
-        self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Interactive)
-        self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Interactive)
-        self._table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Interactive)
-        self._table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Interactive)
-        self._table.horizontalHeader().setSectionResizeMode(5, QHeaderView.Interactive)
-        self._table.horizontalHeader().setSectionResizeMode(6, QHeaderView.Interactive)
+        for col in range(self._QUALITY_COLUMN_COUNT):
+            self._table.horizontalHeader().setSectionResizeMode(col, QHeaderView.Interactive)
         self._table.setItemDelegateForColumn(0, SafeBreedingView._ColumnPaddingDelegate(24, 8, self._table))
         self._table.setColumnWidth(0, 180)
         self._table.setColumnWidth(1, 100)
         self._table.setColumnWidth(2, 78)
-        self._table.setColumnWidth(3, 120)
-        self._table.setColumnWidth(4, 115)
-        self._table.setColumnWidth(5, 110)
-        self._table.setColumnWidth(6, 180)
+        for col in range(self._QUALITY_STAT_START, self._QUALITY_STAT_START + len(STAT_NAMES)):
+            self._table.setColumnWidth(col, 58)
+        self._table.setColumnWidth(self._QUALITY_SUM_COL, 64)
+        self._table.setColumnWidth(self._QUALITY_TRAIT_START + 0, 70)
+        self._table.setColumnWidth(self._QUALITY_TRAIT_START + 1, 60)
+        self._table.setColumnWidth(self._QUALITY_TRAIT_START + 2, 74)
+        self._table.setColumnWidth(self._QUALITY_COMP_COL, 96)
+        self._table.setColumnWidth(self._QUALITY_PERSON_COL, 90)
+        self._table.setColumnWidth(self._QUALITY_NOTES_COL, 180)
         self._table.horizontalHeader().setSortIndicatorShown(False)
 
         rv.addWidget(self._mode_bar)
@@ -202,74 +211,78 @@ class SafeBreedingView(QWidget):
         self._quality_btn.setStyleSheet(self._mode_button_style(quality_active, "#2a3a5a", "#4a6a9a"))
 
     def _apply_mode_headers(self):
+        labels = [
+            _tr("safe_breeding.table.cat", default="Partner"),
+            _tr("safe_breeding.table.quality", default="Quality"),
+            _tr("safe_breeding.table.risk"),
+            *[stat.upper() for stat in STAT_NAMES],
+            _tr("table.column.sum"),
+            _tr("table.column.aggression"),
+            _tr("table.column.libido"),
+            _tr("table.column.inbred"),
+            _tr("safe_breeding.table.complementarity", default="Complementarity"),
+            _tr("safe_breeding.table.personality", default="Personality"),
+            _tr("safe_breeding.table.notes", default="Notes"),
+        ]
+        self._table.setHorizontalHeaderLabels(labels)
         if self._quality_mode:
-            labels = [
-                _tr("safe_breeding.table.cat", default="Partner"),
-                _tr("safe_breeding.table.quality", default="Quality"),
-                _tr("safe_breeding.table.risk"),
-                "Stats + Sum",
-                _tr("safe_breeding.table.complementarity", default="Complementarity"),
-                _tr("safe_breeding.table.personality", default="Personality"),
-                _tr("safe_breeding.table.notes", default="Notes"),
-            ]
-            self._table.verticalHeader().setDefaultSectionSize(38)
+            self._table.verticalHeader().setDefaultSectionSize(30)
             self._table.setColumnWidth(0, 168)
             self._table.setColumnWidth(1, 72)
             self._table.setColumnWidth(2, 60)
-            self._table.setColumnWidth(3, 228)
-            self._table.setColumnWidth(4, 96)
-            self._table.setColumnWidth(5, 90)
-            self._table.setColumnWidth(6, 168)
-            for col in range(4, 7):
+            for col in range(self._QUALITY_STAT_START, self._QUALITY_NOTES_COL + 1):
                 self._table.setColumnHidden(col, False)
         else:
-            labels = [
-                _tr("safe_breeding.table.cat", default="Partner"),
-                _tr("safe_breeding.table.risk"),
-                _tr("safe_breeding.table.shared_ancestors"),
-                _tr("safe_breeding.table.child_outcome"),
-                "",
-                "",
-                "",
-            ]
             self._table.verticalHeader().setDefaultSectionSize(22)
             self._table.setColumnWidth(0, 180)
             self._table.setColumnWidth(1, 86)
             self._table.setColumnWidth(2, 94)
             self._table.setColumnWidth(3, 120)
-            for col in range(4, 7):
+            for col in range(self._QUALITY_STAT_START, self._QUALITY_NOTES_COL + 1):
                 self._table.setColumnHidden(col, True)
-        self._table.setHorizontalHeaderLabels(labels)
 
     @staticmethod
-    def _expected_stats_caption(projection: dict) -> str:
-        expected_stats = projection.get("expected_stats", {})
-        first_line: list[str] = []
-        second_line: list[str] = []
-        for stat in STAT_NAMES[:4]:
-            value = float(expected_stats.get(stat, 0.0))
-            first_line.append(f"{stat} {value:.1f}")
-        for stat in STAT_NAMES[4:]:
-            value = float(expected_stats.get(stat, 0.0))
-            second_line.append(f"{stat} {value:.1f}")
-        total = sum(float(expected_stats.get(stat, 0.0)) for stat in STAT_NAMES)
-        return "\n".join([
-            " | ".join(first_line),
-            " | ".join(second_line) + f" | Sum {total:.1f}",
-        ])
+    def _metric_item(label: str, bg: QColor, tooltip: str, *, row_bg: QColor | None = None, align=Qt.AlignCenter) -> QTableWidgetItem:
+        item = QTableWidgetItem(label)
+        item.setTextAlignment(align)
+        if row_bg is not None:
+            bg = _blend_qcolor(bg, row_bg, 0.35)
+        item.setBackground(QBrush(bg))
+        item.setForeground(QBrush(QColor(255, 255, 255)))
+        item.setToolTip(tooltip)
+        return item
 
     @staticmethod
-    def _expected_stats_tooltip(projection: dict) -> str:
+    def _projected_stat_item(stat: str, projection: dict, *, row_bg: QColor | None = None) -> QTableWidgetItem:
         expected_stats = projection.get("expected_stats", {})
         stat_ranges = projection.get("stat_ranges", {})
-        lines = ["Projected stats:"]
-        for stat in STAT_NAMES:
-            lo, hi = stat_ranges.get(stat, (0, 0))
-            expected = float(expected_stats.get(stat, hi))
-            lines.append(f"{stat}: {lo}-{hi} (expected {expected:.1f})")
+        lo, hi = stat_ranges.get(stat, (0, 0))
+        expected = float(expected_stats.get(stat, hi))
+        label = f"{lo}" if lo == hi else f"{lo}-{hi}"
+        color_key = max(1, min(20, max(lo, hi)))
+        bg = SafeBreedingView._stat_tint(STAT_COLORS.get(color_key, QColor(100, 100, 115)), strength=0.22, lift=18)
+        tip = f"Projected {stat}: {lo}-{hi} (expected {expected:.1f})"
+        return SafeBreedingView._metric_item(label, bg, tip, row_bg=row_bg)
+
+    @staticmethod
+    def _projected_sum_item(projection: dict, expected_sum: float, *, row_bg: QColor | None = None) -> QTableWidgetItem:
         sum_lo, sum_hi = projection.get("sum_range", (0, 0))
-        lines.append(f"Sum range: {sum_lo}-{sum_hi}")
-        return "\n".join(lines)
+        label = f"{sum_lo}" if sum_lo == sum_hi else f"{sum_lo}-{sum_hi}"
+        avg_expected = float(projection.get("avg_expected", 0.0))
+        seven_plus = float(projection.get("seven_plus_total", 0.0))
+        color_key = max(1, min(20, int(round(avg_expected)) or 1))
+        bg = SafeBreedingView._stat_tint(STAT_COLORS.get(color_key, QColor(100, 100, 115)), strength=0.20, lift=18)
+        tip = f"Sum range: {sum_lo}-{sum_hi} | Avg {avg_expected:.1f} | 7+ {seven_plus:.1f}/7"
+        item = SafeBreedingView._metric_item(label, bg, tip, row_bg=row_bg)
+        item.setData(Qt.UserRole, float(expected_sum))
+        return item
+
+    @staticmethod
+    def _projected_trait_item(field: str, value: float, *, row_bg: QColor | None = None) -> QTableWidgetItem:
+        label = _trait_label_from_value(field, value) or "unknown"
+        bg = _trait_level_color(label)
+        tip = f"{field.title()}: {value:.3f} ({label})"
+        return SafeBreedingView._metric_item(label, bg, tip, row_bg=row_bg)
 
     def set_quality_mode(self, enabled: bool, refresh: bool = True):
         enabled = bool(enabled)
@@ -521,7 +534,13 @@ class SafeBreedingView(QWidget):
                 notes.append(_tr("safe_breeding.notes.loved", default="Lover pair"))
 
             if self._quality_mode and quality_factors is not None:
-                expected_sum = sum(quality_factors.projection.expected_stats.values())
+                projection = quality_factors.projection
+                expected_sum = sum(projection.expected_stats.values())
+                trait_values = {
+                    "aggression": (getattr(cat, "aggression", 0.0) + getattr(other, "aggression", 0.0)) / 2.0,
+                    "libido": (getattr(cat, "libido", 0.0) + getattr(other, "libido", 0.0)) / 2.0,
+                    "inbredness": kinship_coi(cat, other),
+                }
                 if quality_factors.must_breed_bonus:
                     notes.append(_tr("safe_breeding.notes.must_breed", default="Must breed"))
                 if quality_factors.lover_bonus:
@@ -534,10 +553,11 @@ class SafeBreedingView(QWidget):
                     "cat": other,
                     "quality": float(quality_factors.quality),
                     "risk": float(rel),
-                    "projection": quality_factors.projection,
+                    "projection": projection,
                     "expected_sum": float(expected_sum),
                     "complementarity": float(quality_factors.complementarity_bonus),
                     "personality": float(quality_factors.personality_bonus),
+                    "trait_values": trait_values,
                     "notes": notes,
                     "row_bg": row_bg,
                     "row_fg": row_fg,
@@ -606,12 +626,13 @@ class SafeBreedingView(QWidget):
             quality_item = QTableWidgetItem(f"{float(item['quality']):.1f}")
             risk_pct = int(round(float(item["risk"])))
             risk_item = QTableWidgetItem(f"{risk_pct}%")
-            expected_item = QTableWidgetItem(self._expected_stats_caption(item["projection"]))
+            projection = item["projection"]
+            expected_sum = float(item["expected_sum"])
             complementarity_item = QTableWidgetItem(f"{float(item['complementarity']):.1f}")
             personality_item = QTableWidgetItem(f"{float(item['personality']):.1f}")
             notes_item = QTableWidgetItem("; ".join(item.get("notes", [])) or "—")
             if row_bg is not None:
-                for it in (quality_item, risk_item, expected_item, complementarity_item, personality_item, notes_item):
+                for it in (quality_item, risk_item, complementarity_item, personality_item, notes_item):
                     it.setBackground(QBrush(row_bg))
                     if row_fg is not None:
                         it.setForeground(QBrush(row_fg))
@@ -619,18 +640,33 @@ class SafeBreedingView(QWidget):
             name_item = QTableWidgetItem(name_text)
             if not icon.isNull():
                 name_item.setIcon(icon)
-            for it in (name_item, quality_item, risk_item, expected_item, complementarity_item, personality_item):
+            for it in (name_item, quality_item, risk_item, complementarity_item, personality_item):
                 it.setTextAlignment(Qt.AlignCenter)
-            expected_item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-            notes_item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
             font = quality_item.font()
             font.setBold(True)
             quality_item.setFont(font)
             if row_fg is None:
                 quality_item.setForeground(QBrush(QColor(98, 194, 135)))
             risk_item.setData(Qt.UserRole, risk_pct)
-            expected_item.setData(Qt.UserRole, float(item["expected_sum"]))
-            expected_item.setToolTip(self._expected_stats_tooltip(item["projection"]))
+            stat_items = [
+                self._projected_stat_item(stat, projection, row_bg=row_bg)
+                for stat in STAT_NAMES
+            ]
+            sum_item = self._projected_sum_item(projection, expected_sum, row_bg=row_bg)
+            trait_values = item.get("trait_values", {})
+            trait_items = [
+                self._projected_trait_item(field, float(trait_values.get(field, 0.0)), row_bg=row_bg)
+                for field in ("aggression", "libido", "inbredness")
+            ]
+            for it in (name_item, quality_item, risk_item, complementarity_item, personality_item, notes_item):
+                it.setTextAlignment(Qt.AlignCenter)
+            quality_item.setData(Qt.UserRole, float(item["quality"]))
+            complementarity_item.setData(Qt.UserRole, float(item["complementarity"]))
+            personality_item.setData(Qt.UserRole, float(item["personality"]))
+            complementarity_item.setToolTip(f"Complementarity bonus: {float(item['complementarity']):.1f}")
+            personality_item.setToolTip(f"Personality bonus: {float(item['personality']):.1f}")
+            notes_item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            notes_item.setToolTip("; ".join(item.get("notes", [])) or "—")
             if row_fg is None:
                 risk_item.setForeground(QBrush(QColor(216, 181, 106)))
             quality_item.setToolTip(
@@ -642,9 +678,13 @@ class SafeBreedingView(QWidget):
             self._table.setItem(row, 0, name_item)
             self._table.setItem(row, 1, quality_item)
             self._table.setItem(row, 2, risk_item)
-            self._table.setItem(row, 3, expected_item)
-            self._table.setItem(row, 4, complementarity_item)
-            self._table.setItem(row, 5, personality_item)
-            self._table.setItem(row, 6, notes_item)
+            for idx, stat_item in enumerate(stat_items, start=self._QUALITY_STAT_START):
+                self._table.setItem(row, idx, stat_item)
+            self._table.setItem(row, self._QUALITY_SUM_COL, sum_item)
+            for idx, trait_item in enumerate(trait_items, start=self._QUALITY_TRAIT_START):
+                self._table.setItem(row, idx, trait_item)
+            self._table.setItem(row, self._QUALITY_COMP_COL, complementarity_item)
+            self._table.setItem(row, self._QUALITY_PERSON_COL, personality_item)
+            self._table.setItem(row, self._QUALITY_NOTES_COL, notes_item)
 
         self._apply_mode_headers()
