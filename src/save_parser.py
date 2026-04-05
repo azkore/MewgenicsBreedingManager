@@ -274,6 +274,13 @@ class GameData:
                     offset += size
 
                 game_strings = _load_gpak_text_strings(f, file_offsets)
+                mutation_strings = _load_gpak_csv_strings(
+                    f,
+                    file_offsets,
+                    "data/text/mutations.csv",
+                    key_column="KEY",
+                    value_column="en",
+                )
                 furniture_strings = _load_gpak_csv_strings(
                     f,
                     file_offsets,
@@ -291,7 +298,7 @@ class GameData:
                         category = fname.split("/")[-1].replace(".gon", "")
                         f.seek(foff)
                         content = f.read(fsz).decode("utf-8", errors="replace")
-                        result[category] = _parse_mutation_gon(content, game_strings, category)
+                        result[category] = _parse_mutation_gon(content, game_strings, category, mutation_strings)
                     elif fname == "data/furniture_effects.gon":
                         f.seek(foff)
                         content = f.read(fsz).decode("utf-8", errors="replace")
@@ -461,9 +468,15 @@ def _resolve_game_string(value: str, game_strings: dict[str, str]) -> str:
     return current
 
 
-def _parse_mutation_gon(content: str, game_strings: dict[str, str], category: str) -> dict[int, tuple[str, str]]:
+def _parse_mutation_gon(
+    content: str,
+    game_strings: dict[str, str],
+    category: str,
+    mutation_strings: dict[str, str] | None = None,
+) -> dict[int, tuple[str, str]]:
     """Parse a mutation GON file into {slot_id: (display_name, stat_desc)}."""
     result: dict[int, tuple[str, str]] = {}
+    mutation_strings = mutation_strings or {}
     csv_prefix = f"MUTATION_{category.upper()}_"
 
     def _extract_block(start_pos: int) -> tuple[str, int]:
@@ -481,7 +494,9 @@ def _parse_mutation_gon(content: str, game_strings: dict[str, str], category: st
         raw_name = name_match.group(1).strip().title() if name_match else f"Mutation {slot_id}"
         raw_name = re.sub(r"\s*\(.*", "", raw_name).strip() or raw_name
         csv_key = f"{csv_prefix}{slot_id}_DESC"
-        if csv_key in game_strings:
+        if csv_key in mutation_strings:
+            stat_desc = _resolve_game_string(mutation_strings[csv_key], game_strings).strip().rstrip(".")
+        elif csv_key in game_strings:
             stat_desc = _resolve_game_string(game_strings[csv_key], game_strings).strip().rstrip(".")
         else:
             header = block.split("{")[0]
@@ -509,7 +524,13 @@ def _parse_mutation_gon(content: str, game_strings: dict[str, str], category: st
     if m2_match:
         block, _ = _extract_block(m2_match.end())
         csv_key_m2 = f"{csv_prefix}M2_DESC"
-        if csv_key_m2 in game_strings:
+        if csv_key_m2 in mutation_strings:
+            name_match = re.search(r"//\s*(.+)", block)
+            raw_name = name_match.group(1).strip().title() if name_match else "Missing Part"
+            raw_name = re.sub(r"\s*\(.*", "", raw_name).strip() or raw_name
+            stat_desc = _resolve_game_string(mutation_strings[csv_key_m2], game_strings).strip().rstrip(".")
+            result[0xFFFFFFFE] = (raw_name, stat_desc)
+        elif csv_key_m2 in game_strings:
             name_match = re.search(r"//\s*(.+)", block)
             raw_name = name_match.group(1).strip().title() if name_match else "Missing Part"
             raw_name = re.sub(r"\s*\(.*", "", raw_name).strip() or raw_name
