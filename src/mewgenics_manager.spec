@@ -26,6 +26,7 @@ a = Analysis(
         'mewgenics.utils.localization',
         'mewgenics.utils.styling',
         'mewgenics.utils.tags',
+        'mewgenics.utils.ability_icons',
         'mewgenics.utils.thresholds',
         'mewgenics.utils.optimizer_settings',
         'mewgenics.utils.planner_state',

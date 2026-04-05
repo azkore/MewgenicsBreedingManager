@@ -5,6 +5,7 @@ from save_parser import GameData, FurnitureDefinition, set_visual_mut_data
 
 from mewgenics.utils.config import _load_app_config, _save_app_config, _candidate_gpak_paths
 from mewgenics.utils.abilities import _load_ability_descriptions, _ABILITY_DESC
+from mewgenics.utils.ability_icons import _reload_ability_icon_cache
 from mewgenics.utils.tags import _load_game_tag_definitions
 
 
@@ -31,6 +32,7 @@ def _reload_game_data():
     _SWF_SYMBOL_DATA = {key: list(value) for key, value in game_data.swf_symbol_data.items()}
     set_visual_mut_data(_VISUAL_MUT_DATA)
     _load_game_tag_definitions(_GAME_TAG_DEFS)
+    _reload_ability_icon_cache(_GPAK_PATH)
 
 
 def _set_gpak_path(path: str):

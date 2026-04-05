@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QDialog, QToolButton, QMenu,
 )
 from PySide6.QtCore import Qt, Signal, QTimer, QItemSelectionModel
-from PySide6.QtGui import QColor, QBrush, QFont
+from PySide6.QtGui import QColor, QBrush, QFont, QPixmap
 
 from save_parser import (
     Cat, STAT_NAMES,
@@ -34,6 +34,10 @@ from mewgenics.utils.abilities import (
     _ability_effect_lines, _mutation_effect_lines,
     _mutation_effect_components,
     _trait_inheritance_probabilities,
+)
+from mewgenics.utils.ability_icons import (
+    get_ability_icon_pixmap as _ability_icon_pixmap,
+    get_passive_icon_pixmap as _passive_icon_pixmap,
 )
 from mewgenics.utils.game_data import _GPAK_PATH
 from mewgenics.utils.tags import _game_tag_color, _game_tag_tooltip
@@ -68,7 +72,7 @@ def _wrapped_chip_block(items, tooltip_fn=None, display_fn=None, max_per_row: in
 
 
 class ChipRow(QWidget):
-    def __init__(self, items, tooltip_fn=None, display_fn=None):
+    def __init__(self, items, tooltip_fn=None, display_fn=None, icon_fn=None, defect: bool = False, icon_size: int = 16):
         super().__init__()
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
@@ -80,7 +84,45 @@ class ChipRow(QWidget):
             else:
                 text = display_fn(item) if display_fn else item
                 tip = tooltip_fn(item) if tooltip_fn else ""
-            row.addWidget(_chip(text, tip))
+            pixmap = None
+            if icon_fn is not None:
+                try:
+                    pixmap = icon_fn(item if not isinstance(item, tuple) else item[0], icon_size)
+                except Exception:
+                    pixmap = None
+            if pixmap is not None and not pixmap.isNull():
+                chip = QFrame()
+                chip.setObjectName("abilityChip")
+                chip.setStyleSheet(
+                    "QFrame#abilityChip { background:#252545; color:#ccc; border-radius:6px;"
+                    " padding:2px 7px; font-size:11px; }"
+                    if not defect else
+                    "QFrame#abilityChip { background:#3a1a1a; color:#e0a0a0; border-radius:6px;"
+                    " padding:2px 7px; font-size:11px; }"
+                )
+                chip_row = QHBoxLayout(chip)
+                chip_row.setContentsMargins(0, 0, 0, 0)
+                chip_row.setSpacing(4)
+                icon_lbl = QLabel()
+                icon_lbl.setPixmap(pixmap)
+                icon_lbl.setFixedSize(icon_size, icon_size)
+                icon_lbl.setStyleSheet("background:transparent;")
+                text_lbl = QLabel(text)
+                text_lbl.setStyleSheet(
+                    "background:transparent; color:#ccc; font-size:11px;"
+                    if not defect else
+                    "background:transparent; color:#e0a0a0; font-size:11px;"
+                )
+                chip_row.addWidget(icon_lbl)
+                chip_row.addWidget(text_lbl)
+                chip_row.addStretch()
+                if tip:
+                    chip.setToolTip(tip)
+                    icon_lbl.setToolTip(tip)
+                    text_lbl.setToolTip(tip)
+                row.addWidget(chip)
+            else:
+                row.addWidget(_defect_chip(text, tip) if defect else _chip(text, tip))
         row.addStretch()
 
 
@@ -467,13 +509,14 @@ class CatDetailPanel(QWidget):
             root.addWidget(_vsep())
             ab = QVBoxLayout(); ab.setSpacing(4)
             ab.addWidget(_sec("ABILITIES"))
-            ab.addWidget(ChipRow(cat.abilities, tooltip_fn=_ability_tip))
+            ab.addWidget(ChipRow(cat.abilities, tooltip_fn=_ability_tip, icon_fn=_ability_icon_pixmap))
             if cat.passive_abilities:
                 ab.addWidget(_sec("PASSIVE"))
                 ab.addWidget(ChipRow(
                     cat.passive_abilities,
                     tooltip_fn=_ability_tip,
                     display_fn=lambda n: f"● {_mutation_display_name(n)}",
+                    icon_fn=_passive_icon_pixmap,
                 ))
             if cat.disorders:
                 ab.addWidget(_sec("DISORDERS"))
@@ -481,6 +524,8 @@ class CatDetailPanel(QWidget):
                     cat.disorders,
                     tooltip_fn=_ability_tip,
                     display_fn=lambda n: f"⚠ {_mutation_display_name(n)}",
+                    icon_fn=_passive_icon_pixmap,
+                    defect=True,
                 ))
             ability_lines = _ability_effect_lines(cat)
             if ability_lines:
