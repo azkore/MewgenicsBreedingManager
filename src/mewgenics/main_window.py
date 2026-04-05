@@ -1018,7 +1018,10 @@ class MainWindow(QMainWindow):
         _refresh_localized_constants()
         self._build_menu()
         if getattr(self, "_fight_club_layout_active", False):
-            self._apply_fight_club_layout(True, force=True)
+            if current_room_key == "__fight_club__":
+                self._apply_fight_club_layout(True, force=True)
+            else:
+                self._apply_fight_club_layout(False, force=True)
         self._filters_section_label.setText(_tr("sidebar.section.filters"))
         self._breeding_section_label.setText(_tr("sidebar.section.breeding"))
         self._info_section_label.setText(_tr("sidebar.section.info"))
@@ -1505,7 +1508,7 @@ class MainWindow(QMainWindow):
 
     def _filter(self, room_key, btn: QPushButton):
         if not getattr(self, "_save_view_disabled", False):
-            _save_current_view("fight_club" if room_key == "__fight_club__" else "table")
+            _save_current_view("table")
         self._show_table_view()
         if self._active_btn and self._active_btn is not btn:
             self._active_btn.setChecked(False)
@@ -3121,8 +3124,11 @@ class MainWindow(QMainWindow):
             finally:
                 self._stat_icons_action.blockSignals(False)
         if getattr(self, "_fight_club_layout_active", False):
-            self._fight_club_prev_total_stats = False
-            self._apply_fight_club_layout(True, force=True)
+            if self._current_room_key() == "__fight_club__":
+                self._fight_club_prev_total_stats = False
+                self._apply_fight_club_layout(True, force=True)
+            else:
+                self._apply_fight_club_layout(False, force=True)
 
         if hasattr(self, "_detail_splitter") and self._detail_splitter is not None:
             total = max(20, self._detail_splitter.height())
@@ -3383,7 +3389,7 @@ class MainWindow(QMainWindow):
         view = _load_current_view()
         _restore_map = {
             "tree":               self._show_tree_view,
-            "fight_club":         self._show_fight_club_view,
+            "fight_club":         (lambda: self._filter(None, self._btn_all) if hasattr(self, "_btn_all") else self._show_table_view()),
             "safe_breeding":      self._show_safe_breeding_view,
             "breeding_partners":  self._show_breeding_partners_view,
             "room_optimizer":     self._show_room_optimizer_view,
