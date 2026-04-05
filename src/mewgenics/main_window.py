@@ -1598,14 +1598,12 @@ class MainWindow(QMainWindow):
             self._set_room_action_button_texts()
             return
         if fight_club_view:
-            cats = self._visible_filtered_cats()
-            all_pinned = bool(cats) and all(cat.is_pinned for cat in cats)
-            self._bulk_pin_btn.setCheckable(True)
             self._bulk_pin_btn.blockSignals(True)
-            self._bulk_pin_btn.setChecked(all_pinned)
+            self._bulk_pin_btn.setChecked(False)
+            self._bulk_pin_btn.setCheckable(False)
             self._bulk_pin_btn.setEnabled(True)
-            self._set_bulk_toggle_label(self._bulk_pin_btn, _tr("bulk.pin", default="Pin"), all_pinned)
-            self._bulk_pin_btn.setToolTip(_tr("bulk.toggle_pin.tooltip", default="Toggle pin for selected cats"))
+            self._bulk_pin_btn.setText(_tr("bulk.toggle_pin", default="Toggle Pin"))
+            self._bulk_pin_btn.setToolTip(_tr("bulk.toggle_pin.tooltip", default="Toggle pin on selected cats"))
             self._bulk_pin_btn.blockSignals(False)
             return
         if alive_view:
@@ -1675,12 +1673,7 @@ class MainWindow(QMainWindow):
         self._bulk_pin_btn.blockSignals(False)
 
     def _toggle_blacklist_filtered_cats(self):
-        room_key = None
-        if self._active_btn is not None:
-            for key, btn in self._room_btns.items():
-                if btn is self._active_btn:
-                    room_key = key
-                    break
+        room_key = self._active_room_key()
         alive_view = room_key is None
         exceptional_view = room_key == "__exceptional__"
         if alive_view:
@@ -1718,12 +1711,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(_tr("bulk.status.turned_breeding_block", default="Turned breeding block {state} for {count} cats in the current view", state=state_text, count=changed))
 
     def _toggle_must_breed_filtered_cats(self):
-        room_key = None
-        if self._active_btn is not None:
-            for key, btn in self._room_btns.items():
-                if btn is self._active_btn:
-                    room_key = key
-                    break
+        room_key = self._active_room_key()
         alive_view = room_key is None
         donation_view = room_key == "__donation__"
         if alive_view:
@@ -1761,14 +1749,10 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(_tr("bulk.status.turned_must_breed", default="Turned must breed {state} for {count} cats in the current view", state=state_text, count=changed))
 
     def _toggle_pin_filtered_cats(self):
-        room_key = None
-        if self._active_btn is not None:
-            for key, btn in self._room_btns.items():
-                if btn is self._active_btn:
-                    room_key = key
-                    break
+        room_key = self._active_room_key()
         alive_view = room_key is None
-        if alive_view:
+        fight_club_view = room_key == "__fight_club__"
+        if alive_view or fight_club_view:
             cats = self._selected_cats()
             if not cats:
                 self.statusBar().showMessage(_tr("bulk.status.select_toggle_pin", default="Select cats first, then click Toggle Pin"))
