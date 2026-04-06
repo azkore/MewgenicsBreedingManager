@@ -791,11 +791,6 @@ class MainWindow(QMainWindow):
         vb.addWidget(self._btn_all)
         self._room_btns[None] = self._btn_all
 
-        self._btn_fight_club = _sidebar_btn(_tr("sidebar.button.fight_club", default="Fight Club"))
-        self._btn_fight_club.clicked.connect(lambda: self._filter("__fight_club__", self._btn_fight_club))
-        vb.addWidget(self._btn_fight_club)
-        self._room_btns["__fight_club__"] = self._btn_fight_club
-
         self._btn_exceptional = _sidebar_btn("")
         self._btn_exceptional.setToolTip("")
         self._btn_exceptional.clicked.connect(
@@ -811,6 +806,11 @@ class MainWindow(QMainWindow):
         )
         vb.addWidget(self._btn_donation)
         self._room_btns["__donation__"] = self._btn_donation
+
+        self._btn_fight_club = _sidebar_btn(_tr("sidebar.button.fight_club", default="Fight Club"))
+        self._btn_fight_club.clicked.connect(lambda: self._filter("__fight_club__", self._btn_fight_club))
+        vb.addWidget(self._btn_fight_club)
+        self._room_btns["__fight_club__"] = self._btn_fight_club
 
         vb.addWidget(_hsep())
         self._breeding_section_label = sl(_tr("sidebar.section.breeding"))
@@ -926,13 +926,13 @@ class MainWindow(QMainWindow):
 
         self._btn_everyone.setText(f"{_tr('sidebar.button.all_cats')}  ({total})" if total else _tr("sidebar.button.all_cats"))
         self._btn_all.setText(f"{_tr('sidebar.button.alive_cats')}  ({alive})" if total else _tr("sidebar.button.alive_cats"))
+        self._btn_exceptional.setText(f"{_tr('sidebar.button.exceptional')}  ({exceptional})")
+        self._btn_donation.setText(f"{_tr('sidebar.button.donation_candidates')}  ({donation})")
         if hasattr(self, "_btn_fight_club"):
             self._btn_fight_club.setText(
                 f"{_tr('sidebar.button.fight_club', default='Fight Club')}  ({fight_club})"
                 if total else _tr("sidebar.button.fight_club", default="Fight Club")
             )
-        self._btn_exceptional.setText(f"{_tr('sidebar.button.exceptional')}  ({exceptional})")
-        self._btn_donation.setText(f"{_tr('sidebar.button.donation_candidates')}  ({donation})")
         self._btn_adventure.setText(f"{_tr('sidebar.button.on_adventure')}  ({adv})" if total else _tr("sidebar.button.on_adventure"))
         self._btn_gone.setText(f"{_tr('sidebar.button.gone')}  ({gone})" if total else _tr("sidebar.button.gone"))
         self._btn_room_optimizer.setText(_tr("sidebar.button.room_optimizer"))
