@@ -107,6 +107,8 @@
   "table.column.sexuality": "Sexuality",
   "table.column.generation": "Gen",
   "table.column.source": "Source",
+  "table.column.tags": "Tags",
+  "table.tooltip.tags": "Game tag first, then custom tags, shown as icons.",
   "header.filter.all_cats": "All Cats",
   "header.filter.alive": "Alive",
   "header.filter.exceptional": "Exceptional Cats",

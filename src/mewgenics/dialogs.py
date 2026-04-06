@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QStackedWidget, QTextBrowser, QDialogButtonBox,
 )
 from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QPixmap
 
 from mewgenics.utils.localization import _tr
 from mewgenics.utils.config import (
@@ -26,6 +26,7 @@ from mewgenics.utils.config import (
 from mewgenics.utils.paths import APP_VERSION
 from mewgenics.utils.tags import (
     TAG_PRESET_COLORS, _TAG_DEFS, _save_tag_definitions, _next_tag_id,
+    _import_tag_image,
 )
 from mewgenics.utils.thresholds import (
     _normalize_threshold_preferences,
@@ -302,7 +303,7 @@ class TagManagerDialog(QDialog):
         layout.setSpacing(12)
 
         intro = QLabel(
-            "Create and edit your tag palette. Tags can use a custom color and optional image."
+            "Create and edit your tag palette. Images are copied into the app's tag asset folder and shown as previews."
         )
         intro.setWordWrap(True)
         intro.setStyleSheet("color:#aeb0d2;")
@@ -373,6 +374,14 @@ class TagManagerDialog(QDialog):
         image_row = QHBoxLayout()
         image_row.setSpacing(8)
         image_row.addWidget(QLabel("Image:"))
+        self._image_preview = QLabel("None")
+        self._image_preview.setAlignment(Qt.AlignCenter)
+        self._image_preview.setFixedSize(28, 28)
+        self._image_preview.setStyleSheet(
+            "QLabel { background:#101024; color:#9aa0c7; border:1px solid #2a2a4a;"
+            " border-radius:4px; font-size:9px; }"
+        )
+        image_row.addWidget(self._image_preview)
         self._image_path_label = QLabel("None")
         self._image_path_label.setStyleSheet("color:#9aa0c7;")
         self._image_path_label.setWordWrap(False)
@@ -396,6 +405,7 @@ class TagManagerDialog(QDialog):
         add_layout.addLayout(image_row)
 
         self._selected_image_path = ""
+        self._update_image_preview(self._image_preview, "")
 
         add_btn = QPushButton("Add Tag")
         add_btn.setMinimumHeight(30)
@@ -463,6 +473,30 @@ class TagManagerDialog(QDialog):
                     "QPushButton:hover { background:#34345f; }"
                 )
 
+    def _update_image_preview(self, label: QLabel, path: str, empty_text: str = "None"):
+        label.setAlignment(Qt.AlignCenter)
+        label.setStyleSheet(
+            "QLabel { background:#101024; color:#9aa0c7; border:1px solid #2a2a4a;"
+            " border-radius:4px; font-size:9px; }"
+        )
+        clean = str(path or "").strip()
+        if clean:
+            pix = QPixmap(clean)
+            if not pix.isNull():
+                label.setPixmap(
+                    pix.scaled(
+                        label.size(),
+                        Qt.KeepAspectRatioByExpanding,
+                        Qt.SmoothTransformation,
+                    )
+                )
+                label.setText("")
+                label.setToolTip(os.path.basename(clean))
+                return
+        label.setPixmap(QPixmap())
+        label.setText(empty_text)
+        label.setToolTip(empty_text)
+
     def _open_color_dialog(self, initial_color: str, title: str) -> str | None:
         dlg = TagColorDialog(self, initial_color=initial_color, title=title)
         if dlg.exec() != QDialog.Accepted:
@@ -485,15 +519,22 @@ class TagManagerDialog(QDialog):
             "Images (*.png *.jpg *.jpeg *.bmp *.gif *.webp);;All Files (*.*)",
         )
         if path:
-            self._selected_image_path = path
-            self._image_path_label.setText(os.path.basename(path))
+            copied = _import_tag_image(path)
+            self._selected_image_path = copied or path
+            self._update_image_preview(self._image_preview, self._selected_image_path)
+            self._image_path_label.setText(os.path.basename(self._selected_image_path))
+            self._image_path_label.setToolTip(os.path.basename(self._selected_image_path))
         else:
             self._selected_image_path = ""
+            self._update_image_preview(self._image_preview, "")
             self._image_path_label.setText("None")
+            self._image_path_label.setToolTip("None")
 
     def _clear_new_tag_image(self):
         self._selected_image_path = ""
+        self._update_image_preview(self._image_preview, "")
         self._image_path_label.setText("None")
+        self._image_path_label.setToolTip("None")
 
     def _add_tag(self):
         name = self._name_input.text().strip()
@@ -541,7 +582,7 @@ class TagManagerDialog(QDialog):
     def _set_tag_image(self, tag_id: str, image_path: str):
         for td in _TAG_DEFS:
             if td["id"] == tag_id:
-                td["image_path"] = image_path.strip()
+                td["image_path"] = _import_tag_image(image_path, tag_id) if image_path else ""
                 break
         _save_tag_definitions()
         self._rebuild_list()
@@ -574,6 +615,17 @@ class TagManagerDialog(QDialog):
                 swatch.clicked.connect(lambda checked, tid=tag_id: self._show_color_picker(tid))
                 rl.addWidget(swatch)
 
+                preview = QLabel("None")
+                preview.setAlignment(Qt.AlignCenter)
+                preview.setFixedSize(24, 24)
+                preview.setStyleSheet(
+                    "QLabel { background:#101024; color:#9aa0c7; border:1px solid #2a2a4a;"
+                    " border-radius:4px; font-size:8px; }"
+                )
+                self._update_image_preview(preview, str(td.get("image_path", "") or ""), "None")
+                preview.setToolTip(os.path.basename(str(td.get("image_path", "") or "")) or "No image")
+                rl.addWidget(preview)
+
                 name_edit = QLineEdit(td["name"])
                 name_edit.setMaxLength(20)
                 name_edit.setPlaceholderText("Tag name")
@@ -590,7 +642,7 @@ class TagManagerDialog(QDialog):
                 image_label = QLabel(os.path.basename(str(td.get("image_path", "") or "")) or "No image")
                 image_label.setStyleSheet("color:#9aa0c7; font-size:11px;")
                 image_label.setFixedWidth(150)
-                image_label.setToolTip(str(td.get("image_path", "") or ""))
+                image_label.setToolTip(os.path.basename(str(td.get("image_path", "") or "")) or "No image")
                 rl.addWidget(image_label)
 
                 img_btn = QPushButton("Image…")
@@ -671,7 +723,7 @@ class TagManagerDialog(QDialog):
         path, _ = QFileDialog.getOpenFileName(
             self,
             "Choose tag image",
-            current or str(Path.home()),
+            str(Path(current).expanduser().parent) if current else str(Path.home()),
             "Images (*.png *.jpg *.jpeg *.bmp *.gif *.webp);;All Files (*.*)",
         )
         if path:

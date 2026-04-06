@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QByteArray, QTimer
 from PySide6.QtGui import QColor, QPalette
 
-from mewgenics.constants import COL_ADV
+from mewgenics.constants import COL_ADV, COL_TAGS
 from mewgenics.utils.config import _load_ui_state, _save_ui_state
 
 
@@ -62,8 +62,14 @@ def _save_table_view_state(widget: QWidget):
         return
     header = widget.horizontalHeader()
     key = _table_view_state_key(widget)
+    state_version = widget.property("_table_state_version")
+    try:
+        state_version = int(state_version) if state_version is not None else 1
+    except Exception:
+        state_version = 1
     states = _load_table_view_states()
     states[key] = {
+        "state_version": state_version,
         "header_state": header.saveState().toBase64().data().decode("ascii"),
         "sort_column": header.sortIndicatorSection(),
         "sort_order": int(header.sortIndicatorOrder().value),
@@ -80,10 +86,28 @@ def _restore_table_view_state(widget: QWidget):
     state = _load_table_view_states().get(key)
     if not isinstance(state, dict):
         return
+    expected_version = widget.property("_table_state_version")
+    try:
+        expected_version = int(expected_version) if expected_version is not None else 1
+    except Exception:
+        expected_version = 1
+    state_version = state.get("state_version", 1)
+    try:
+        state_version = int(state_version)
+    except Exception:
+        state_version = 1
     header_state = state.get("header_state", "")
-    if isinstance(header_state, str) and header_state:
+    if expected_version <= 1 or state_version == expected_version:
+        if isinstance(header_state, str) and header_state:
+            try:
+                header.restoreState(QByteArray.fromBase64(header_state.encode("ascii")))
+            except Exception:
+                pass
+    if bool(widget.property("_keep_tags_first")) and COL_TAGS < header.count():
         try:
-            header.restoreState(QByteArray.fromBase64(header_state.encode("ascii")))
+            tags_visual = header.visualIndex(COL_TAGS)
+            if tags_visual >= 0 and tags_visual != 0:
+                header.moveSection(tags_visual, 0)
         except Exception:
             pass
     if bool(widget.property("_keep_adv_ready_last")) and COL_ADV < header.count():
@@ -135,10 +159,28 @@ def _restore_table_view_states(root: Optional[QWidget], states: dict):
             continue
         header = widget.horizontalHeader()
         widget.setSortingEnabled(bool(state.get("sorting_enabled", True)))
+        expected_version = widget.property("_table_state_version")
+        try:
+            expected_version = int(expected_version) if expected_version is not None else 1
+        except Exception:
+            expected_version = 1
+        state_version = state.get("state_version", 1)
+        try:
+            state_version = int(state_version)
+        except Exception:
+            state_version = 1
         header_state = state.get("header_state", "")
-        if isinstance(header_state, str) and header_state:
+        if expected_version <= 1 or state_version == expected_version:
+            if isinstance(header_state, str) and header_state:
+                try:
+                    header.restoreState(QByteArray.fromBase64(header_state.encode("ascii")))
+                except Exception:
+                    pass
+        if bool(widget.property("_keep_tags_first")) and COL_TAGS < header.count():
             try:
-                header.restoreState(QByteArray.fromBase64(header_state.encode("ascii")))
+                tags_visual = header.visualIndex(COL_TAGS)
+                if tags_visual >= 0 and tags_visual != 0:
+                    header.moveSection(tags_visual, 0)
             except Exception:
                 pass
         if bool(widget.property("_keep_adv_ready_last")) and COL_ADV < header.count():

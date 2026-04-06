@@ -1,5 +1,6 @@
 """Tag definitions, icons, and pixmaps."""
 import hashlib
+import shutil
 from typing import Optional
 from pathlib import Path
 
@@ -8,6 +9,7 @@ from PySide6.QtCore import Qt, QPointF, QRectF
 from PySide6.QtGui import QColor, QBrush, QPainter, QPixmap, QIcon, QPen, QPainterPath
 
 from mewgenics.utils.config import _load_app_config, _save_app_config
+from mewgenics.utils.paths import APPDATA_CONFIG_DIR
 
 
 TAG_PRESET_COLORS = [
@@ -21,6 +23,7 @@ _TAG_ICON_CACHE: dict[tuple, QIcon] = {}
 _TAG_PIX_CACHE: dict[tuple, QPixmap] = {}
 _GAME_TAG_ICON_CACHE: dict[tuple, QIcon] = {}
 _GAME_TAG_PIX_CACHE: dict[tuple, QPixmap] = {}
+_CAT_TAG_PIX_CACHE: dict[tuple, QPixmap] = {}
 _PIN_ICON_CACHE: dict[tuple[bool, int], QIcon] = {}
 
 
@@ -124,6 +127,7 @@ def _load_tag_definitions():
         if item is not None:
             normalized.append(item)
     _TAG_DEFS = normalized
+    _CAT_TAG_PIX_CACHE.clear()
 
 
 def _load_game_tag_definitions(tag_defs: Optional[list[dict]] = None):
@@ -137,6 +141,7 @@ def _load_game_tag_definitions(tag_defs: Optional[list[dict]] = None):
     _GAME_TAG_DEFS = normalized
     _GAME_TAG_ICON_CACHE.clear()
     _GAME_TAG_PIX_CACHE.clear()
+    _CAT_TAG_PIX_CACHE.clear()
 
 
 def _save_tag_definitions():
@@ -152,6 +157,7 @@ def _save_tag_definitions():
     _save_app_config(cfg)
     _TAG_ICON_CACHE.clear()
     _TAG_PIX_CACHE.clear()
+    _CAT_TAG_PIX_CACHE.clear()
 
 
 def _game_tag_color(tag_value: str) -> str:
@@ -235,6 +241,158 @@ def _next_tag_id() -> str:
 def _cat_tags(cat) -> list[str]:
     """Safely get tags list from a Cat, handling missing attribute."""
     return getattr(cat, 'tags', None) or []
+
+
+def _tag_asset_dir() -> Path:
+    path = Path(APPDATA_CONFIG_DIR) / "tag_assets"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _sanitize_filename_part(text: str) -> str:
+    cleaned = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(text or "").strip())
+    return cleaned.strip("_") or "tag"
+
+
+def _import_tag_image(source_path: str, tag_id: str | None = None) -> str:
+    source = Path(str(source_path or "")).expanduser()
+    if not source.exists():
+        return ""
+    try:
+        resolved = source.resolve()
+    except Exception:
+        resolved = source
+    target_dir = _tag_asset_dir()
+    try:
+        if target_dir == resolved or target_dir in resolved.parents:
+            return str(resolved)
+    except Exception:
+        pass
+
+    try:
+        payload = resolved.read_bytes()
+    except Exception:
+        payload = None
+    digest = hashlib.sha1(payload if payload is not None else str(resolved).encode("utf-8")).hexdigest()[:16]
+    suffix = resolved.suffix.lower() if resolved.suffix else ".png"
+    prefix = _sanitize_filename_part(tag_id) if tag_id else "tag"
+    filename = f"{prefix}_{digest}{suffix}" if prefix else f"{digest}{suffix}"
+    dest = target_dir / filename
+
+    try:
+        if not dest.exists():
+            shutil.copy2(str(resolved), str(dest))
+        return str(dest)
+    except Exception:
+        return str(resolved)
+
+
+def _tag_defs_in_order(tag_ids: list[str]) -> list[dict]:
+    ordered: list[dict] = []
+    seen: set[str] = set()
+    for tag_id in tag_ids or []:
+        tid = str(tag_id or "").strip()
+        if not tid or tid in seen:
+            continue
+        td = _tag_definition(tid)
+        if td is not None:
+            ordered.append(td)
+            seen.add(tid)
+    return ordered
+
+
+def _cat_tag_entries(cat) -> list[dict]:
+    entries: list[dict] = []
+    game_tag = str(getattr(cat, "name_tag", "") or "").strip()
+    if game_tag:
+        td = _game_tag_definition(game_tag)
+        if td is None:
+            entries.append({
+                "kind": "game",
+                "id": game_tag,
+                "name": game_tag,
+                "color": _game_tag_color(game_tag),
+                "image_path": _game_tag_image_path(game_tag),
+                "tooltip": "",
+                "source": "",
+            })
+        else:
+            entries.append({**td, "kind": "game"})
+    for td in _tag_defs_in_order(_cat_tags(cat)):
+        entries.append({**td, "kind": "custom"})
+    return entries
+
+
+def _cat_tag_labels(cat) -> list[str]:
+    labels: list[str] = []
+    for entry in _cat_tag_entries(cat):
+        name = str(entry.get("name", "") or "").strip()
+        if name:
+            labels.append(name)
+    return labels
+
+
+def _cat_tag_summary(cat) -> str:
+    labels = _cat_tag_labels(cat)
+    return ", ".join(labels) if labels else "—"
+
+
+def _cat_tag_tooltip(cat) -> str:
+    entries = _cat_tag_entries(cat)
+    if not entries:
+        return "No tags assigned"
+    lines: list[str] = []
+    game_labels: list[str] = []
+    custom_labels: list[str] = []
+    for entry in entries:
+        name = str(entry.get("name", "") or "").strip()
+        if not name:
+            continue
+        if entry.get("kind") == "game":
+            game_labels.append(name)
+            tooltip = str(entry.get("tooltip", "") or "").strip()
+            source = str(entry.get("source", "") or "").strip()
+            if tooltip:
+                lines.append(tooltip)
+            if source:
+                lines.append(f"Source: {source}")
+        else:
+            custom_labels.append(name)
+    if game_labels:
+        lines.insert(0, "Game tag: " + ", ".join(game_labels))
+    if custom_labels:
+        lines.append("Custom tags: " + ", ".join(custom_labels))
+    return "\n".join(lines) if lines else "No tags assigned"
+
+
+def _cat_tag_pixmap(cat, dot_size: int = 10, spacing: int = 3) -> Optional[QPixmap]:
+    entries = _cat_tag_entries(cat)
+    if not entries:
+        return None
+    cache_key = tuple(
+        (entry.get("kind"), entry.get("id"), entry.get("color"), entry.get("image_path", ""))
+        for entry in entries
+    ) + (int(dot_size), int(spacing))
+    cached = _CAT_TAG_PIX_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    width = len(entries) * (dot_size + spacing) - spacing + 4
+    height = dot_size + 4
+    pix = QPixmap(width, height)
+    pix.fill(Qt.transparent)
+    painter = QPainter(pix)
+    painter.setRenderHint(QPainter.Antialiasing)
+    for i, entry in enumerate(entries):
+        x = i * (dot_size + spacing) + 2
+        rect = QRectF(x, 2, dot_size, dot_size)
+        if entry.get("kind") == "game":
+            _draw_game_tag_mark(painter, entry, rect, dot_size)
+        else:
+            _draw_tag_mark(painter, entry, rect, dot_size)
+    painter.end()
+    _CAT_TAG_PIX_CACHE[cache_key] = pix
+    return pix
 
 
 def _tag_defs_for_ids(tag_ids: list[str]) -> list[dict]:

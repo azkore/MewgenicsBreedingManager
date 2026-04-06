@@ -28,7 +28,7 @@ from save_parser import (
 )
 
 from mewgenics.constants import (
-    COL_NAME, COL_AGE, COL_GEN, COL_ROOM, COL_STAT, COL_ADV, COL_BL, COL_MB, COL_PIN,
+    COL_NAME, COL_TAGS, COL_AGE, COL_GEN, COL_ROOM, COL_STAT, COL_ADV, COL_BL, COL_MB, COL_PIN,
     STAT_COLS, COL_SUM, COL_AGG, COL_LIB, COL_INBRD, COL_SEXUALITY,
     COL_RELNS, COL_REL, COL_ABIL, COL_MUTS, COL_GEN_DEPTH, COL_SRC,
     _W_STATUS, _W_STAT, _W_GEN, _W_RELNS, _W_REL, _W_TRAIT, _W_TRAIT_NARROW,
@@ -95,7 +95,7 @@ from mewgenics.models.breeding_cache import (
     BreedingCache, BreedingCacheWorker,
     _breeding_cache_fingerprint, _breeding_save_signature,
 )
-from mewgenics.models.cat_table_model import NameTagDelegate, CatTableModel
+from mewgenics.models.cat_table_model import TagStripDelegate, CatTableModel
 from mewgenics.models.room_filter_model import RoomFilterModel
 from mewgenics.workers.save_loader import SaveLoadWorker
 from mewgenics.workers.room_refresh import QuickRoomRefreshWorker
@@ -262,6 +262,7 @@ class MainWindow(QMainWindow):
         self._base_header_height = 46
         self._base_search_width = 180
         self._base_col_widths = {
+            COL_TAGS: 76,
             COL_NAME: 160,
             COL_GEN: _W_GEN,
             COL_STAT: _W_STATUS,
@@ -758,6 +759,27 @@ class MainWindow(QMainWindow):
         col_count = self._table.model().columnCount()
         for col in range(col_count):
             self._table.setColumnHidden(col, col in (COL_GEN_DEPTH, COL_SRC))
+        self._pin_roster_special_columns()
+
+    def _pin_roster_special_columns(self):
+        if not hasattr(self, "_table") or self._table is None or self._table.model() is None:
+            return
+        header = self._table.horizontalHeader()
+        col_count = self._table.model().columnCount()
+        if COL_TAGS < col_count:
+            try:
+                tags_visual = header.visualIndex(COL_TAGS)
+                if tags_visual >= 0 and tags_visual != 0:
+                    header.moveSection(tags_visual, 0)
+            except Exception:
+                pass
+        if COL_ADV < col_count:
+            try:
+                adv_visual = header.visualIndex(COL_ADV)
+                if adv_visual >= 0 and adv_visual != header.count() - 1:
+                    header.moveSection(adv_visual, header.count() - 1)
+            except Exception:
+                pass
 
     # ── Sidebar ────────────────────────────────────────────────────────────
 
@@ -1267,6 +1289,8 @@ class MainWindow(QMainWindow):
         self._table = QTableView()
         self._table.setModel(self._proxy_model)
         self._table.setProperty("_keep_adv_ready_last", True)
+        self._table.setProperty("_keep_tags_first", True)
+        self._table.setProperty("_table_state_version", 2)
         self._table.setSortingEnabled(True)
         self._table.sortByColumn(COL_NAME, Qt.AscendingOrder)
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -1282,10 +1306,13 @@ class MainWindow(QMainWindow):
 
         # Name: interactive so the user can resize it; not Stretch so it
         # doesn't eat the blank space that should sit at the right edge.
+        hh.setSectionResizeMode(COL_TAGS, QHeaderView.Interactive)
+        self._table.setColumnWidth(COL_TAGS, self._base_col_widths[COL_TAGS])
+
         hh.setSectionResizeMode(COL_NAME, QHeaderView.Interactive)
         self._table.setColumnWidth(COL_NAME, self._base_col_widths[COL_NAME])
-        self._name_tag_delegate = NameTagDelegate(self._table)
-        self._table.setItemDelegateForColumn(COL_NAME, self._name_tag_delegate)
+        self._tag_strip_delegate = TagStripDelegate(self._table)
+        self._table.setItemDelegateForColumn(COL_TAGS, self._tag_strip_delegate)
 
         # Room: size to content so it adapts to room name length
         hh.setSectionResizeMode(COL_ROOM, QHeaderView.ResizeToContents)
@@ -2426,7 +2453,7 @@ class MainWindow(QMainWindow):
             for col in (COL_GEN, COL_BL, COL_MB, COL_LIB, COL_INBRD, COL_SEXUALITY, COL_GEN_DEPTH, COL_SRC):
                 if col < col_count:
                     self._table.setColumnHidden(col, True)
-            for col in (COL_NAME, COL_ROOM, COL_STAT, COL_SUM, COL_AGG, COL_ADV,
+            for col in (COL_TAGS, COL_NAME, COL_ROOM, COL_STAT, COL_SUM, COL_AGG, COL_ADV,
                         COL_AGE, COL_PIN, COL_ABIL, COL_MUTS):
                 if col < col_count:
                     self._table.setColumnHidden(col, False)
@@ -2434,6 +2461,7 @@ class MainWindow(QMainWindow):
                 self._fight_club_abilities_filter.setVisible(True)
             if hasattr(self, "_fight_club_mutations_filter"):
                 self._fight_club_mutations_filter.setVisible(True)
+            self._pin_roster_special_columns()
         else:
             self._source_model.set_show_total_stats(self._fight_club_prev_total_stats)
             if hasattr(self, "_total_stats_action"):
@@ -2617,12 +2645,16 @@ class MainWindow(QMainWindow):
             elif not add and tag_id in current:
                 current.remove(tag_id)
             c.tags = current
-        # Refresh name column for affected rows
+        # Refresh the tag column for affected rows
         for row in range(self._source_model.rowCount()):
             cat = self._source_model.cat_at(row)
             if cat in cats:
-                idx = self._source_model.index(row, COL_NAME)
-                self._source_model.dataChanged.emit(idx, idx, [Qt.DisplayRole])
+                idx = self._source_model.index(row, COL_TAGS)
+                self._source_model.dataChanged.emit(
+                    idx,
+                    idx,
+                    [Qt.DisplayRole, Qt.DecorationRole, Qt.ToolTipRole, Qt.UserRole],
+                )
         if self._current_save:
             _save_tags(self._current_save, self._cats)
         if self._detail and self._detail.current_cats:
@@ -2640,8 +2672,12 @@ class MainWindow(QMainWindow):
         for row in range(self._source_model.rowCount()):
             cat = self._source_model.cat_at(row)
             if cat in cats:
-                idx = self._source_model.index(row, COL_NAME)
-                self._source_model.dataChanged.emit(idx, idx, [Qt.DisplayRole])
+                idx = self._source_model.index(row, COL_TAGS)
+                self._source_model.dataChanged.emit(
+                    idx,
+                    idx,
+                    [Qt.DisplayRole, Qt.DecorationRole, Qt.ToolTipRole, Qt.UserRole],
+                )
         if self._current_save:
             _save_tags(self._current_save, self._cats)
         if self._detail and self._detail.current_cats:
@@ -2706,6 +2742,27 @@ class MainWindow(QMainWindow):
         dlg.exec()
         _TAG_ICON_CACHE.clear()
         _TAG_PIX_CACHE.clear()
+        if hasattr(self, "_source_model") and self._source_model is not None and self._source_model.rowCount() > 0:
+            top_left = self._source_model.index(0, COL_TAGS)
+            bottom_right = self._source_model.index(max(0, self._source_model.rowCount() - 1), COL_TAGS)
+            self._source_model.dataChanged.emit(
+                top_left,
+                bottom_right,
+                [Qt.DisplayRole, Qt.DecorationRole, Qt.ToolTipRole, Qt.UserRole],
+            )
+        if self._cats:
+            if self._tree_view is not None and self._tree_view.isVisible():
+                self._tree_view.set_cats(self._cats)
+            if self._safe_breeding_view is not None and self._safe_breeding_view.isVisible():
+                self._safe_breeding_view.set_cats(self._cats)
+            if self._breeding_partners_view is not None and self._breeding_partners_view.isVisible():
+                self._breeding_partners_view.set_cats(self._cats)
+            if self._room_optimizer_view is not None and self._room_optimizer_view.isVisible():
+                self._room_optimizer_view.set_cats(self._cats)
+            if self._perfect_planner_view is not None and self._perfect_planner_view.isVisible():
+                self._perfect_planner_view.set_cats(self._cats)
+            if self._calibration_view is not None and self._calibration_view.isVisible():
+                self._calibration_view.set_context(self._current_save, self._cats)
         # Repaint table without invalidating selection
         self._table.viewport().update()
         if self._detail and self._detail.current_cats:
@@ -3537,4 +3594,3 @@ def _ensure_gpak_path_interactive(parent: Optional[QWidget] = None):
         "The selected folder does not contain resources.gpak. "
         "Choose the Mewgenics install directory that contains that file.",
     )
-

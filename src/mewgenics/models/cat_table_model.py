@@ -1,4 +1,4 @@
-"""CatTableModel, NameTagDelegate, and sort helper items."""
+"""CatTableModel, TagStripDelegate, and sort helper items."""
 from typing import Optional
 
 from PySide6.QtWidgets import (
@@ -20,14 +20,13 @@ from save_parser import (
 )
 from mewgenics.constants import (
     STAT_COLORS, STATUS_COLOR,
-    COL_NAME, COL_AGE, COL_GEN, COL_ROOM, COL_STAT, COL_ADV, COL_BL, COL_MB, COL_PIN,
+    COL_NAME, COL_TAGS, COL_AGE, COL_GEN, COL_ROOM, COL_STAT, COL_ADV, COL_BL, COL_MB, COL_PIN,
     STAT_COLS, COL_SUM, COL_AGG, COL_LIB, COL_INBRD, COL_SEXUALITY,
     COL_RELNS, COL_REL, COL_ABIL, COL_MUTS, COL_GEN_DEPTH, COL_SRC,
 )
 from mewgenics.utils.localization import ROOM_DISPLAY, STATUS_ABBREV, COLUMNS, _tr
 from mewgenics.utils.tags import (
-    _TAG_DEFS, _tag_color, _tag_name, _cat_tags,
-    _game_tag_color, _game_tag_token,
+    _cat_tag_pixmap, _cat_tag_summary, _cat_tag_tooltip,
 )
 from mewgenics.utils.thresholds import EXCEPTIONAL_SUM_THRESHOLD
 from mewgenics.utils.cat_analysis import (
@@ -139,80 +138,37 @@ def _source_summary(cat: Cat) -> tuple[str, str]:
 
 # ── Delegate ──────────────────────────────────────────────────────────────────
 
-class NameTagDelegate(QStyledItemDelegate):
-    """Paints colored tag dots to the left of the cat name in the Name column."""
+class TagStripDelegate(QStyledItemDelegate):
+    """Paints compact tag strips in the roster Tags column."""
 
-    _DOT = 10
-    _GAP = 3
     _PAD_LEFT = 4
-    _PAD_RIGHT = 4
-
-    def _get_cat(self, index):
-        model = index.model()
-        while hasattr(model, 'mapToSource'):
-            index = model.mapToSource(index)
-            model = model.sourceModel()
-        if hasattr(model, 'cat_at'):
-            return model.cat_at(index.row())
-        return None
 
     def paint(self, painter, option, index):
-        cat = self._get_cat(index)
-        tags = set(_cat_tags(cat)) if cat else set()
-        valid = [td["id"] for td in _TAG_DEFS if td["id"] in tags]
-        game_tag = str(getattr(cat, "name_tag", "") or "").strip()
-
-        if not valid and not game_tag:
-            # No tags — just draw normally
+        pixmap = index.data(Qt.DecorationRole)
+        if pixmap is None or (hasattr(pixmap, "isNull") and pixmap.isNull()):
             super().paint(painter, option, index)
             return
 
-        # Draw background/selection the standard way
         opt = QStyleOptionViewItem(option)
         self.initStyleOption(opt, index)
         style = opt.widget.style() if opt.widget else QApplication.style()
-
-        # Clear text/icon so the base drawing only paints background
-        saved_text = opt.text
         opt.text = ""
         opt.icon = QIcon()
         style.drawControl(QStyle.CE_ItemViewItem, opt, painter, opt.widget)
 
-        # Draw dots
         painter.save()
-        painter.setRenderHint(QPainter.Antialiasing)
         r = option.rect
-        dot_y = r.center().y() - self._DOT // 2
-        dot_x = r.left() + self._PAD_LEFT
-        for tid in valid:
-            c = QColor(_tag_color(tid))
-            painter.setBrush(QBrush(c))
-            painter.setPen(Qt.NoPen)
-            painter.drawEllipse(dot_x, dot_y, self._DOT, self._DOT)
-            dot_x += self._DOT + self._GAP
-
-        if game_tag:
-            c = QColor(_game_tag_color(game_tag))
-            painter.setBrush(QBrush(c))
-            painter.setPen(QColor(c.darker(150)))
-            painter.drawRect(dot_x, dot_y, self._DOT, self._DOT)
-            font = QFont(opt.font)
-            font.setBold(True)
-            font.setPointSize(max(6, font.pointSize() - 3 if font.pointSize() > 0 else 6))
-            painter.setFont(font)
-            painter.setPen(QColor(255, 255, 255))
-            painter.drawText(dot_x, dot_y, self._DOT, self._DOT, Qt.AlignCenter, _game_tag_token(game_tag))
-            dot_x += self._DOT + self._GAP
-
-        # Draw the name text after the dots
-        text_left = dot_x + self._PAD_RIGHT
-        text_rect = r.adjusted(text_left - r.left(), 0, 0, 0)
-        painter.setPen(opt.palette.color(
-            QPalette.HighlightedText if opt.state & QStyle.State_Selected else QPalette.Text
-        ))
-        painter.setFont(opt.font)
-        painter.drawText(text_rect, Qt.AlignVCenter | Qt.AlignLeft, saved_text)
+        if isinstance(pixmap, QIcon):
+            pixmap = pixmap.pixmap(r.size())
+        if hasattr(pixmap, "size") and pixmap.size().isValid():
+            draw_y = r.center().y() - pixmap.height() // 2
+            draw_x = r.left() + self._PAD_LEFT
+            painter.drawPixmap(draw_x, draw_y, pixmap)
         painter.restore()
+
+
+# Backwards compatibility for any code still importing the old name.
+NameTagDelegate = TagStripDelegate
 
 
 # ── Table model ───────────────────────────────────────────────────────────────
@@ -413,6 +369,11 @@ class CatTableModel(QAbstractTableModel):
     def headerData(self, section, orientation, role=Qt.DisplayRole):
         if orientation == Qt.Horizontal and role == Qt.DisplayRole:
             return COLUMNS[section]
+        if orientation == Qt.Horizontal and role == Qt.ToolTipRole and section == COL_TAGS:
+            return _tr(
+                "table.tooltip.tags",
+                default="Game tag first, then custom tags, shown as icons.",
+            )
         if orientation == Qt.Horizontal and role == Qt.ToolTipRole and section == COL_ADV:
             return _tr(
                 "table.tooltip.adventure_ready",
@@ -448,6 +409,8 @@ class CatTableModel(QAbstractTableModel):
                 if is_donation:
                     return f"[DON] {cat.name}"
                 return cat.name
+            if col == COL_TAGS:
+                return _cat_tag_summary(cat)
             if col == COL_AGE:  return str(cat.age) if cat.age is not None else "—"
             if col == COL_GEN:  return cat.gender_display
             if col == COL_ROOM: return cat.room_display
@@ -495,6 +458,8 @@ class CatTableModel(QAbstractTableModel):
         elif role == Qt.UserRole:
             if col == COL_NAME:
                 return (cat.name or "").lower()
+            if col == COL_TAGS:
+                return _cat_tag_summary(cat).lower()
             if col in STAT_COLS:
                 return display_stats[STAT_NAMES[col - STAT_COLS[0]]]
             if col == COL_SUM:
@@ -518,6 +483,10 @@ class CatTableModel(QAbstractTableModel):
             if col == COL_SRC:
                 return _source_summary(cat)[1]
             return self.data(index, Qt.DisplayRole)
+
+        elif role == Qt.DecorationRole:
+            if col == COL_TAGS:
+                return _cat_tag_pixmap(cat, dot_size=10, spacing=3)
 
         elif role == Qt.BackgroundRole:
             compat = self._compat_for(cat)
@@ -555,7 +524,7 @@ class CatTableModel(QAbstractTableModel):
                 if compat == 'risky':
                     return QBrush(QColor(base.red() // 2, base.green() // 2, base.blue() // 2))
                 return QBrush(base)
-            if col in (COL_NAME, COL_SUM):
+            if col in (COL_NAME, COL_SUM, COL_TAGS):
                 badge = _badge_background()
                 if badge is not None:
                     if compat == 'incompatible':
@@ -579,17 +548,12 @@ class CatTableModel(QAbstractTableModel):
                 return QBrush(QColor(130, 110, 60))
             if col == COL_ADV:
                 return QBrush(QColor(230, 255, 240)) if can_adventure else QBrush(QColor(150, 160, 170))
-            if col in STAT_COLS or col == COL_STAT or col in (COL_AGG, COL_LIB, COL_INBRD, COL_NAME, COL_SUM):
+            if col in STAT_COLS or col == COL_STAT or col in (COL_AGG, COL_LIB, COL_INBRD, COL_NAME, COL_SUM, COL_TAGS):
                 return QBrush(QColor(255, 255, 255))
 
         elif role == Qt.ToolTipRole:
             if col == COL_NAME:
                 notes: list[str] = []
-                tag_names = [_tag_name(t) for t in _cat_tags(cat) if any(td["id"] == t for td in _TAG_DEFS)]
-                if tag_names:
-                    notes.append("Tags: " + ", ".join(tag_names))
-                if getattr(cat, "name_tag", ""):
-                    notes.append(f"Game tag: {str(cat.name_tag).strip()}")
                 if is_exceptional:
                     notes.append(
                         f"Exceptional breeder: base stat sum {_cat_base_sum(cat)} >= {EXCEPTIONAL_SUM_THRESHOLD}"
@@ -599,6 +563,8 @@ class CatTableModel(QAbstractTableModel):
                 if notes:
                     return "\n".join(notes)
                 return cat.name
+            if col == COL_TAGS:
+                return _cat_tag_tooltip(cat)
             if col in STAT_COLS:
                 n = STAT_NAMES[col - STAT_COLS[0]]
                 b = cat.base_stats[n]
@@ -665,7 +631,7 @@ class CatTableModel(QAbstractTableModel):
                 return Qt.Checked if cat.is_pinned else Qt.Unchecked
 
         elif role == Qt.TextAlignmentRole:
-            if col in STAT_COLS or col in (COL_GEN, COL_STAT, COL_ADV, COL_AGE, COL_BL, COL_MB, COL_PIN, COL_SUM, COL_REL, COL_GEN_DEPTH, COL_AGG, COL_LIB, COL_INBRD, COL_SEXUALITY):
+            if col in STAT_COLS or col in (COL_GEN, COL_STAT, COL_ADV, COL_AGE, COL_BL, COL_MB, COL_PIN, COL_SUM, COL_REL, COL_GEN_DEPTH, COL_AGG, COL_LIB, COL_INBRD, COL_SEXUALITY, COL_TAGS):
                 return Qt.AlignCenter
 
         return None

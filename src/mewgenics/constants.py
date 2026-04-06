@@ -111,6 +111,7 @@ COL_MUTS  = 23
 COL_GEN_DEPTH = 24
 COL_SRC   = 25
 COL_ADV   = 26
+COL_TAGS  = 27
 
 # ── Layout widths ────────────────────────────────────────────────────────────
 

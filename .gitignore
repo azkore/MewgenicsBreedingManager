@@ -35,6 +35,8 @@ desktop.ini
 # screenshot.png intentionally tracked for README
 
 resources.gpak
+icons.zip
+tools/icons.zip
 
 # Repo-local scratch space
 tmp/
