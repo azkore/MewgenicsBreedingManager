@@ -750,6 +750,14 @@ class MainWindow(QMainWindow):
         # so _apply_font_offset_to_tree always scales from the true originals.
         _apply_font_offset_to_tree(central, 0)
         _bind_splitter_persistence(self)
+        self._restore_roster_table_defaults()
+
+    def _restore_roster_table_defaults(self):
+        if not hasattr(self, "_table") or self._table is None or self._table.model() is None:
+            return
+        col_count = self._table.model().columnCount()
+        for col in range(col_count):
+            self._table.setColumnHidden(col, col in (COL_GEN_DEPTH, COL_SRC))
 
     # ── Sidebar ────────────────────────────────────────────────────────────
 
@@ -1533,6 +1541,8 @@ class MainWindow(QMainWindow):
             self._proxy_model.set_sort_columns([])
 
         self._apply_fight_club_layout(room_key == "__fight_club__")
+        if room_key != "__fight_club__":
+            self._restore_roster_table_defaults()
         self._refresh_bulk_view_buttons(room_key)
         self._update_header(room_key)
         self._update_count()
@@ -2441,6 +2451,7 @@ class MainWindow(QMainWindow):
                 self._fight_club_abilities_filter.setVisible(False)
             if hasattr(self, "_fight_club_mutations_filter"):
                 self._fight_club_mutations_filter.setVisible(False)
+            self._restore_roster_table_defaults()
 
     def _current_room_key(self):
         if self._active_btn is None:
