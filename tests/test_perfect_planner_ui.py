@@ -2076,6 +2076,7 @@ def test_trait_selector_summary_only_shows_stat_hints():
         "Poop when you take damage, Hace caca al sufrir daño."
     ) == ""
     assert mm._trait_selector_summary("-2 Charisma, -2 Charisma") == "-2 CHA"
+    assert mm._trait_selector_summary("+2 Constitution, -1 Dexterity") == "+2 CON, -1 DEX"
 
 
 def test_mutation_planner_two_cat_selection_builds_outcome_panel(qt_app, planner_config):

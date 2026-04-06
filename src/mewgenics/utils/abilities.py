@@ -360,27 +360,11 @@ def _trait_selector_summary(tip: str) -> str:
     if not text:
         return ""
 
-    stat_match = re.search(
-        r'([+-]\s*\d+)\s*(Strength|Dexterity|Constitution|Intelligence|Speed|Charisma|Luck|Health)\b',
-        text,
-        flags=re.IGNORECASE,
-    )
-    if not stat_match:
+    effects = _mutation_stat_effects(text)
+    if not effects:
         return ""
 
-    amount = stat_match.group(1).replace(" ", "")
-    stat = stat_match.group(2).lower()
-    stat_short = {
-        "strength": "STR",
-        "dexterity": "DEX",
-        "constitution": "CON",
-        "intelligence": "INT",
-        "speed": "SPD",
-        "charisma": "CHA",
-        "luck": "LCK",
-        "health": "HEA",
-    }[stat]
-    return f"{amount} {stat_short}"
+    return ", ".join(f"{amount} {label}" for label, amount in effects)
 
 
 def _trait_selector_label(category: str, name: str, tip: str = "") -> str:
