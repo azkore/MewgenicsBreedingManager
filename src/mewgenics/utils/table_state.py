@@ -110,6 +110,16 @@ def _restore_table_view_state(widget: QWidget):
                 header.moveSection(tags_visual, 0)
         except Exception:
             pass
+    min_tags_width = widget.property("_min_tags_width")
+    try:
+        min_tags_width = int(min_tags_width) if min_tags_width is not None else 0
+    except Exception:
+        min_tags_width = 0
+    if min_tags_width > 0 and COL_TAGS < header.count() and header.sectionSize(COL_TAGS) < min_tags_width:
+        try:
+            header.resizeSection(COL_TAGS, min_tags_width)
+        except Exception:
+            pass
     if bool(widget.property("_keep_adv_ready_last")) and COL_ADV < header.count():
         try:
             adv_visual = header.visualIndex(COL_ADV)
@@ -181,6 +191,16 @@ def _restore_table_view_states(root: Optional[QWidget], states: dict):
                 tags_visual = header.visualIndex(COL_TAGS)
                 if tags_visual >= 0 and tags_visual != 0:
                     header.moveSection(tags_visual, 0)
+            except Exception:
+                pass
+        min_tags_width = widget.property("_min_tags_width")
+        try:
+            min_tags_width = int(min_tags_width) if min_tags_width is not None else 0
+        except Exception:
+            min_tags_width = 0
+        if min_tags_width > 0 and COL_TAGS < header.count() and header.sectionSize(COL_TAGS) < min_tags_width:
+            try:
+                header.resizeSection(COL_TAGS, min_tags_width)
             except Exception:
                 pass
         if bool(widget.property("_keep_adv_ready_last")) and COL_ADV < header.count():

@@ -45,6 +45,31 @@ def test_cat_tag_labels_keep_game_tag_first(monkeypatch):
     assert tags._cat_tag_labels(cat) == ["Sorbet", "Beta", "Alpha"]
 
 
+def test_game_icon_cells_cover_common_name_tags():
+    assert tags._game_icon_cell("square") == (0, 0)
+    assert tags._game_icon_cell("charisma") == (1, 4)
+    assert tags._game_icon_cell("strength") == (2, 0)
+    assert tags._game_icon_cell("speed") == (2, 4)
+    assert tags._game_icon_cell("luck") == (3, 0)
+
+
+def test_game_icon_file_candidates_cover_named_assets():
+    strength_names = {p.name for p in tags._game_icon_file_candidates("strength")}
+    health_names = {p.name for p in tags._game_icon_file_candidates("health")}
+    evolution_names = {p.name for p in tags._game_icon_file_candidates("evolution")}
+    constitution_names = {p.name for p in tags._game_icon_file_candidates("constitution")}
+    atlas_candidates = [p for p in tags._game_icon_atlas_candidates() if "Icons.png" in p.name]
+    white_candidates = tags._game_icon_file_candidates("strength")
+
+    assert "STR.png" in strength_names
+    assert "medicine.png" in health_names
+    assert "mutation.png" in evolution_names
+    assert "constitution.png" in constitution_names
+    assert any("without background" in p.name.lower() for p in tags._game_icon_atlas_candidates())
+    assert any("White" in str(p) for p in white_candidates[:3])
+    assert any("tools" in str(p).lower() and "icons" in str(p).lower() for p in atlas_candidates)
+
+
 def test_import_tag_image_copies_into_managed_folder(tmp_path, monkeypatch):
     source = tmp_path / "source-icon.png"
     source.write_bytes(b"fake image bytes")

@@ -486,7 +486,7 @@ class CatTableModel(QAbstractTableModel):
 
         elif role == Qt.DecorationRole:
             if col == COL_TAGS:
-                return _cat_tag_pixmap(cat, dot_size=10, spacing=3)
+                return _cat_tag_pixmap(cat, dot_size=16, spacing=4)
 
         elif role == Qt.BackgroundRole:
             compat = self._compat_for(cat)

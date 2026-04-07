@@ -262,7 +262,7 @@ class MainWindow(QMainWindow):
         self._base_header_height = 46
         self._base_search_width = 180
         self._base_col_widths = {
-            COL_TAGS: 76,
+            COL_TAGS: 122,
             COL_NAME: 160,
             COL_GEN: _W_GEN,
             COL_STAT: _W_STATUS,
@@ -1290,6 +1290,7 @@ class MainWindow(QMainWindow):
         self._table.setModel(self._proxy_model)
         self._table.setProperty("_keep_adv_ready_last", True)
         self._table.setProperty("_keep_tags_first", True)
+        self._table.setProperty("_min_tags_width", 122)
         self._table.setProperty("_table_state_version", 2)
         self._table.setSortingEnabled(True)
         self._table.sortByColumn(COL_NAME, Qt.AscendingOrder)

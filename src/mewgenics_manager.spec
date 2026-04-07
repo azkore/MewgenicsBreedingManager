@@ -9,6 +9,8 @@ a = Analysis(
         ('../locales/ru.json', '.'),
         ('../locales/zh_CN.json', '.'),
         ('../locales/pl.json', '.'),
+        ('../images', 'images'),
+        ('../tools/icons', 'icons'),
         ('../VERSION', '.'),
     ],
     hiddenimports=[

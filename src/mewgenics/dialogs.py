@@ -376,7 +376,7 @@ class TagManagerDialog(QDialog):
         image_row.addWidget(QLabel("Image:"))
         self._image_preview = QLabel("None")
         self._image_preview.setAlignment(Qt.AlignCenter)
-        self._image_preview.setFixedSize(28, 28)
+        self._image_preview.setFixedSize(36, 36)
         self._image_preview.setStyleSheet(
             "QLabel { background:#101024; color:#9aa0c7; border:1px solid #2a2a4a;"
             " border-radius:4px; font-size:9px; }"
@@ -483,12 +483,13 @@ class TagManagerDialog(QDialog):
         if clean:
             pix = QPixmap(clean)
             if not pix.isNull():
+                pix = pix.scaled(
+                    label.size(),
+                    Qt.KeepAspectRatio,
+                    Qt.SmoothTransformation,
+                )
                 label.setPixmap(
-                    pix.scaled(
-                        label.size(),
-                        Qt.KeepAspectRatioByExpanding,
-                        Qt.SmoothTransformation,
-                    )
+                    pix
                 )
                 label.setText("")
                 label.setToolTip(os.path.basename(clean))
@@ -617,7 +618,7 @@ class TagManagerDialog(QDialog):
 
                 preview = QLabel("None")
                 preview.setAlignment(Qt.AlignCenter)
-                preview.setFixedSize(24, 24)
+                preview.setFixedSize(32, 32)
                 preview.setStyleSheet(
                     "QLabel { background:#101024; color:#9aa0c7; border:1px solid #2a2a4a;"
                     " border-radius:4px; font-size:8px; }"
