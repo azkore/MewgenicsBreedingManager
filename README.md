@@ -2,7 +2,9 @@
 
 A high-performance, Python-based tool for optimizing breeding operations in Mewgenics. It extracts data directly from your save files and helps you compare pairings, optimize room layouts, and plan long-term lines to maximize strong offspring while minimizing inbreeding risk.
 
-Current release: `v5.0.0`
+Current release: `v5.1.1`
+
+If you'd like to support the project, you can [here](https://ko-fi.com/frankieg33).
 
 ## Screenshots
 
