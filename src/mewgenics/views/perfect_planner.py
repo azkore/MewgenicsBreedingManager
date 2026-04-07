@@ -2329,7 +2329,15 @@ class PerfectCatPlannerView(QWidget):
         self._sync_mutation_import_button_state()
 
     def _sync_mutation_traits(self) -> bool:
-        traits = self._mutation_planner_view.get_selected_traits() if self._mutation_planner_view is not None else []
+        if self._mutation_planner_view is None:
+            traits = []
+        elif hasattr(self._mutation_planner_view, "get_traits_for_mode"):
+            try:
+                traits = self._mutation_planner_view.get_traits_for_mode("best_pairs")
+            except Exception:
+                traits = self._mutation_planner_view.get_selected_traits()
+        else:
+            traits = self._mutation_planner_view.get_selected_traits()
         normalized = [dict(t) for t in traits]
         if normalized == self._mutation_planner_traits:
             return False
@@ -2338,18 +2346,24 @@ class PerfectCatPlannerView(QWidget):
 
     def _mutation_import_button_label(self) -> str:
         if not self._mutation_planner_traits:
-            return _tr("room_optimizer.import_none", default="No Mutations Imported")
+            return _tr("perfect_planner.import_mutation.none", default="No Best Pairs Mutations Imported")
         summary = _planner_import_traits_summary(self._mutation_planner_traits)
-        return _tr("room_optimizer.imported", summary=summary, default=f"Imported: {summary}")
+        return _tr("perfect_planner.import_mutation.imported", summary=summary, default=f"Best Pairs: {summary}")
 
     def _mutation_import_button_tooltip(self) -> str:
-        return _planner_import_traits_tooltip(
+        tooltip = _planner_import_traits_tooltip(
             self._mutation_planner_traits,
             empty_text=_tr(
                 "perfect_planner.import_mutation.tooltip_empty",
-                default="Select traits in the mutation planner first.",
+                default="Select Best Pairs traits in the mutation planner first.",
             ),
         )
+        if self._mutation_planner_traits:
+            return _tr(
+                "perfect_planner.import_mutation.tooltip_prefix",
+                default="Best Pairs mutations:\n{tooltip}",
+            ).format(tooltip=tooltip)
+        return tooltip
 
     def _on_mutation_traits_changed(self):
         changed = self._sync_mutation_traits()

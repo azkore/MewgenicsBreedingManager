@@ -9,10 +9,26 @@ from save_parser import Cat
 class RoomType(Enum):
     """Room designation types used by the optimizer."""
 
-    BREEDING = "breeding"
+    BEST_PAIRS = "best_pairs"
+    MELEE = "melee"
+    RANGED = "ranged"
+    MAGIC = "magic"
     FALLBACK = "fallback"
-    GENERAL = "general"
+    BREEDING = "best_pairs"  # legacy alias
+    GENERAL = "fallback"     # legacy alias
     NONE = "none"
+
+    @property
+    def uses_profile(self) -> bool:
+        return self in {RoomType.BEST_PAIRS, RoomType.MELEE, RoomType.RANGED, RoomType.MAGIC}
+
+    @property
+    def is_pairing_room(self) -> bool:
+        return self.uses_profile
+
+    @property
+    def mode_key(self) -> str:
+        return str(self.value)
 
 
 @dataclass
@@ -29,6 +45,14 @@ class RoomConfig:
         from save_parser import ROOM_DISPLAY
 
         return ROOM_DISPLAY.get(self.key, self.key)
+
+    @property
+    def mode_key(self) -> str:
+        return self.room_type.mode_key
+
+    @property
+    def uses_profile(self) -> bool:
+        return self.room_type.uses_profile
 
 
 @dataclass
@@ -72,6 +96,7 @@ class OptimizationParams:
     move_penalty_weight: float = 0.5
     sa_chains: int = 0  # 0 = auto (min(cpu_count, 4)), 1 = single-chain
     planner_traits: list[dict] = field(default_factory=list)
+    mode_profiles: dict[str, dict] = field(default_factory=dict)
 
 
 @dataclass
@@ -97,9 +122,9 @@ class OptimizationResult:
 
 
 DEFAULT_ROOM_CONFIGS = [
-    RoomConfig("Floor1_Large", RoomType.BREEDING, 6, 50.0),
-    RoomConfig("Floor1_Small", RoomType.BREEDING, 6, 50.0),
-    RoomConfig("Floor2_Small", RoomType.BREEDING, 6, 50.0),
-    RoomConfig("Floor2_Large", RoomType.BREEDING, 6, 50.0),
+    RoomConfig("Floor1_Large", RoomType.BEST_PAIRS, 6, 50.0),
+    RoomConfig("Floor1_Small", RoomType.BEST_PAIRS, 6, 50.0),
+    RoomConfig("Floor2_Small", RoomType.BEST_PAIRS, 6, 50.0),
+    RoomConfig("Floor2_Large", RoomType.BEST_PAIRS, 6, 50.0),
     RoomConfig("Attic", RoomType.FALLBACK, None, 50.0),
 ]

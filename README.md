@@ -2,7 +2,7 @@
 
 A high-performance, Python-based tool for optimizing breeding operations in Mewgenics. It extracts data directly from your save files and helps you compare pairings, optimize room layouts, and plan long-term lines to maximize strong offspring while minimizing inbreeding risk.
 
-Current release: `v5.1.1`
+Current release: `v5.2.0`
 
 If you'd like to support the project, you can [here](https://ko-fi.com/frankieg33).
 
@@ -65,6 +65,14 @@ On Linux, use `build.sh`.
 - Original idea and reference from frankieg33
 
 ## Release Notes
+
+### v5.2.0
+
+- Added class-specific mutation trees for `Best Pairs`, `Melee`, `Ranged`, and `Magic`, with per-room mode scoring in the room optimizer
+- Moved class stat-priority editing into the room distributor with dedicated class stats controls and recommended reset actions
+- Updated mutation-planner trait visibility with clearer effects, softer wanted/avoid coloring, and cleaner mutation descriptions
+- Kept Perfect 7 Planner tied to `Best Pairs` mutations only so its imports stay predictable
+- Refined persistence, migration, and UI coverage for the new mutation-class workflow
 
 ### v5.0.0
 

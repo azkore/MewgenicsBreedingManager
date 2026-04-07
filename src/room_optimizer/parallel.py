@@ -21,7 +21,8 @@ from typing import Optional
 
 def _select_room_pairs_pure(
     cat_ids: list[int],
-    pair_scores: dict[tuple[int, int], tuple[bool, float, float]],
+    room_mode: str,
+    pair_scores: dict[tuple[int, int, str], tuple[bool, float, float]],
     hater_key_map: dict[int, frozenset[int]],
     lover_key_map: dict[int, frozenset[int]],
     avoid_lovers: bool,
@@ -43,7 +44,7 @@ def _select_room_pairs_pure(
         for i in range(n):
             for j in range(i + 1, n):
                 a, b = cat_ids[i], cat_ids[j]
-                pk = (min(a, b), max(a, b))
+                pk = (min(a, b), max(a, b), room_mode)
                 ga = family_group_ids.get(a)
                 if ga is not None and ga == family_group_ids.get(b):
                     return None
@@ -82,7 +83,7 @@ def _select_room_pairs_pure(
             if lt_b and a not in lt_b:
                 continue
 
-            pk = (min(a, b), max(a, b))
+            pk = (min(a, b), max(a, b), room_mode)
             compat, risk, quality = pair_scores.get(pk, (False, 999.0, 0.0))
             if not compat or risk > max_risk:
                 continue
@@ -132,11 +133,12 @@ def _sa_chain(
     *,
     initial_state: dict[int, str],
     original_state: dict[int, str],
-    pair_scores: dict[tuple[int, int], tuple[bool, float, float]],
+    pair_scores: dict[tuple[int, int, str], tuple[bool, float, float]],
     breeding_room_keys: list[str],
     all_room_keys: list[str],
     room_max_cats: dict[str, int | None],
     room_stim: dict[str, float],
+    room_modes: dict[str, str],
     fixed_ids: frozenset[int],
     hater_key_map: dict[int, frozenset[int]],
     lover_key_map: dict[int, frozenset[int]],
@@ -167,9 +169,9 @@ def _sa_chain(
     def _room_effective_count(room_key: str, state: dict[int, str]) -> int:
         return sum(0 if cid in fixed_ids else 1 for cid in _room_cats(room_key, state))
 
-    def _room_score(cat_ids: list[int], stim: float) -> tuple[float, int] | None:
+    def _room_score(room_key: str, cat_ids: list[int], stim: float) -> tuple[float, int] | None:
         result = _select_room_pairs_pure(
-            cat_ids, pair_scores, hater_key_map, lover_key_map,
+            cat_ids, room_modes.get(room_key, "fallback"), pair_scores, hater_key_map, lover_key_map,
             avoid_lovers, max_risk, mode_family, family_group_ids,
         )
         return result
@@ -190,12 +192,12 @@ def _sa_chain(
                 ga = family_group_ids.get(cat_id)
                 if ga is not None and ga == family_group_ids.get(other):
                     return False
-                pk = (min(cat_id, other), max(cat_id, other))
+                pk = (min(cat_id, other), max(cat_id, other), room_modes.get(room_key, "fallback"))
                 compat, risk, _ = pair_scores.get(pk, (False, 999.0, 0.0))
                 if not compat or risk > max_risk:
                     return False
             return True
-        return _room_score(cats_in + [cat_id], room_stim.get(room_key, 50.0)) is not None
+        return _room_score(room_key, cats_in + [cat_id], room_stim.get(room_key, 50.0)) is not None
 
     def _state_score(state: dict[int, str]) -> float:
         total_quality = 0.0
@@ -207,7 +209,7 @@ def _sa_chain(
                 excess = effective_count - max_c
                 total_quality -= 1000.0 * (excess ** 2)
 
-            rs = _room_score(cats_in, room_stim.get(rk, 50.0))
+            rs = _room_score(rk, cats_in, room_stim.get(rk, 50.0))
             if rs is None:
                 return float("-inf")
             sum_q, valid_pairs = rs
@@ -322,11 +324,12 @@ def run_parallel_sa(
     *,
     initial_state: dict[int, str],
     original_state: dict[int, str],
-    pair_scores: dict[tuple[int, int], tuple[bool, float, float]],
+    pair_scores: dict[tuple[int, int, str], tuple[bool, float, float]],
     breeding_room_keys: list[str],
     all_room_keys: list[str],
     room_max_cats: dict[str, int | None],
     room_stim: dict[str, float],
+    room_modes: dict[str, str],
     fixed_ids: frozenset[int],
     hater_key_map: dict[int, frozenset[int]],
     lover_key_map: dict[int, frozenset[int]],
@@ -357,6 +360,7 @@ def run_parallel_sa(
         all_room_keys=all_room_keys,
         room_max_cats=room_max_cats,
         room_stim=room_stim,
+        room_modes=room_modes,
         fixed_ids=fixed_ids,
         hater_key_map=hater_key_map,
         lover_key_map=lover_key_map,

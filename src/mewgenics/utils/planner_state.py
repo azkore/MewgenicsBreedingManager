@@ -1,8 +1,8 @@
-"""Planner blob persistence, foundation pairs, and offspring selection."""
+"""Planner blob persistence, mutation class profiles, foundation pairs, and offspring selection."""
 import json
 from typing import Optional
 
-from save_parser import Cat
+from save_parser import Cat, STAT_NAMES
 
 from mewgenics.utils.paths import _planner_state_path
 from mewgenics.utils.config import _load_app_config, _save_app_config
@@ -10,6 +10,22 @@ from mewgenics.utils.cat_analysis import _cat_uid
 
 
 _PLANNER_STATE_GLOBAL_MIRROR_KEYS = {"room_optimizer_state", "room_priority_config"}
+
+MUTATION_CLASS_MODES = ("best_pairs", "melee", "ranged", "magic")
+ROOM_OPTIMIZER_MODES = MUTATION_CLASS_MODES + ("fallback",)
+MUTATION_CLASS_LABELS = {
+    "best_pairs": "Best Pairs",
+    "melee": "Melee",
+    "ranged": "Ranged",
+    "magic": "Magic",
+    "fallback": "Fallback",
+}
+DEFAULT_MUTATION_CLASS_STAT_PRIORITY = {
+    "best_pairs": list(STAT_NAMES),
+    "melee": ["STR", "CON", "SPD", "DEX", "LCK", "CHA", "INT"],
+    "ranged": ["DEX", "SPD", "LCK", "INT", "CON", "STR", "CHA"],
+    "magic": ["INT", "CHA", "DEX", "SPD", "LCK", "CON", "STR"],
+}
 
 
 def _load_planner_state_blob(save_path: Optional[str]) -> dict:
@@ -83,6 +99,82 @@ def _save_planner_state_value(key: str, value, save_path: Optional[str] = None, 
         _save_app_config(data)
     except Exception:
         pass
+
+
+def _mutation_class_label(mode: str) -> str:
+    return MUTATION_CLASS_LABELS.get(str(mode or "").strip().lower(), str(mode or "").strip() or "Unknown")
+
+
+def _normalize_mutation_traits(traits) -> list[dict]:
+    normalized: list[dict] = []
+    if not isinstance(traits, list):
+        return normalized
+    for trait in traits:
+        if not isinstance(trait, dict):
+            continue
+        category = str(trait.get("category") or "").strip()
+        key = str(trait.get("key") or "").strip().lower()
+        display = str(trait.get("display") or "").strip() or key
+        if not category or not key:
+            continue
+        try:
+            weight = int(trait.get("weight", 5))
+        except (TypeError, ValueError):
+            weight = 5
+        normalized.append({
+            "category": category,
+            "key": key,
+            "display": display,
+            "weight": max(-10, min(10, weight)),
+        })
+    return normalized
+
+
+def _normalize_stat_priority(order, *, fallback_mode: str | None = None) -> list[str]:
+    valid = [str(stat).strip().upper() for stat in STAT_NAMES]
+    chosen: list[str] = []
+    for stat in order or []:
+        key = str(stat or "").strip().upper()
+        if key in valid and key not in chosen:
+            chosen.append(key)
+    if fallback_mode in DEFAULT_MUTATION_CLASS_STAT_PRIORITY:
+        for stat in DEFAULT_MUTATION_CLASS_STAT_PRIORITY[fallback_mode]:
+            if stat not in chosen:
+                chosen.append(stat)
+    else:
+        for stat in valid:
+            if stat not in chosen:
+                chosen.append(stat)
+    return chosen
+
+
+def _default_mutation_mode_profiles() -> dict[str, dict]:
+    return {
+        mode: {
+            "traits": [],
+            "stat_priority": list(DEFAULT_MUTATION_CLASS_STAT_PRIORITY[mode]),
+        }
+        for mode in MUTATION_CLASS_MODES
+    }
+
+
+def _normalize_mutation_mode_profiles(data=None, *, legacy_traits=None) -> dict[str, dict]:
+    defaults = _default_mutation_mode_profiles()
+    source = data if isinstance(data, dict) else {}
+    normalized: dict[str, dict] = {}
+    for mode in MUTATION_CLASS_MODES:
+        raw_profile = source.get(mode, {})
+        raw_profile = raw_profile if isinstance(raw_profile, dict) else {}
+        normalized[mode] = {
+            "traits": _normalize_mutation_traits(raw_profile.get("traits", [])),
+            "stat_priority": _normalize_stat_priority(raw_profile.get("stat_priority", []), fallback_mode=mode),
+        }
+    if legacy_traits and not normalized["best_pairs"]["traits"]:
+        normalized["best_pairs"]["traits"] = _normalize_mutation_traits(legacy_traits)
+    for mode in MUTATION_CLASS_MODES:
+        if not normalized[mode]["stat_priority"]:
+            normalized[mode]["stat_priority"] = list(defaults[mode]["stat_priority"])
+    return normalized
 
 
 # ── Foundation pairs ─────────────────────────────────────────────────────────

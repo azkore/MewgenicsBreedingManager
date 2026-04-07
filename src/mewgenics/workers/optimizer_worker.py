@@ -11,6 +11,7 @@ from room_optimizer import (
 )
 from mewgenics.utils.localization import ROOM_DISPLAY
 from mewgenics.constants import _room_key_from_display
+from mewgenics.utils.planner_state import _mutation_class_label, _normalize_mutation_mode_profiles
 from mewgenics.utils.tags import _cat_tags
 from mewgenics.utils.cat_analysis import _cat_base_sum
 from mewgenics.utils.calibration import _trait_label_from_value
@@ -49,6 +50,7 @@ class RoomOptimizerWorker(QThread):
         mode_family = bool(p.get("mode_family", False))
         use_sa = bool(p.get("use_sa", False))
         planner_traits = list(p.get("planner_traits", []))
+        mode_profiles = _normalize_mutation_mode_profiles(p.get("mode_profiles", {}), legacy_traits=planner_traits)
         available_rooms = [room for room in p.get("available_rooms", []) if room in ROOM_DISPLAY]
         room_stats = p.get("room_stats", {})
         if not isinstance(room_stats, dict):
@@ -81,6 +83,7 @@ class RoomOptimizerWorker(QThread):
             sa_temperature=max(0.1, sa_temperature),
             sa_neighbors_per_temp=max(1, sa_neighbors),
             planner_traits=planner_traits,
+            mode_profiles=mode_profiles,
         )
 
         optimized = optimize_room_distribution(
@@ -161,6 +164,8 @@ class RoomOptimizerWorker(QThread):
             room_rows.append({
                 "room": room.key,
                 "room_label": assigned_room_label,
+                "room_mode": room.mode_key,
+                "room_mode_label": _mutation_class_label(room.mode_key),
                 "capacity": room.max_cats,
                 "base_stim": room.base_stim,
                 "cat_names": cat_names,
@@ -169,7 +174,7 @@ class RoomOptimizerWorker(QThread):
                 "best_pairs_count": best_pairs_count,
                 "avg_stats": avg_stats,
                 "avg_risk": avg_risk,
-                "is_fallback": room.room_type != RoomType.BREEDING,
+                "is_fallback": room.room_type == RoomType.FALLBACK,
             })
 
         excluded_rows = [

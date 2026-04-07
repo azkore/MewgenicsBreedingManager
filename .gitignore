@@ -40,3 +40,5 @@ tools/icons.zip
 
 # Repo-local scratch space
 tmp/
+pytest-cache-files-*/
+.pytest_cache/
