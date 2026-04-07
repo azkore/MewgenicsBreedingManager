@@ -9,11 +9,12 @@ from mewgenics.utils.config import (
 )
 from mewgenics.utils.planner_state import (
     _load_planner_state_value, _save_planner_state_value,
+    ROOM_OPTIMIZER_MODES,
 )
 
 
 _OPTIMIZER_SEARCH_SETTINGS_KEY = "optimizer_search_settings"
-_ROOM_CONFIG_VERSION = 2  # bump to force all users back to defaults
+_ROOM_CONFIG_VERSION = 3  # bump to force all users back to defaults
 _OPTIMIZER_SEARCH_DEFAULTS = {
     "temperature": 8.0,
     "neighbors": 120,
@@ -64,12 +65,12 @@ def _saved_optimizer_search_neighbors(default: int | None = None) -> int:
 # ── Room priority config ─────────────────────────────────────────────────────
 
 def _default_room_priority_config() -> list[dict]:
-    """Default room priority: all rooms as Breeding, last one as Fallback."""
+    """Default room priority: all rooms as Best Pairs, last one as Fallback."""
     keys = list(ROOM_KEYS)
     return [
         {
             "room": k,
-            "type": "breeding" if i < len(keys) - 1 else "fallback",
+            "type": "best_pairs" if i < len(keys) - 1 else "fallback",
             "max_cats": 10 if i < len(keys) - 1 else None,
         }
         for i, k in enumerate(keys)
@@ -84,8 +85,10 @@ def _normalize_room_priority_config(config: list[dict]) -> tuple[list[dict], boo
         if not isinstance(slot, dict):
             continue
         room = slot.get("room")
-        slot_type = slot.get("type", "breeding")
-        if room not in ROOM_KEYS or slot_type not in ("breeding", "fallback"):
+        slot_type = str(slot.get("type", "best_pairs") or "best_pairs").strip().lower()
+        if slot_type == "breeding":
+            slot_type = "best_pairs"
+        if room not in ROOM_KEYS or slot_type not in ROOM_OPTIMIZER_MODES:
             continue
         if room in seen_rooms:
             continue  # deduplicate — keep first occurrence only
@@ -99,7 +102,7 @@ def _normalize_room_priority_config(config: list[dict]) -> tuple[list[dict], boo
 
     migrated = False
     for slot in normalized:
-        if slot["type"] == "breeding" and slot.get("max_cats") in (None, ""):
+        if slot["type"] != "fallback" and slot.get("max_cats") in (None, ""):
             slot["max_cats"] = 10
             migrated = True
 
@@ -107,7 +110,7 @@ def _normalize_room_priority_config(config: list[dict]) -> tuple[list[dict], boo
     default_like = (
         len(normalized) == len(default_order)
         and [slot["room"] for slot in normalized] == default_order
-        and all(slot["type"] == ("breeding" if idx < len(default_order) - 1 else "fallback") for idx, slot in enumerate(normalized))
+        and all(slot["type"] == ("best_pairs" if idx < len(default_order) - 1 else "fallback") for idx, slot in enumerate(normalized))
         and all(
             slot.get("max_cats") in (None, "", 0)
             for slot in normalized
@@ -115,7 +118,7 @@ def _normalize_room_priority_config(config: list[dict]) -> tuple[list[dict], boo
     )
     if default_like:
         for slot in normalized:
-            if slot["type"] == "breeding":
+            if slot["type"] != "fallback":
                 if slot.get("max_cats") != 10:
                     slot["max_cats"] = 10
                     migrated = True
@@ -159,8 +162,10 @@ def _save_room_priority_config(config: list[dict], save_path: Optional[str] = No
             if not isinstance(slot, dict):
                 continue
             room = slot.get("room")
-            slot_type = slot.get("type", "breeding")
-            if room not in ROOM_KEYS or slot_type not in ("breeding", "fallback"):
+            slot_type = str(slot.get("type", "best_pairs") or "best_pairs").strip().lower()
+            if slot_type == "breeding":
+                slot_type = "best_pairs"
+            if room not in ROOM_KEYS or slot_type not in ROOM_OPTIMIZER_MODES:
                 continue
             if room in seen_rooms:
                 continue  # deduplicate

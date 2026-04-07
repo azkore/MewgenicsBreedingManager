@@ -1,4 +1,5 @@
 """Ability/mutation descriptions, tooltips, display names, and effect lines."""
+import html
 import re
 import struct
 from typing import Sequence
@@ -408,6 +409,8 @@ def _trait_description_preview(tip: str) -> str:
     text = " ".join(lines).strip()
     if not text:
         return ""
+    if _is_redundant_trait_metadata(text):
+        return ""
 
     if re.fullmatch(r"[A-Z0-9_]+(?:_DESC)?", text):
         return ""
@@ -424,6 +427,20 @@ def _trait_visible_detail(tip: str) -> str:
     if summary:
         return summary
     return _trait_description_preview(tip)
+
+
+def _is_redundant_trait_metadata(text: str) -> bool:
+    cleaned = " ".join(str(text or "").replace("\u00a0", " ").split()).strip()
+    if "(ID " not in cleaned:
+        return False
+    if re.search(r"[+-]\s*\d", cleaned):
+        return False
+    if re.search(r"\b(gain|start|when|your|allies|enemies|chance|immune|battle|turn|damage|heal)\b", cleaned, re.IGNORECASE):
+        return False
+    return bool(
+        re.fullmatch(r"(?:[A-Za-z]+(?: [A-Za-z]+)*) Mutation \(ID \d+\) [A-Za-z]+ \d+", cleaned)
+        or re.fullmatch(r"(?:[A-Za-z]+(?: [A-Za-z]+)*) \(ID \d+\) [A-Za-z]+ \d+", cleaned)
+    )
 
 
 def _ability_tip(name: str) -> str:
@@ -792,3 +809,50 @@ def _planner_trait_display_name(display: str) -> str:
     if "] " in text:
         return text.split("] ", 1)[1]
     return text
+
+
+def _planner_trait_name_palette(weight: float) -> tuple[str, str, str]:
+    if float(weight or 0) > 0:
+        return ("#d7f0e3", "#203a31", "#4f7b67")
+    if float(weight or 0) < 0:
+        return ("#f1d8de", "#412b31", "#855b64")
+    return ("#dddddd", "", "")
+
+
+def _planner_trait_weight(traits: Sequence[dict], *, category: str = "", key: str = "", display: str = "") -> float:
+    want_category = str(category or "").strip().lower()
+    want_key = str(key or "").strip().lower()
+    want_display = re.sub(r"[^a-z0-9]", "", _planner_trait_display_name(display).lower())
+    fallback = 0.0
+    for trait in traits or []:
+        if not isinstance(trait, dict):
+            continue
+        trait_category = str(trait.get("category") or "").strip().lower()
+        trait_key = str(trait.get("key") or "").strip().lower()
+        try:
+            weight = float(trait.get("weight", 0) or 0)
+        except (TypeError, ValueError):
+            weight = 0.0
+        if want_category and want_key and trait_category == want_category and trait_key == want_key:
+            return weight
+        if want_display:
+            trait_display = re.sub(
+                r"[^a-z0-9]",
+                "",
+                _planner_trait_display_name(str(trait.get("display") or trait.get("key") or "")).lower(),
+            )
+            if trait_display == want_display:
+                fallback = weight
+    return fallback
+
+
+def _planner_trait_name_html(name: str, weight: float) -> str:
+    text = html.escape(str(name or "").strip() or "?")
+    fg, bg, border = _planner_trait_name_palette(weight)
+    if not bg:
+        return text
+    return (
+        f"<span style=\"color:{fg}; background-color:{bg}; border:1px solid {border};"
+        " border-radius:3px; padding:1px 4px;\">"
+        f"{text}</span>"
+    )

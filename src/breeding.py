@@ -56,6 +56,7 @@ class PairFactors:
     must_breed_bonus: float
     lover_bonus: float
     quality: float
+    stat_priority_bonus: float = 0.0
 
 
 def pair_key(a: Cat, b: Cat) -> tuple[int, int]:
@@ -195,6 +196,29 @@ def _cat_has_trait(cat: Cat, category: str, trait_key: str) -> bool:
     return False
 
 
+def _stat_priority_bonus(projection: PairProjection, stat_priority: Optional[Sequence[str]]) -> float:
+    ordered: list[str] = []
+    for stat in stat_priority or ():
+        key = str(stat or "").strip().upper()
+        if key in STAT_NAMES and key not in ordered:
+            ordered.append(key)
+    if not ordered:
+        return 0.0
+
+    weights = [1.75, 1.45, 1.2, 1.0, 0.85, 0.7, 0.55]
+    total_weight = 0.0
+    weighted_total = 0.0
+    for index, stat in enumerate(ordered):
+        weight = weights[index] if index < len(weights) else max(0.35, weights[-1] - 0.05 * (index - len(weights) + 1))
+        weighted_total += projection.expected_stats.get(stat, 0.0) * weight
+        total_weight += weight
+    if total_weight <= 0:
+        return 0.0
+
+    weighted_expected = weighted_total / total_weight
+    return (weighted_expected - projection.avg_expected) * 4.0
+
+
 def pair_projection(cat_a: Cat, cat_b: Cat, stimulation: float = 50.0) -> PairProjection:
     """Predict offspring stat ranges and expected values for a pair."""
     better_stat_chance = _stimulation_inheritance_weight(stimulation)
@@ -304,6 +328,7 @@ def score_pair(
     prefer_low_aggression: bool = True,
     prefer_high_libido: bool = True,
     planner_traits: Optional[Sequence[dict]] = None,
+    stat_priority: Optional[Sequence[str]] = None,
     must_breed_bonus: float = 1000.0,
     lover_bonus: float = 500.0,
 ) -> PairFactors:
@@ -346,13 +371,15 @@ def score_pair(
             if a_has and b_has:
                 trait_bonus += wf * 2.5
 
+    stat_priority_bonus = _stat_priority_bonus(projection, stat_priority)
+
     quality = 0.0
     must_breed_total = 0.0
     lover_total = 0.0
     if compatible:
         quality = (projection.avg_expected + complementarity_bonus) * (1.0 - risk / 200.0)
         quality -= variance_penalty
-        quality += personality_bonus + trait_bonus
+        quality += personality_bonus + trait_bonus + stat_priority_bonus
         if getattr(a, "must_breed", False) or getattr(b, "must_breed", False):
             quality += must_breed_bonus
             must_breed_total = must_breed_bonus
@@ -371,6 +398,7 @@ def score_pair(
         variance_penalty=variance_penalty,
         personality_bonus=personality_bonus,
         trait_bonus=trait_bonus,
+        stat_priority_bonus=stat_priority_bonus,
         must_breed_bonus=must_breed_total,
         lover_bonus=lover_total,
         quality=quality,

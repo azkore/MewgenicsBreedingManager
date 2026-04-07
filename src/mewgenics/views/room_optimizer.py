@@ -22,6 +22,7 @@ from mewgenics.constants import (
     COL_BL, COL_PIN,
 )
 from mewgenics.utils.localization import _tr, ROOM_DISPLAY
+from mewgenics.utils.abilities import _planner_trait_name_html, _planner_trait_weight
 from mewgenics.utils.config import (
     _saved_optimizer_flag, _set_optimizer_flag,
     _saved_room_optimizer_auto_recalc,
@@ -31,8 +32,11 @@ from mewgenics.utils.optimizer_settings import (
     _save_room_priority_config,
 )
 from mewgenics.utils.planner_state import (
+    MUTATION_CLASS_MODES,
     _load_planner_state_value, _save_planner_state_value,
-    _planner_import_traits_summary, _planner_import_traits_tooltip,
+    _mutation_class_label,
+    _normalize_mutation_mode_profiles,
+    _planner_import_traits_summary,
 )
 from mewgenics.utils.tags import _make_tag_icon
 from mewgenics.utils.calibration import _trait_level_color
@@ -41,6 +45,194 @@ from mewgenics.models.breeding_cache import BreedingCache
 from mewgenics.models.cat_table_model import _SortByUserRoleItem
 from mewgenics.workers.optimizer_worker import RoomOptimizerWorker
 from mewgenics.panels.room_priority import RoomPriorityPanel
+
+
+class RoomOptimizerStatPrioritiesPanel(QWidget):
+    """Editor for class-specific stat priorities used by the room optimizer."""
+
+    def __init__(self, on_priority_changed, parent=None):
+        super().__init__(parent)
+        self._on_priority_changed = on_priority_changed
+        self._profiles: dict[str, dict] = _normalize_mutation_mode_profiles({})
+        self._mode_sections: dict[str, dict] = {}
+        self.setStyleSheet(
+            "QWidget { background:#0a0a18; }"
+            "QLabel { color:#bbb; }"
+            "QPushButton { background:#1a1a32; color:#ddd; border:1px solid #2a2a4a; border-radius:4px; padding:4px 10px; font-size:11px; }"
+            "QPushButton:hover { background:#252545; }"
+        )
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(12, 10, 12, 10)
+        root.setSpacing(8)
+
+        header = QHBoxLayout()
+        self._title = QLabel("Class Stat Priorities")
+        self._title.setStyleSheet("color:#ddd; font-size:16px; font-weight:bold;")
+        header.addWidget(self._title)
+        header.addStretch(1)
+        root.addLayout(header)
+
+        self._summary = QLabel("Adjust the class stat orders here. Each room mode uses its own list.")
+        self._summary.setStyleSheet("color:#8d8da8; font-size:11px;")
+        self._summary.setWordWrap(True)
+        root.addWidget(self._summary)
+
+        self._list_widget = QWidget()
+        self._list_layout = QHBoxLayout(self._list_widget)
+        self._list_layout.setContentsMargins(0, 0, 0, 0)
+        self._list_layout.setSpacing(8)
+        self._list_layout.setAlignment(Qt.AlignTop)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet("QScrollArea { border:none; background:transparent; }")
+        scroll.setWidget(self._list_widget)
+        root.addWidget(scroll, 1)
+
+        self._empty = QLabel("Connect the mutation planner to edit class priorities.")
+        self._empty.setStyleSheet("color:#666; font-size:11px;")
+        self._empty.setWordWrap(True)
+        root.addWidget(self._empty)
+
+        self.refresh_profiles(self._profiles)
+
+    def _order_for_mode(self, mode: str) -> list[str]:
+        return list((self._profiles.get(mode, {}) or {}).get("stat_priority", []) or [])
+
+    def _trait_count_for_mode(self, mode: str) -> int:
+        return len((self._profiles.get(mode, {}) or {}).get("traits", []) or [])
+
+    def _clear_card_layout(self, layout: QVBoxLayout):
+        while layout.count():
+            child = layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+
+    def _rebuild_mode_card(self, mode: str):
+        section = self._mode_sections.get(mode)
+        if not section:
+            return
+        list_layout = section["list_layout"]
+        self._clear_card_layout(list_layout)
+
+        order = self._order_for_mode(mode)
+        summary_text = f"{self._trait_count_for_mode(mode)} mutation traits in this tree."
+        if order:
+            summary_text += f"  Current order: {' > '.join(order)}"
+        section["summary"].setText(summary_text)
+
+        for index, stat in enumerate(order):
+            row = QWidget()
+            row.setStyleSheet("QWidget { background:#101023; border:1px solid #26264a; border-radius:5px; }")
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(8, 6, 8, 6)
+            row_layout.setSpacing(8)
+
+            rank = QLabel(f"{index + 1}.")
+            rank.setStyleSheet("color:#8fb8a0; font-size:11px; font-weight:bold;")
+            row_layout.addWidget(rank)
+
+            stat_label = QLabel(stat)
+            stat_label.setStyleSheet("color:#ddd; font-size:12px; font-weight:bold;")
+            row_layout.addWidget(stat_label, 1)
+
+            up_btn = QPushButton("↑")
+            up_btn.setFixedSize(24, 24)
+            up_btn.setEnabled(index > 0)
+            up_btn.clicked.connect(lambda _=False, mm=mode, ii=index: self._move_stat(mm, ii, -1))
+            row_layout.addWidget(up_btn)
+
+            down_btn = QPushButton("↓")
+            down_btn.setFixedSize(24, 24)
+            down_btn.setEnabled(index < len(order) - 1)
+            down_btn.clicked.connect(lambda _=False, mm=mode, ii=index: self._move_stat(mm, ii, 1))
+            row_layout.addWidget(down_btn)
+
+            list_layout.addWidget(row)
+
+        list_layout.addStretch(1)
+
+    def _rebuild_list(self):
+        while self._list_layout.count():
+            child = self._list_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+        self._mode_sections.clear()
+        has_any = False
+        for mode in MUTATION_CLASS_MODES:
+            card = QFrame()
+            card.setStyleSheet("QFrame { background:#0f0f22; border:1px solid #26264a; border-radius:6px; }")
+            card.setMinimumWidth(235)
+            card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+            card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(10, 8, 10, 8)
+            card_layout.setSpacing(6)
+
+            header = QHBoxLayout()
+            title = QLabel(_mutation_class_label(mode))
+            title.setStyleSheet("color:#8fb8a0; font-size:13px; font-weight:bold;")
+            header.addWidget(title)
+            header.addStretch(1)
+            reset_btn = QPushButton("Reset to Recommended")
+            reset_btn.clicked.connect(lambda _=False, mm=mode: self._reset_mode(mm))
+            header.addWidget(reset_btn)
+            card_layout.addLayout(header)
+
+            summary = QLabel("")
+            summary.setStyleSheet("color:#8d8da8; font-size:11px;")
+            summary.setWordWrap(True)
+            card_layout.addWidget(summary)
+
+            list_widget = QWidget()
+            list_layout = QVBoxLayout(list_widget)
+            list_layout.setContentsMargins(0, 0, 0, 0)
+            list_layout.setSpacing(4)
+            card_layout.addWidget(list_widget)
+
+            self._mode_sections[mode] = {
+                "summary": summary,
+                "list_layout": list_layout,
+                "reset_btn": reset_btn,
+            }
+            self._rebuild_mode_card(mode)
+            self._list_layout.addWidget(card)
+            has_any = has_any or bool(self._order_for_mode(mode))
+
+        self._list_layout.addStretch(1)
+        self._empty.setVisible(not has_any)
+
+    def _move_stat(self, mode: str, index: int, direction: int):
+        order = self._order_for_mode(mode)
+        new_index = index + direction
+        if not (0 <= index < len(order) and 0 <= new_index < len(order)):
+            return
+        order[index], order[new_index] = order[new_index], order[index]
+        self._profiles.setdefault(mode, {})["stat_priority"] = order
+        self._on_priority_changed(mode, order)
+        self._rebuild_mode_card(mode)
+
+    def _reset_mode(self, mode: str):
+        default_order = _normalize_mutation_mode_profiles({}).get(mode, {}).get("stat_priority", [])
+        self._profiles.setdefault(mode, {})["stat_priority"] = list(default_order)
+        self._on_priority_changed(mode, list(default_order))
+        self._rebuild_mode_card(mode)
+
+    def refresh_profiles(self, mode_profiles: dict[str, dict], *, selected_mode: str = "best_pairs"):
+        self._profiles = _normalize_mutation_mode_profiles(mode_profiles)
+        self._rebuild_list()
+
+    def retranslate_ui(self):
+        self._title.setText(_tr("room_optimizer.tab.stat_priorities", default="Class Stats"))
+        self._summary.setText(_tr(
+            "room_optimizer.stat_priorities.summary",
+            default="Adjust the class stat orders here. Each room mode uses its own list.",
+        ))
+        self._empty.setText(_tr("room_optimizer.stat_priorities.empty", default="Connect the mutation planner to edit class priorities."))
+        for section in self._mode_sections.values():
+            section["reset_btn"].setText(_tr("mutation_planner.reset_stat_priority", default="Reset to Recommended"))
+        self._rebuild_list()
 
 
 class RoomOptimizerView(QWidget):
@@ -64,6 +256,39 @@ class RoomOptimizerView(QWidget):
         RoomOptimizerView._set_toggle_button_label(btn, label_key)
         btn.toggled.connect(lambda checked: _set_optimizer_flag(key, checked))
         btn.toggled.connect(lambda _: RoomOptimizerView._set_toggle_button_label(btn, label_key))
+
+    @staticmethod
+    def _planner_mode_profiles_total_traits(mode_profiles: dict[str, dict]) -> int:
+        return sum(len((mode_profiles.get(mode, {}) or {}).get("traits", []) or []) for mode in MUTATION_CLASS_MODES)
+
+    @staticmethod
+    def _planner_mode_profiles_summary(mode_profiles: dict[str, dict], active_mode: str) -> str:
+        total_traits = RoomOptimizerView._planner_mode_profiles_total_traits(mode_profiles)
+        active_label = _mutation_class_label(active_mode)
+        configured_modes = [
+            mode for mode in MUTATION_CLASS_MODES
+            if (mode_profiles.get(mode, {}) or {}).get("traits")
+        ]
+        return f"{len(configured_modes)}/4 trees, {total_traits} traits, active: {active_label}"
+
+    @staticmethod
+    def _planner_mode_profiles_tooltip(mode_profiles: dict[str, dict], active_mode: str, *, empty_text: str) -> str:
+        total_traits = RoomOptimizerView._planner_mode_profiles_total_traits(mode_profiles)
+        if total_traits <= 0:
+            return empty_text
+        lines = [
+            "Imported mutation class trees:",
+            f"Active tree: {_mutation_class_label(active_mode)}",
+        ]
+        for mode in MUTATION_CLASS_MODES:
+            profile = mode_profiles.get(mode, {}) or {}
+            traits = list(profile.get("traits", []) or [])
+            stat_priority = list(profile.get("stat_priority", []) or [])
+            summary = _planner_import_traits_summary(traits) if traits else "No traits selected"
+            priority = " > ".join(stat_priority[:4]) + ("..." if len(stat_priority) > 4 else "")
+            lines.append(f"- {_mutation_class_label(mode)}: {summary}")
+            lines.append(f"  Stats: {priority or 'None'}")
+        return "\n".join(lines)
 
     def _set_mode_button_text(self, enabled: bool):
         key = "room_optimizer.mode_family" if enabled else "room_optimizer.mode_pair"
@@ -225,6 +450,8 @@ class RoomOptimizerView(QWidget):
         self._auto_recalculate = _saved_room_optimizer_auto_recalc()
         self._planner_view: Optional['MutationDisorderPlannerView'] = None
         self._planner_traits: list[dict] = []
+        self._planner_mode_profiles: dict[str, dict] = _normalize_mutation_mode_profiles({})
+        self._planner_selected_mode = "best_pairs"
         self._available_rooms: list[str] = list(ROOM_DISPLAY.keys())
         self._room_summaries: dict[str, FurnitureRoomSummary] = {}
         self._save_path: Optional[str] = None
@@ -268,6 +495,7 @@ class RoomOptimizerView(QWidget):
         configure_rooms_layout.setContentsMargins(0, 0, 0, 0)
         configure_rooms_layout.setSpacing(8)
         configure_rooms_layout.addWidget(self._room_priority_panel, 1)
+        self._stat_priorities_tab = RoomOptimizerStatPrioritiesPanel(self._on_optimizer_stat_priority_changed)
         self._setup_tab = QWidget()
         self._setup_tab.setStyleSheet("background:#0a0a18;")
         self._setup_tab_layout = QVBoxLayout(self._setup_tab)
@@ -341,6 +569,7 @@ class RoomOptimizerView(QWidget):
         self._max_risk_input.textChanged.connect(lambda _: self._save_session_state())
         self._max_risk_box_layout.addWidget(self._max_risk_input)
         self._setup_stats_row_layout.addWidget(self._max_risk_box)
+        self._setup_controls_layout.addWidget(self._setup_stats_row)
 
         self._shared_search_note = QLabel(_tr(
             "menu.settings.optimizer_search_settings.summary",
@@ -494,7 +723,6 @@ class RoomOptimizerView(QWidget):
         self._bind_persistent_toggle(self._deep_optimize_btn, "room_optimizer.toggle.use_sa", "use_sa")
         self._deep_optimize_btn.toggled.connect(lambda _: self._save_session_state())
         self._import_planner_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        self._top_actions_layout.addWidget(self._setup_stats_row)
         self._top_actions_layout.addWidget(self._optimize_btn)
         self._top_actions_layout.addWidget(self._deep_optimize_btn)
         self._top_actions_layout.addWidget(self._import_planner_btn)
@@ -567,6 +795,8 @@ class RoomOptimizerView(QWidget):
             self._details_pane.retranslate_ui()
         if hasattr(self, "_cat_locator") and self._cat_locator is not None:
             self._cat_locator.retranslate_ui()
+        if hasattr(self, "_stat_priorities_tab") and self._stat_priorities_tab is not None:
+            self._stat_priorities_tab.retranslate_ui()
         self._table.verticalHeader().setVisible(False)
         self._table.verticalHeader().setDefaultSectionSize(28)
         self._table.verticalHeader().setMinimumSectionSize(24)
@@ -612,18 +842,22 @@ class RoomOptimizerView(QWidget):
         # Tab 0: Configure Rooms
         self._bottom_tabs.addTab(self._configure_rooms_tab, _tr("room_optimizer.tab.configure_rooms"))
 
-        # Tab 1: Setup
+        # Tab 1: Class Stats
+        self._bottom_tabs.addTab(self._stat_priorities_tab, _tr("room_optimizer.tab.stat_priorities", default="Class Stats"))
+
+        # Tab 2: Setup
         self._bottom_tabs.addTab(self._setup_tab, _tr("room_optimizer.tab.setup"))
 
-        # Tab 2: Breeding Pairs (existing detail panel)
+        # Tab 3: Breeding Pairs (existing detail panel)
         self._details_pane = RoomOptimizerDetailPanel()
+        self._details_pane.set_mode_profiles(self._planner_mode_profiles)
         self._details_pane.set_navigate_to_cat_callback(self._navigate_to_cat_from_breeding_pairs)
         self._bottom_tabs.addTab(self._details_pane, _tr("room_optimizer.tab.breeding_pairs"))
 
-        # Tab 3: Cat Locator
+        # Tab 4: Cat Locator
         self._cat_locator = RoomOptimizerCatLocator()
         self._bottom_tabs.addTab(self._cat_locator, _tr("room_optimizer.tab.cat_locator"))
-        self._bottom_tabs.setCurrentIndex(2)
+        self._bottom_tabs.setCurrentIndex(3)
         self._bottom_tabs.currentChanged.connect(lambda _: self._save_session_state())
 
         self._splitter.addWidget(self._bottom_tabs)
@@ -791,9 +1025,50 @@ class RoomOptimizerView(QWidget):
                 pass
         self._on_planner_traits_changed()
 
+    def _persist_mode_profiles_fallback(self):
+        if not self._save_path:
+            return
+        state = _load_planner_state_value("mutation_planner_state", {}, self._save_path)
+        if not isinstance(state, dict):
+            state = {}
+        state["selected_mode"] = self._planner_selected_mode
+        state["mode_profiles"] = self._planner_mode_profiles
+        state["selected_traits"] = list(
+            (self._planner_mode_profiles.get(self._planner_selected_mode, {}) or {}).get("traits", []) or []
+        )
+        _save_planner_state_value("mutation_planner_state", state, self._save_path)
+
+    def _on_optimizer_stat_priority_changed(self, mode: str, order: list[str]):
+        mode_key = str(mode or "").strip().lower()
+        if mode_key not in MUTATION_CLASS_MODES:
+            return
+        self._planner_mode_profiles = _normalize_mutation_mode_profiles(self._planner_mode_profiles)
+        self._planner_mode_profiles.setdefault(mode_key, {})["stat_priority"] = list(order)
+        if self._planner_view is not None and hasattr(self._planner_view, "set_stat_priority_for_mode"):
+            self._planner_view.set_stat_priority_for_mode(mode_key, order, save=True, notify=True)
+        else:
+            self._persist_mode_profiles_fallback()
+            if self.isVisible() and self._session_state.get("has_run") and len([c for c in self._cats if c.status != "Gone"]) >= 2:
+                self._calculate_optimal_distribution(use_sa=bool(self._session_state.get("use_sa", False)))
+
     def _on_planner_traits_changed(self):
         self._planner_traits = self._planner_view.get_selected_traits() if self._planner_view is not None else []
-        if not self._planner_traits:
+        mode_profiles = {}
+        if self._planner_view is not None and hasattr(self._planner_view, "get_mode_profiles"):
+            mode_profiles = self._planner_view.get_mode_profiles()
+        selected_mode = "best_pairs"
+        if self._planner_view is not None and hasattr(self._planner_view, "get_selected_mode"):
+            try:
+                selected_mode = str(self._planner_view.get_selected_mode() or "best_pairs").strip().lower()
+            except Exception:
+                selected_mode = "best_pairs"
+        self._planner_selected_mode = selected_mode if selected_mode in MUTATION_CLASS_MODES else "best_pairs"
+        self._planner_mode_profiles = _normalize_mutation_mode_profiles(mode_profiles, legacy_traits=self._planner_traits)
+        if hasattr(self, "_details_pane") and self._details_pane is not None:
+            self._details_pane.set_mode_profiles(self._planner_mode_profiles)
+        if hasattr(self, "_stat_priorities_tab") and self._stat_priorities_tab is not None:
+            self._stat_priorities_tab.refresh_profiles(self._planner_mode_profiles, selected_mode=self._planner_selected_mode)
+        if self._planner_mode_profiles_total_traits(self._planner_mode_profiles) <= 0:
             self._import_planner_btn.setText(_tr("room_optimizer.import_none", default="No Mutations Imported"))
             self._import_planner_btn.setToolTip(self._import_planner_button_tooltip())
             self._style_import_planner_button(self._import_planner_btn, active=False)
@@ -801,8 +1076,9 @@ class RoomOptimizerView(QWidget):
         self._import_from_planner()
 
     def _import_planner_button_tooltip(self) -> str:
-        return _planner_import_traits_tooltip(
-            self._planner_traits,
+        return self._planner_mode_profiles_tooltip(
+            self._planner_mode_profiles,
+            self._planner_selected_mode,
             empty_text=_tr("room_optimizer.import_none_tooltip"),
         )
 
@@ -892,7 +1168,7 @@ class RoomOptimizerView(QWidget):
                 try:
                     self._bottom_tabs.setCurrentIndex(max(0, min(self._bottom_tabs.count() - 1, int(tab_index))))
                 except (TypeError, ValueError):
-                    self._bottom_tabs.setCurrentIndex(2)
+                    self._bottom_tabs.setCurrentIndex(3)
         finally:
             self._restoring_session_state = False
         if self._save_path is not None:
@@ -901,6 +1177,19 @@ class RoomOptimizerView(QWidget):
             _save_room_priority_config(self._room_priority_panel.get_config(), self._save_path)
         if self._planner_view is not None:
             self._planner_traits = self._planner_view.get_selected_traits()
+            if hasattr(self._planner_view, "get_mode_profiles"):
+                self._planner_mode_profiles = _normalize_mutation_mode_profiles(
+                    self._planner_view.get_mode_profiles(),
+                    legacy_traits=self._planner_traits,
+                )
+                if hasattr(self, "_details_pane") and self._details_pane is not None:
+                    self._details_pane.set_mode_profiles(self._planner_mode_profiles)
+            if hasattr(self._planner_view, "get_selected_mode"):
+                try:
+                    mode = str(self._planner_view.get_selected_mode() or "best_pairs").strip().lower()
+                    self._planner_selected_mode = mode if mode in MUTATION_CLASS_MODES else "best_pairs"
+                except Exception:
+                    self._planner_selected_mode = "best_pairs"
         return bool(state.get("has_run", False))
 
     def reset_to_defaults(self):
@@ -918,7 +1207,7 @@ class RoomOptimizerView(QWidget):
             self._maximize_throughput_checkbox.setChecked(False)
             self._deep_optimize_btn.setChecked(False)
             if hasattr(self, "_bottom_tabs"):
-                self._bottom_tabs.setCurrentIndex(2)
+                self._bottom_tabs.setCurrentIndex(3)
             self._room_priority_panel.reset_to_defaults()
         finally:
             self._restoring_session_state = False
@@ -930,12 +1219,25 @@ class RoomOptimizerView(QWidget):
         if self._planner_view is None:
             return
         self._planner_traits = self._planner_view.get_selected_traits()
-        if not self._planner_traits:
+        if hasattr(self._planner_view, "get_mode_profiles"):
+            self._planner_mode_profiles = _normalize_mutation_mode_profiles(
+                self._planner_view.get_mode_profiles(),
+                legacy_traits=self._planner_traits,
+            )
+            if hasattr(self, "_details_pane") and self._details_pane is not None:
+                self._details_pane.set_mode_profiles(self._planner_mode_profiles)
+        if hasattr(self._planner_view, "get_selected_mode"):
+            try:
+                mode = str(self._planner_view.get_selected_mode() or "best_pairs").strip().lower()
+                self._planner_selected_mode = mode if mode in MUTATION_CLASS_MODES else "best_pairs"
+            except Exception:
+                self._planner_selected_mode = "best_pairs"
+        if self._planner_mode_profiles_total_traits(self._planner_mode_profiles) <= 0:
             self._import_planner_btn.setText(_tr("room_optimizer.import_none", default="No Mutations Imported"))
             self._import_planner_btn.setToolTip(self._import_planner_button_tooltip())
             self._style_import_planner_button(self._import_planner_btn, active=False)
             return
-        summary = _planner_import_traits_summary(self._planner_traits)
+        summary = self._planner_mode_profiles_summary(self._planner_mode_profiles, self._planner_selected_mode)
         self._import_planner_btn.setText(_tr("room_optimizer.imported", summary=summary))
         self._import_planner_btn.setToolTip(self._import_planner_button_tooltip())
         self._style_import_planner_button(self._import_planner_btn, active=True)
@@ -1044,7 +1346,7 @@ class RoomOptimizerView(QWidget):
             "" if not self._mode_toggle_btn.isChecked() else _tr("room_optimizer.tooltip.variance")
         )
         self._maximize_throughput_checkbox.setEnabled(not self._mode_toggle_btn.isChecked())
-        if self._planner_traits and self._planner_view is not None:
+        if self._planner_mode_profiles_total_traits(self._planner_mode_profiles) > 0 and self._planner_view is not None:
             self._import_from_planner()
         else:
             self._import_planner_btn.setText(_tr("room_optimizer.import_none", default="No Mutations Imported"))
@@ -1073,9 +1375,10 @@ class RoomOptimizerView(QWidget):
         self._setup_info_browser.setHtml(self._build_setup_info_html())
         # Refresh tab titles
         self._bottom_tabs.setTabText(0, _tr("room_optimizer.tab.configure_rooms"))
-        self._bottom_tabs.setTabText(1, _tr("room_optimizer.tab.setup"))
-        self._bottom_tabs.setTabText(2, _tr("room_optimizer.tab.breeding_pairs"))
-        self._bottom_tabs.setTabText(3, _tr("room_optimizer.tab.cat_locator"))
+        self._bottom_tabs.setTabText(1, _tr("room_optimizer.tab.stat_priorities", default="Class Stats"))
+        self._bottom_tabs.setTabText(2, _tr("room_optimizer.tab.setup"))
+        self._bottom_tabs.setTabText(3, _tr("room_optimizer.tab.breeding_pairs"))
+        self._bottom_tabs.setTabText(4, _tr("room_optimizer.tab.cat_locator"))
         self._table.setHorizontalHeaderLabels([
             _tr("room_optimizer.table.room"),
             _tr("room_optimizer.table.type", default="Type"),
@@ -1123,6 +1426,7 @@ class RoomOptimizerView(QWidget):
             "mode_family": mode_family,
             "use_sa": use_sa,
             "planner_traits": list(self._planner_traits),
+            "mode_profiles": self._planner_mode_profiles,
             "available_rooms": list(getattr(self, "_available_rooms", [])),
             "room_config": self._room_priority_panel.get_config(),
             "room_stats": dict(self._room_summaries),
@@ -1193,6 +1497,8 @@ class RoomOptimizerView(QWidget):
             room_label = room_data["room_label"]
             room_key = room_data.get("room")
             is_fallback = bool(room_data.get("is_fallback"))
+            room_mode = str(room_data.get("room_mode") or ("fallback" if is_fallback else "best_pairs")).strip().lower()
+            room_mode_label = str(room_data.get("room_mode_label") or _mutation_class_label(room_mode))
             cat_names = room_data["cat_names"]
             cat_keys = room_data.get("cat_keys", [])
             room_pairs = room_data["pairs"]
@@ -1221,7 +1527,7 @@ class RoomOptimizerView(QWidget):
             type_item = QTableWidgetItem(
                 _tr("room_optimizer.table.fallback", default="Fallback")
                 if is_fallback
-                else _tr("room_optimizer.table.breeding", default="Breeding")
+                else room_mode_label
             )
             type_item.setTextAlignment(Qt.AlignCenter)
             type_item.setForeground(QBrush(QColor(208, 208, 224) if is_fallback else QColor(147, 224, 160)))
@@ -1269,6 +1575,8 @@ class RoomOptimizerView(QWidget):
                 "room": room_label,
                 "cats": cat_names,
                 "cat_keys": cat_keys,
+                "room_mode": room_mode,
+                "room_mode_label": room_mode_label,
                 "total_pairs": best_pairs_count,
                 "avg_stats": avg_stats,
                 "avg_risk": avg_risk,
@@ -1583,6 +1891,7 @@ class RoomOptimizerDetailPanel(QWidget):
         root.addLayout(hdr)
 
         self._current_data: Optional[dict] = None
+        self._mode_profiles: dict[str, dict] = _normalize_mutation_mode_profiles({})
         self._navigate_to_cat_callback = None  # Callback to navigate to a cat by name
         self._navigate_to_pair_callback = None  # Callback to navigate to a cat pair
 
@@ -1708,6 +2017,11 @@ class RoomOptimizerDetailPanel(QWidget):
     def set_navigate_to_pair_callback(self, callback):
         self._navigate_to_pair_callback = callback
 
+    def set_mode_profiles(self, mode_profiles: dict[str, dict]):
+        self._mode_profiles = _normalize_mutation_mode_profiles(mode_profiles)
+        if self._current_data:
+            self.show_room(self._current_data)
+
     def _on_pair_cell_clicked(self, item):
         """Handle clicks on cat names to navigate to the cat in the main view."""
         col = self._pairs_table.column(item)
@@ -1799,6 +2113,8 @@ class RoomOptimizerDetailPanel(QWidget):
         pairs = data.get("pairs", [])
         excluded_cats = data.get("excluded_cats", [])
         excluded_cat_rows = data.get("excluded_cat_rows", [])
+        room_mode = str(data.get("room_mode") or ("fallback" if data.get("is_fallback") else "best_pairs")).strip().lower()
+        room_traits = list((self._mode_profiles.get(room_mode, {}) or {}).get("traits", []) or [])
         room_cat_lookup = {}
         for name, key in zip(cats, cat_keys):
             try:
@@ -1976,13 +2292,22 @@ class RoomOptimizerDetailPanel(QWidget):
 
             mutations = pair.get("mutations") or []
             if mutations:
-                shown = [f"{name} {prob * 100:.0f}%" for name, prob in mutations[:4]]
+                shown = [
+                    f"{_planner_trait_name_html(name, _planner_trait_weight(room_traits, display=name))} "
+                    f"<span style=\"color:#9aa6ba;\">{prob * 100:.0f}%</span>"
+                    for name, prob in mutations[:4]
+                ]
                 cell_text = ", ".join(shown)
                 if len(mutations) > 4:
-                    cell_text += f" (+{len(mutations) - 4})"
+                    cell_text += f" <span style=\"color:#7d8bb0;\">(+{len(mutations) - 4})</span>"
                 tooltip_lines = [f"{name}: {prob * 100:.0f}%" for name, prob in mutations]
-                mut_item = QTableWidgetItem(cell_text)
-                mut_item.setToolTip("\n".join(tooltip_lines))
+                mut_label = QLabel(cell_text)
+                mut_label.setTextFormat(Qt.RichText)
+                mut_label.setWordWrap(True)
+                mut_label.setStyleSheet("background:transparent; color:#ddd; padding:2px 4px;")
+                mut_label.setToolTip("\n".join(tooltip_lines))
             else:
-                mut_item = QTableWidgetItem("—")
-            self._pairs_table.setItem(i - 1, 15, mut_item)
+                mut_label = QLabel("—")
+                mut_label.setStyleSheet("background:transparent; color:#777; padding:2px 4px;")
+            self._pairs_table.setCellWidget(i - 1, 15, mut_label)
+        self._pairs_table.resizeRowsToContents()

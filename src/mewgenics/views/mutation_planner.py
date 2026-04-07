@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QLabel, QComboBox, QLineEdit, QSpinBox, QPushButton,
     QSplitter, QFrame, QScrollArea,
     QTableWidget, QTableWidgetItem, QToolButton,
-    QAbstractItemView, QHeaderView,
+    QAbstractItemView, QHeaderView, QDialog,
 )
 from PySide6.QtCore import Qt, Signal, QSize
 from PySide6.QtGui import QColor
@@ -26,10 +26,22 @@ from mewgenics.utils.abilities import (
     _cat_has_trait, _planner_trait_display_name,
     _trait_selector_summary, _trait_selector_label,
     _trait_display_kind, _trait_visible_detail,
+    _planner_trait_name_html, _planner_trait_name_palette,
+    _planner_trait_weight,
 )
 from mewgenics.utils.cat_analysis import _cat_uid
 from mewgenics.utils.tags import _cat_tags, _make_tag_icon
-from mewgenics.utils.planner_state import _load_planner_state_value, _save_planner_state_value
+from mewgenics.utils.planner_state import (
+    DEFAULT_MUTATION_CLASS_STAT_PRIORITY,
+    MUTATION_CLASS_MODES,
+    _default_mutation_mode_profiles,
+    _load_planner_state_value,
+    _mutation_class_label,
+    _normalize_mutation_traits,
+    _normalize_mutation_mode_profiles,
+    _normalize_stat_priority,
+    _save_planner_state_value,
+)
 from mewgenics.utils.styling import _blend_qcolor
 from mewgenics.models.cat_table_model import _SortByUserRoleItem
 
@@ -59,6 +71,13 @@ def _planner_trait_style(ratio: float, *, alpha: int = 150) -> str:
         f"color:#fff; border:1px solid rgba({border.red()},{border.green()},{border.blue()},{border.alpha()});"
         "border-radius:3px; padding:1px 4px;"
     )
+
+
+def _planner_trait_name_colors(weight: float) -> tuple[QColor, Optional[QColor]]:
+    fg_hex, bg_hex, _border_hex = _planner_trait_name_palette(weight)
+    fg = QColor(fg_hex)
+    bg = QColor(bg_hex) if bg_hex else None
+    return fg, bg
 
 
 def _planner_trait_tooltip(summary: dict, *, label: str = "Mutation planner") -> str:
@@ -162,6 +181,73 @@ def _planner_trait_summary_for_pair(cat_a: 'Cat', cat_b: 'Cat', traits: Sequence
     }
 
 
+class _MutationClassSummaryDialog(QDialog):
+    def __init__(self, mode_profiles: dict[str, dict], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Mutation Trees")
+        self.resize(520, 520)
+        self.setStyleSheet(
+            "QDialog { background:#0a0a18; color:#ddd; }"
+            "QLabel { color:#bbb; }"
+            "QFrame { background:#101023; border:1px solid #26264a; border-radius:6px; }"
+            "QPushButton { background:#1a1a32; color:#ddd; border:1px solid #2a2a4a; border-radius:4px; padding:6px 10px; }"
+            "QPushButton:hover { background:#252545; }"
+        )
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(10, 10, 10, 10)
+        root.setSpacing(8)
+
+        title = QLabel("Mutation Trees")
+        title.setStyleSheet("color:#ddd; font-size:16px; font-weight:bold;")
+        root.addWidget(title)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet("QScrollArea { background:transparent; border:none; }")
+        body = QWidget()
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(8)
+
+        for mode in MUTATION_CLASS_MODES:
+            profile = mode_profiles.get(mode, {})
+            traits = list(profile.get("traits", []) or [])
+
+            card = QFrame()
+            card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(10, 8, 10, 8)
+            card_layout.setSpacing(4)
+
+            header = QLabel(_mutation_class_label(mode))
+            header.setStyleSheet("color:#8fb8a0; font-size:13px; font-weight:bold;")
+            card_layout.addWidget(header)
+
+            if traits:
+                trait_lines = ", ".join(
+                    f"{_planner_trait_name_html(trait.get('display', trait.get('key', '?')), trait.get('weight', 0))} "
+                    f"<span style=\"color:#9aa6ba;\">({int(trait.get('weight', 0) or 0):+d})</span>"
+                    for trait in traits
+                )
+            else:
+                trait_lines = "No mutation traits selected."
+            trait_label = QLabel(trait_lines)
+            trait_label.setTextFormat(Qt.RichText)
+            trait_label.setWordWrap(True)
+            trait_label.setStyleSheet("color:#aaa; font-size:11px;")
+            card_layout.addWidget(trait_label)
+            body_layout.addWidget(card)
+
+        body_layout.addStretch()
+        scroll.setWidget(body)
+        root.addWidget(scroll, 1)
+
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.accept)
+        root.addWidget(close_btn, 0, Qt.AlignRight)
+
+
 class MutationDisorderPlannerView(QWidget):
     """View for planning breeding around specific mutations, disorders, and passives."""
 
@@ -181,7 +267,9 @@ class MutationDisorderPlannerView(QWidget):
         self._cats: list[Cat] = []
         self._alive_cats: list[Cat] = []
         self._selected_pair: list[Cat] = []
-        self._selected_traits: list[dict] = []  # [{category, key, display, weight}]
+        self._selected_mode = "best_pairs"
+        self._mode_profiles: dict[str, dict] = _default_mutation_mode_profiles()
+        self._selected_traits: list[dict] = self._mode_profiles[self._selected_mode]["traits"]  # active profile alias
         self._active_trait_data: tuple[str, str] | None = None
         self._browse_trait_datas: list[tuple[str, str]] = []
         self._trait_catalog: list[dict] = []
@@ -198,6 +286,125 @@ class MutationDisorderPlannerView(QWidget):
             return
         self.traitsChanged.emit()
 
+    def _active_mode_profile(self) -> dict:
+        profile = self._mode_profiles.get(self._selected_mode)
+        if not isinstance(profile, dict):
+            self._mode_profiles[self._selected_mode] = {
+                "traits": [],
+                "stat_priority": list(DEFAULT_MUTATION_CLASS_STAT_PRIORITY.get(self._selected_mode, STAT_NAMES)),
+            }
+            profile = self._mode_profiles[self._selected_mode]
+        profile.setdefault("traits", [])
+        profile.setdefault("stat_priority", list(DEFAULT_MUTATION_CLASS_STAT_PRIORITY.get(self._selected_mode, STAT_NAMES)))
+        return profile
+
+    def _sync_selected_traits_reference(self):
+        self._selected_traits = self._active_mode_profile()["traits"]
+
+    def _active_stat_priority(self) -> list[str]:
+        profile = self._active_mode_profile()
+        profile["stat_priority"] = _normalize_stat_priority(profile.get("stat_priority", []), fallback_mode=self._selected_mode)
+        return profile["stat_priority"]
+
+    def _set_active_stat_priority(self, order: Sequence[str]):
+        self._active_mode_profile()["stat_priority"] = _normalize_stat_priority(order, fallback_mode=self._selected_mode)
+
+    def _set_active_mode_traits(self, traits) -> list[dict]:
+        profile = self._active_mode_profile()
+        profile["traits"] = _normalize_mutation_traits(traits)
+        self._sync_selected_traits_reference()
+        self._refresh_selected_traits_metadata(active_only=True)
+        return self._selected_traits
+
+    def get_selected_mode(self) -> str:
+        return self._selected_mode
+
+    def get_mode_profiles(self) -> dict[str, dict]:
+        profiles = _normalize_mutation_mode_profiles(self._mode_profiles, legacy_traits=self._selected_traits)
+        has_traits = any(profiles.get(mode, {}).get("traits") for mode in MUTATION_CLASS_MODES)
+        if has_traits:
+            return profiles
+        state = self._session_state if isinstance(self._session_state, dict) else {}
+        return _normalize_mutation_mode_profiles(
+            state.get("mode_profiles", {}),
+            legacy_traits=state.get("selected_traits", []),
+        )
+
+    def get_traits_for_mode(self, mode: str) -> list[dict]:
+        profiles = self.get_mode_profiles()
+        return [dict(t) for t in profiles.get(str(mode or "").strip().lower(), {}).get("traits", [])]
+
+    def get_stat_priority_for_mode(self, mode: str) -> list[str]:
+        profiles = self.get_mode_profiles()
+        return list(profiles.get(str(mode or "").strip().lower(), {}).get("stat_priority", []))
+
+    def set_stat_priority_for_mode(self, mode: str, order: Sequence[str], *, save: bool = True, notify: bool = True):
+        mode_key = str(mode or "").strip().lower()
+        if mode_key not in MUTATION_CLASS_MODES:
+            return
+        profile = self._mode_profiles.setdefault(mode_key, {
+            "traits": [],
+            "stat_priority": list(DEFAULT_MUTATION_CLASS_STAT_PRIORITY.get(mode_key, STAT_NAMES)),
+        })
+        profile["stat_priority"] = _normalize_stat_priority(order, fallback_mode=mode_key)
+        if save:
+            self._save_session_state()
+        if notify:
+            self._notify_traits_changed()
+
+    def _trait_catalog_entry(self, category: str, key: str) -> Optional[dict]:
+        category = str(category or "").strip()
+        key = str(key or "").strip().lower()
+        return next(
+            (
+                row for row in self._trait_catalog
+                if row.get("category") == category and row.get("key") == key
+            ),
+            None,
+        )
+
+    def _decorate_selected_trait(self, trait: dict) -> dict:
+        category = str(trait.get("category") or "").strip()
+        key = str(trait.get("key") or "").strip().lower()
+        row_data = self._trait_catalog_entry(category, key)
+        try:
+            weight = int(trait.get("weight", 5))
+        except (TypeError, ValueError):
+            weight = 5
+        decorated = {
+            "category": category,
+            "key": key,
+            "display": str(trait.get("display") or key).strip() or key,
+            "weight": weight,
+        }
+        if row_data is not None:
+            decorated.update({
+                "display": row_data.get("display") or decorated["display"],
+                "tip": str(row_data.get("tip") or trait.get("tip") or ""),
+                "desc": str(row_data.get("desc") or trait.get("desc") or ""),
+                "stats": str(row_data.get("stats") or trait.get("stats") or ""),
+                "kind": str(row_data.get("kind") or trait.get("kind") or ""),
+                "cats": int(row_data.get("cats", trait.get("cats", 0)) or 0),
+            })
+        else:
+            decorated.update({
+                "tip": str(trait.get("tip") or ""),
+                "desc": str(trait.get("desc") or ""),
+                "stats": str(trait.get("stats") or ""),
+                "kind": str(trait.get("kind") or ""),
+                "cats": int(trait.get("cats", 0) or 0),
+            })
+        return decorated
+
+    def _refresh_selected_traits_metadata(self, *, active_only: bool = False):
+        target_modes = [self._selected_mode] if active_only else list(MUTATION_CLASS_MODES)
+        for mode in target_modes:
+            profile = self._mode_profiles.get(mode)
+            if not isinstance(profile, dict):
+                continue
+            profile["traits"] = [self._decorate_selected_trait(trait) for trait in profile.get("traits", []) if isinstance(trait, dict)]
+        self._sync_selected_traits_reference()
+
     def _build_ui(self):
         root = QVBoxLayout(self)
         root.setContentsMargins(10, 8, 10, 10)
@@ -208,6 +415,23 @@ class MutationDisorderPlannerView(QWidget):
         self._title = QLabel(_tr("mutation_planner.title"))
         self._title.setStyleSheet("color:#ddd; font-size:18px; font-weight:bold;")
         header.addWidget(self._title)
+        self._mode_label = QLabel("Tree:")
+        self._mode_label.setStyleSheet("color:#888; font-size:11px;")
+        header.addWidget(self._mode_label)
+        self._mode_combo = QComboBox()
+        self._mode_combo.setFixedWidth(130)
+        self._mode_combo.setStyleSheet(
+            "QComboBox { background:#0d0d1c; color:#ccc; border:1px solid #2a2a4a;"
+            " border-radius:4px; padding:4px 8px; }"
+        )
+        for mode in MUTATION_CLASS_MODES:
+            self._mode_combo.addItem(_mutation_class_label(mode), mode)
+        self._mode_combo.currentIndexChanged.connect(self._on_mode_changed)
+        header.addWidget(self._mode_combo)
+        self._show_tree_summary_btn = QPushButton("View Trees")
+        self._show_tree_summary_btn.setFixedWidth(95)
+        self._show_tree_summary_btn.clicked.connect(self._open_tree_summary_dialog)
+        header.addWidget(self._show_tree_summary_btn)
         header.addStretch()
         root.addLayout(header)
 
@@ -438,6 +662,7 @@ class MutationDisorderPlannerView(QWidget):
         self._find_pairs_btn.clicked.connect(self._on_find_best_pairs)
         traits_header.addWidget(self._find_pairs_btn)
         traits_panel_layout.addLayout(traits_header)
+
         # Scroll area for trait rows
         self._traits_list_widget = QWidget()
         self._traits_list_layout = QVBoxLayout(self._traits_list_widget)
@@ -484,6 +709,8 @@ class MutationDisorderPlannerView(QWidget):
 
     def retranslate_ui(self):
         self._title.setText(_tr("mutation_planner.title"))
+        self._mode_label.setText("Tree:")
+        self._show_tree_summary_btn.setText("View Trees")
         self._room_label.setText(_tr("mutation_planner.room"))
         self._stimulation_label.setText(_tr("mutation_planner.stimulation"))
         self._target_trait_label.setText(_tr("mutation_planner.target_trait"))
@@ -494,6 +721,7 @@ class MutationDisorderPlannerView(QWidget):
         self._clear_traits_btn.setText(_tr("mutation_planner.clear_all"))
         self._find_pairs_btn.setText(_tr("mutation_planner.find_best_pairs"))
         self._traits_empty_label.setText(_tr("mutation_planner.no_traits_selected"))
+        self._refresh_mode_combo_label()
         if self._active_trait_data:
             self._update_trait_detail_panel(self._active_trait_data)
         else:
@@ -531,6 +759,31 @@ class MutationDisorderPlannerView(QWidget):
 
     def set_navigate_to_cat_callback(self, callback):
         self._navigate_to_cat_callback = callback
+
+    def _refresh_mode_combo_label(self):
+        if hasattr(self, "_mode_combo"):
+            idx = self._mode_combo.findData(self._selected_mode)
+            if idx >= 0 and self._mode_combo.currentIndex() != idx:
+                self._mode_combo.blockSignals(True)
+                self._mode_combo.setCurrentIndex(idx)
+                self._mode_combo.blockSignals(False)
+
+    def _on_mode_changed(self, _index: int):
+        mode = self._mode_combo.currentData() if hasattr(self, "_mode_combo") else None
+        mode = str(mode or "best_pairs").strip().lower()
+        if mode not in MUTATION_CLASS_MODES or mode == self._selected_mode:
+            return
+        self._selected_mode = mode
+        self._sync_selected_traits_reference()
+        self._rebuild_traits_list()
+        self._refresh_table()
+        self._clear_outcome_panel()
+        self._save_session_state()
+        self._notify_traits_changed()
+
+    def _open_tree_summary_dialog(self):
+        dialog = _MutationClassSummaryDialog(self.get_mode_profiles(), self)
+        dialog.exec()
 
     def save_session_state(self):
         self._save_session_state()
@@ -590,17 +843,27 @@ class MutationDisorderPlannerView(QWidget):
                     entry["tip"] = tip
                 entry["cats"].add(_cat_uid(cat) or str(id(cat)))
 
-            for text, tip in getattr(cat, "mutation_chip_items", []):
+            mutation_chip_items = list(getattr(cat, "mutation_chip_items", []) or [])
+            for text, tip in mutation_chip_items:
                 display = _mutation_display_name(text)
                 mid_match = re.search(r'\(ID\s+(-?\d+)\)', tip)
                 key = f"{text}|{mid_match.group(1)}" if mid_match else text
                 _add_trait("mutation", key, display, tip)
+            if not mutation_chip_items:
+                for text in (cat.mutations or []):
+                    display = _mutation_display_name(text)
+                    _add_trait("mutation", text, display, _ability_tip(text))
 
-            for text, tip in getattr(cat, "defect_chip_items", []):
+            defect_chip_items = list(getattr(cat, "defect_chip_items", []) or [])
+            for text, tip in defect_chip_items:
                 display = _mutation_display_name(text)
                 mid_match = re.search(r'\(ID\s+(-?\d+)\)', tip)
                 key = f"{text}|{mid_match.group(1)}" if mid_match else text
                 _add_trait("defect", key, display, tip)
+            if not defect_chip_items:
+                for text in (cat.defects or []):
+                    display = _mutation_display_name(text)
+                    _add_trait("defect", text, display, _ability_tip(text))
 
             for p in (cat.passive_abilities or []):
                 display = _mutation_display_name(p)
@@ -673,6 +936,19 @@ class MutationDisorderPlannerView(QWidget):
             display_item = QTableWidgetItem(row_data["display"])
             display_item.setData(Qt.UserRole, (row_data["category"], row_data["key"]))
             display_item.setToolTip(row_data["desc"] or row_data["display"])
+            weight = _planner_trait_weight(
+                self._selected_traits,
+                category=row_data["category"],
+                key=row_data["key"],
+                display=row_data["display"],
+            )
+            fg, bg = _planner_trait_name_colors(weight)
+            display_item.setForeground(fg)
+            if bg is not None:
+                display_item.setBackground(bg)
+                font = display_item.font()
+                font.setBold(True)
+                display_item.setFont(font)
             self._trait_table.setItem(row, 0, display_item)
 
             kind_item = _SortByUserRoleItem(row_data["kind"])
@@ -699,9 +975,37 @@ class MutationDisorderPlannerView(QWidget):
         if selected_row >= 0:
             self._trait_table.selectRow(selected_row)
 
+    def _refresh_trait_table_name_styles(self):
+        if not hasattr(self, "_trait_table"):
+            return
+        for row in range(self._trait_table.rowCount()):
+            item = self._trait_table.item(row, 0)
+            if item is None:
+                continue
+            data = item.data(Qt.UserRole)
+            category = key = ""
+            if isinstance(data, tuple) and len(data) == 2:
+                category, key = data
+            weight = _planner_trait_weight(
+                self._selected_traits,
+                category=category,
+                key=key,
+                display=item.text(),
+            )
+            fg, bg = _planner_trait_name_colors(weight)
+            item.setForeground(fg)
+            if bg is not None:
+                item.setBackground(bg)
+            else:
+                item.setBackground(QColor(0, 0, 0, 0))
+            font = item.font()
+            font.setBold(weight != 0)
+            item.setFont(font)
+
     def _populate_trait_combo(self):
         prev = self._trait_combo.currentData()
         self._build_trait_catalog()
+        self._refresh_selected_traits_metadata()
         self._trait_items_master = [
             (
                 _trait_selector_label(row["category"], row["display"], row["tip"]),
@@ -921,7 +1225,7 @@ class MutationDisorderPlannerView(QWidget):
                 "weight": existing_weights.get((category, key), 5),
             })
 
-        self._selected_traits = new_traits
+        self._set_active_mode_traits(new_traits)
         self._selected_pair.clear()
         self._pair_label.setText(_tr("mutation_planner.pair_hint"))
         self._pair_label.setStyleSheet("color:#666; font-size:11px;")
@@ -936,6 +1240,7 @@ class MutationDisorderPlannerView(QWidget):
             self._trait_combo.blockSignals(False)
 
         self._rebuild_traits_list()
+        self._refresh_trait_table_name_styles()
         self._clear_outcome_panel()
         self._refresh_table()
         self._save_session_state()
@@ -971,6 +1276,7 @@ class MutationDisorderPlannerView(QWidget):
         self._pair_label.setText(_tr("mutation_planner.pair_hint"))
         self._pair_label.setStyleSheet("color:#666; font-size:11px;")
         self._rebuild_traits_list()
+        self._refresh_trait_table_name_styles()
         self._clear_outcome_panel()
         self._refresh_table()
         self._save_session_state()
@@ -1007,6 +1313,8 @@ class MutationDisorderPlannerView(QWidget):
     def _on_trait_weight_changed(self, index: int, value: int):
         if 0 <= index < len(self._selected_traits):
             self._selected_traits[index]["weight"] = value
+            self._rebuild_traits_list()
+            self._refresh_trait_table_name_styles()
             self._save_session_state()
             self._notify_traits_changed()
 
@@ -1024,22 +1332,36 @@ class MutationDisorderPlannerView(QWidget):
         for i, trait in enumerate(self._selected_traits):
             row = QWidget()
             row.setStyleSheet("QWidget { background:#151530; border-radius:3px; }")
-            row_layout = QHBoxLayout(row)
-            row_layout.setContentsMargins(6, 2, 4, 2)
-            row_layout.setSpacing(6)
+            row_layout = QVBoxLayout(row)
+            row_layout.setContentsMargins(6, 4, 4, 4)
+            row_layout.setSpacing(3)
+
+            top = QWidget()
+            top.setStyleSheet("background:transparent;")
+            top_layout = QHBoxLayout(top)
+            top_layout.setContentsMargins(0, 0, 0, 0)
+            top_layout.setSpacing(6)
 
             lbl = QToolButton()
-            lbl.setText(trait["display"])
+            lbl.setText(str(trait.get("display") or trait.get("key") or "?"))
             lbl.setToolButtonStyle(Qt.ToolButtonTextOnly)
             lbl.setAutoRaise(True)
             lbl.setCursor(Qt.PointingHandCursor)
-            lbl.setStyleSheet("QToolButton { color:#ccc; font-size:10px; border:none; background:transparent; text-align:left; }")
+            fg_hex, bg_hex, border_hex = _planner_trait_name_palette(trait.get("weight", 0))
+            if bg_hex:
+                lbl.setStyleSheet(
+                    "QToolButton {"
+                    f" color:{fg_hex}; background:{bg_hex}; border:1px solid {border_hex};"
+                    " border-radius:3px; padding:2px 4px; font-size:10px; text-align:left; }"
+                )
+            else:
+                lbl.setStyleSheet("QToolButton { color:#ccc; font-size:10px; border:none; background:transparent; text-align:left; }")
             lbl.clicked.connect(lambda _checked=False, t=trait: self._activate_trait_filter((t["category"], t["key"]), source="selected_trait"))
-            row_layout.addWidget(lbl, 1)
+            top_layout.addWidget(lbl, 1)
 
             wt_label = QLabel(_tr("mutation_planner.weight_short"))
             wt_label.setStyleSheet("color:#888; font-size:10px;")
-            row_layout.addWidget(wt_label)
+            top_layout.addWidget(wt_label)
 
             spin = QSpinBox()
             spin.setRange(-10, 10)
@@ -1064,7 +1386,7 @@ class MutationDisorderPlannerView(QWidget):
                     " border-radius:3px; padding:1px; font-size:10px; }"
                 )
             ))
-            row_layout.addWidget(spin)
+            top_layout.addWidget(spin)
 
             remove_btn = QPushButton(_tr("mutation_planner.remove_trait"))
             remove_btn.setFixedSize(20, 20)
@@ -1074,7 +1396,31 @@ class MutationDisorderPlannerView(QWidget):
                 "QPushButton:hover { background:#3a2a2a; }"
             )
             remove_btn.clicked.connect(lambda _, ii=idx: self._on_remove_trait(ii))
-            row_layout.addWidget(remove_btn)
+            top_layout.addWidget(remove_btn)
+            row_layout.addWidget(top)
+
+            meta_parts: list[str] = []
+            kind = str(trait.get("kind") or "").strip()
+            if kind:
+                meta_parts.append(kind)
+            carriers = int(trait.get("cats", 0) or 0)
+            if carriers > 0:
+                meta_parts.append(f"{carriers} carriers")
+            stats = str(trait.get("stats") or "").strip()
+            if stats:
+                meta_parts.append(stats)
+            if meta_parts:
+                meta_label = QLabel("  |  ".join(meta_parts))
+                meta_label.setWordWrap(True)
+                meta_label.setStyleSheet("color:#8d8da8; font-size:10px;")
+                row_layout.addWidget(meta_label)
+
+            desc = str(trait.get("desc") or "").strip()
+            if desc:
+                desc_label = QLabel(desc)
+                desc_label.setWordWrap(True)
+                desc_label.setStyleSheet("color:#9ea8c6; font-size:10px;")
+                row_layout.addWidget(desc_label)
 
             layout.insertWidget(layout.count() - 1, row)  # insert before stretch
 
@@ -1248,19 +1594,41 @@ class MutationDisorderPlannerView(QWidget):
                 score_item.setForeground(QColor("#cc6666"))
             pair_table.setItem(row, 2, score_item)
 
-            cov_names = ", ".join(t["display"].split("] ")[-1] for t in covered)
-            pair_table.setItem(row, 3, QTableWidgetItem(cov_names))
+            cov_html = ", ".join(
+                _planner_trait_name_html(t["display"].split("] ")[-1], t.get("weight", 0))
+                for t in covered
+            )
+            cov_label = QLabel(cov_html or "—")
+            cov_label.setTextFormat(Qt.RichText)
+            cov_label.setWordWrap(True)
+            cov_label.setStyleSheet("background:transparent; color:#ddd; padding:2px 4px;")
+            pair_table.setCellWidget(row, 3, cov_label)
 
             # Build uncovered + penalized cell
             parts = []
             if uncovered:
-                parts.append(", ".join(t["display"].split("] ")[-1] for t in uncovered))
+                parts.append(", ".join(
+                    _planner_trait_name_html(t["display"].split("] ")[-1], t.get("weight", 0))
+                    for t in uncovered
+                ))
             if penalized:
-                parts.append("\u26a0 " + ", ".join(t["display"].split("] ")[-1] for t in penalized))
+                parts.append(
+                    "\u26a0 "
+                    + ", ".join(
+                        _planner_trait_name_html(t["display"].split("] ")[-1], t.get("weight", 0))
+                        for t in penalized
+                    )
+                )
             if parts:
-                unc_item = QTableWidgetItem(" | ".join(parts))
-                unc_item.setForeground(QColor("#cc8833") if penalized else QColor("#cc6666"))
-                pair_table.setItem(row, 4, unc_item)
+                unc_label = QLabel(" | ".join(parts))
+                unc_label.setTextFormat(Qt.RichText)
+                unc_label.setWordWrap(True)
+                unc_label.setStyleSheet(
+                    "background:transparent;"
+                    + (" color:#cc8833;" if penalized else " color:#cc6666;")
+                    + " padding:2px 4px;"
+                )
+                pair_table.setCellWidget(row, 4, unc_label)
             else:
                 full_item = QTableWidgetItem(_tr("mutation_planner.multi_trait.all_covered"))
                 full_item.setForeground(QColor("#8fb8a0"))
@@ -1314,42 +1682,30 @@ class MutationDisorderPlannerView(QWidget):
 
     def get_selected_traits(self) -> list[dict]:
         """Return current selected traits with weights (for export to room optimizer)."""
-        source = self._selected_traits
-        if not source:
-            source = self._session_state.get("selected_traits", [])
-
-        normalized: list[dict] = []
-        if isinstance(source, list):
-            for trait in source:
-                if not isinstance(trait, dict):
-                    continue
-                category = str(trait.get("category") or "").strip()
-                key = str(trait.get("key") or "").strip().lower()
-                if not category or not key:
-                    continue
-                display = str(trait.get("display") or "").strip() or key
-                try:
-                    weight = int(trait.get("weight", 5))
-                except (TypeError, ValueError):
-                    weight = 5
-                normalized.append({
-                    "category": category,
-                    "key": key,
-                    "display": display,
-                    "weight": weight,
-                })
-        return normalized
+        source = self.get_traits_for_mode(self._selected_mode)
+        if source:
+            return source
+        state = self._session_state if isinstance(self._session_state, dict) else {}
+        selected_mode = str(state.get("selected_mode", self._selected_mode) or self._selected_mode).strip().lower()
+        mode_profiles = _normalize_mutation_mode_profiles(
+            state.get("mode_profiles", {}),
+            legacy_traits=state.get("selected_traits", []),
+        )
+        return [dict(t) for t in mode_profiles.get(selected_mode, {}).get("traits", [])]
 
     def _session_state_payload(self) -> dict:
         state = dict(self._session_state) if isinstance(self._session_state, dict) else {}
         selected_pair_uids = [_cat_uid(cat) for cat in self._selected_pair if _cat_uid(cat)]
         current_trait = self._trait_combo.currentData()
+        mode_profiles = self.get_mode_profiles()
         state.update({
             "room": self._room_combo.currentData() or "",
             "stim": int(self._stim_spin.value()),
             "search": self._trait_search.text(),
             "trait_data": list(current_trait) if isinstance(current_trait, tuple) else None,
-            "selected_traits": [dict(t) for t in self._selected_traits],
+            "selected_mode": self._selected_mode,
+            "mode_profiles": mode_profiles,
+            "selected_traits": [dict(t) for t in mode_profiles.get(self._selected_mode, {}).get("traits", [])],
             "selected_pair_uids": selected_pair_uids if len(selected_pair_uids) == 2 else [],
             "last_mode": state.get("last_mode", "none"),
         })
@@ -1380,27 +1736,17 @@ class MutationDisorderPlannerView(QWidget):
 
             self._stim_spin.setValue(int(state.get("stim", 10) or 10))
 
-            selected_traits = state.get("selected_traits", [])
-            restored_traits: list[dict] = []
-            if isinstance(selected_traits, list):
-                for trait in selected_traits:
-                    if not isinstance(trait, dict):
-                        continue
-                    category = str(trait.get("category") or "").strip()
-                    key = str(trait.get("key") or "").strip().lower()
-                    display = str(trait.get("display") or "").strip() or key
-                    try:
-                        weight = int(trait.get("weight", 5))
-                    except (TypeError, ValueError):
-                        weight = 5
-                    if category and key:
-                        restored_traits.append({
-                            "category": category,
-                            "key": key,
-                            "display": display,
-                            "weight": weight,
-                        })
-            self._selected_traits = restored_traits
+            selected_mode = str(state.get("selected_mode", "best_pairs") or "best_pairs").strip().lower()
+            if selected_mode not in MUTATION_CLASS_MODES:
+                selected_mode = "best_pairs"
+            self._selected_mode = selected_mode
+            self._mode_profiles = _normalize_mutation_mode_profiles(
+                state.get("mode_profiles", {}),
+                legacy_traits=state.get("selected_traits", []),
+            )
+            self._sync_selected_traits_reference()
+            self._refresh_selected_traits_metadata()
+            self._refresh_mode_combo_label()
             self._rebuild_traits_list()
 
             trait_data = state.get("trait_data")
@@ -1434,6 +1780,10 @@ class MutationDisorderPlannerView(QWidget):
         self._session_state = {}
         self._restoring_session_state = True
         try:
+            self._selected_mode = "best_pairs"
+            self._mode_profiles = _default_mutation_mode_profiles()
+            self._sync_selected_traits_reference()
+            self._refresh_mode_combo_label()
             if self._room_combo.count():
                 self._room_combo.setCurrentIndex(0)
             self._stim_spin.setValue(10)
@@ -1451,6 +1801,7 @@ class MutationDisorderPlannerView(QWidget):
                 self._trait_table.clearSelection()
             self._update_trait_detail_panel(None)
             self._clear_outcome_panel()
+            self._rebuild_traits_list()
             if hasattr(self, "_splitter"):
                 self._splitter.setSizes([500, 500])
             if hasattr(self, "_right_splitter"):

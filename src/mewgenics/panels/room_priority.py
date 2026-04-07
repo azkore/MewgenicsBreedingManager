@@ -24,10 +24,11 @@ from mewgenics.utils.optimizer_settings import (
     _load_room_priority_config,
     _save_room_priority_config,
 )
+from mewgenics.utils.planner_state import ROOM_OPTIMIZER_MODES, _mutation_class_label
 
 
 class RoomPriorityPanel(QWidget):
-    """Compact vertical panel for ordering rooms as Breeding or Fallback."""
+    """Compact vertical panel for ordering rooms by optimizer mode."""
     configChanged = Signal()
 
     _SS_BTN = (
@@ -35,15 +36,12 @@ class RoomPriorityPanel(QWidget):
         " border-radius:3px; padding:2px 6px; font-size:11px; }"
         "QPushButton:hover { background:#252545; color:#ddd; }"
     )
-    _SS_BREED = (
-        "QPushButton { background:#1f4a2a; color:#8fe0a0; border:1px solid #2f7a4a;"
-        " border-radius:3px; padding:2px 8px; font-size:11px; font-weight:bold; }"
-        "QPushButton:hover { background:#2f6a3a; }"
-    )
-    _SS_FALLBACK = (
-        "QPushButton { background:#4a2a3a; color:#e08898; border:1px solid #7a3a5a;"
-        " border-radius:3px; padding:2px 8px; font-size:11px; font-weight:bold; }"
-        "QPushButton:hover { background:#5a3a4a; }"
+    _SS_MODE = (
+        "QComboBox { background:#1a1a32; color:#ddd; border:1px solid #2a2a4a;"
+        " padding:2px 6px; font-size:11px; border-radius:3px; }"
+        "QComboBox::drop-down { border:none; }"
+        "QComboBox QAbstractItemView { background:#101023; color:#ddd;"
+        " selection-background-color:#252545; }"
     )
 
     def __init__(self, parent=None):
@@ -124,7 +122,7 @@ class RoomPriorityPanel(QWidget):
         return len(self._room_choices())
 
     def _fallback_count(self) -> int:
-        return sum(1 for slot in self._slots if slot["type_btn"].isChecked())
+        return sum(1 for slot in self._slots if slot["mode_combo"].currentData() == "fallback")
 
     def _refresh_fallback_feedback(self):
         fallback_count = self._fallback_count()
@@ -207,7 +205,7 @@ class RoomPriorityPanel(QWidget):
     def _add_slot(
         self,
         room: str = None,
-        slot_type: str = "breeding",
+        slot_type: str = "best_pairs",
         emit: bool = True,
         max_cats: int | None = None,
         base_stim: float | None = None,
@@ -249,13 +247,14 @@ class RoomPriorityPanel(QWidget):
             combo.setCurrentIndex(idx)
         row.addWidget(combo)
 
-        is_fallback = (slot_type == "fallback")
-        type_btn = QPushButton("Fallback" if is_fallback else "Breeding")
-        type_btn.setCheckable(True)
-        type_btn.setChecked(is_fallback)
-        type_btn.setFixedWidth(70)
-        type_btn.setStyleSheet(self._SS_FALLBACK if is_fallback else self._SS_BREED)
-        row.addWidget(type_btn)
+        mode_combo = QComboBox()
+        mode_combo.setFixedWidth(100)
+        mode_combo.setStyleSheet(self._SS_MODE)
+        for mode in ROOM_OPTIMIZER_MODES:
+            mode_combo.addItem(_mutation_class_label(mode), mode)
+        idx = mode_combo.findData(slot_type if slot_type in ROOM_OPTIMIZER_MODES else "best_pairs")
+        mode_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        row.addWidget(mode_combo)
 
         pairs_title = QLabel("Expected Pairs")
         pairs_title.setStyleSheet("color:#777; font-size:11px; font-weight:bold;")
@@ -342,7 +341,7 @@ class RoomPriorityPanel(QWidget):
 
         slot = {
             "combo": combo,
-            "type_btn": type_btn,
+            "mode_combo": mode_combo,
             "pairs_lbl": pairs_lbl,
             "cap_spin": cap_spin,
             "stim_spin": stim_spin,
@@ -371,13 +370,16 @@ class RoomPriorityPanel(QWidget):
                 " border-radius: 4px; }"
             )
 
-        def _on_type(checked, _s=slot):
-            _s["type_btn"].setText("Fallback" if checked else "Breeding")
-            _s["type_btn"].setStyleSheet(self._SS_FALLBACK if checked else self._SS_BREED)
+        def _on_mode_changed(_index, _s=slot):
+            selected_mode = _s["mode_combo"].currentData()
+            if selected_mode == "fallback" and _s["cap_spin"].value() == 6:
+                _s["cap_spin"].setValue(0)
+            elif selected_mode != "fallback" and _s["cap_spin"].value() == 0:
+                _s["cap_spin"].setValue(6)
             self._refresh_fallback_feedback()
             self._on_changed()
 
-        type_btn.toggled.connect(_on_type)
+        mode_combo.currentIndexChanged.connect(_on_mode_changed)
         combo.currentIndexChanged.connect(lambda _: (_update_swatch(), self._update_expected_pairs_label(slot), self._refresh_room_choices(), self._on_changed()))
         cap_spin.valueChanged.connect(lambda _: self._on_changed())
         stim_spin.valueChanged.connect(lambda _: self._on_changed())
@@ -401,19 +403,19 @@ class RoomPriorityPanel(QWidget):
             return
         a, b = self._slots[i], self._slots[j]
         a_room, b_room = a["combo"].currentData(), b["combo"].currentData()
-        a_fb, b_fb = a["type_btn"].isChecked(), b["type_btn"].isChecked()
+        a_mode, b_mode = a["mode_combo"].currentData(), b["mode_combo"].currentData()
         a_cap, b_cap = a["cap_spin"].value(), b["cap_spin"].value()
         a_stim, b_stim = a["stim_spin"].value(), b["stim_spin"].value()
         a_calc, b_calc = a["calc_lbl"].text(), b["calc_lbl"].text()
         for s in (a, b):
             s["combo"].blockSignals(True)
-            s["type_btn"].blockSignals(True)
+            s["mode_combo"].blockSignals(True)
             s["cap_spin"].blockSignals(True)
             s["stim_spin"].blockSignals(True)
         a["combo"].setCurrentIndex(a["combo"].findData(b_room))
         b["combo"].setCurrentIndex(b["combo"].findData(a_room))
-        a["type_btn"].setChecked(b_fb)
-        b["type_btn"].setChecked(a_fb)
+        a["mode_combo"].setCurrentIndex(a["mode_combo"].findData(b_mode))
+        b["mode_combo"].setCurrentIndex(b["mode_combo"].findData(a_mode))
         a["cap_spin"].setValue(b_cap)
         b["cap_spin"].setValue(a_cap)
         a["stim_spin"].setValue(b_stim)
@@ -422,12 +424,9 @@ class RoomPriorityPanel(QWidget):
         b["calc_lbl"].setText(a_calc)
         for s in (a, b):
             s["combo"].blockSignals(False)
-            s["type_btn"].blockSignals(False)
+            s["mode_combo"].blockSignals(False)
             s["cap_spin"].blockSignals(False)
             s["stim_spin"].blockSignals(False)
-            is_fb = s["type_btn"].isChecked()
-            s["type_btn"].setText("Fallback" if is_fb else "Breeding")
-            s["type_btn"].setStyleSheet(self._SS_FALLBACK if is_fb else self._SS_BREED)
             key = s["combo"].currentData()
             color = ROOM_COLORS.get(key, QColor(80, 80, 100))
             r, g, b = color.red(), color.green(), color.blue()
@@ -461,7 +460,7 @@ class RoomPriorityPanel(QWidget):
         return [
             {
                 "room": s["combo"].currentData(),
-                "type": "fallback" if s["type_btn"].isChecked() else "breeding",
+                "type": s["mode_combo"].currentData() or "best_pairs",
                 "max_cats": int(s["cap_spin"].value()),
                 "base_stim": float(s["stim_spin"].value()),
             }
@@ -473,7 +472,7 @@ class RoomPriorityPanel(QWidget):
         for slot in config:
             self._add_slot(
                 slot.get("room"),
-                slot.get("type", "breeding"),
+                slot.get("type", "best_pairs"),
                 emit=False,
                 max_cats=slot.get("max_cats", slot.get("capacity")),
                 base_stim=slot.get("base_stim", slot.get("stimulation")),
