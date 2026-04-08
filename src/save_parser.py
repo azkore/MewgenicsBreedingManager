@@ -217,6 +217,23 @@ _VISUAL_MUTATION_FIELDS = [
     ("mouth", 68, "mouth", "mouth", "mouth", "Mouth"),
 ]
 
+_VISUAL_MUTATION_VARIANT_FIELDS = [
+    ("fur_variant",      4,  "fur",      "texture_variant", "fur",      "Fur Variant"),
+    ("body_variant",     9,  "body",     "body_variant",    "body",     "Body Variant"),
+    ("head_variant",    14,  "head",     "head_variant",    "head",     "Head Variant"),
+    ("tail_variant",    19,  "tail",     "tail_variant",    "tail",     "Tail Variant"),
+    ("leg_L_variant",   24,  "legs",     "legs_variant",    "legs",     "Left Leg Variant"),
+    ("leg_R_variant",   29,  "legs",     "legs_variant",    "legs",     "Right Leg Variant"),
+    ("arm_L_variant",   34,  "arms",     "legs_variant",    "legs",     "Left Arm Variant"),
+    ("arm_R_variant",   39,  "arms",     "legs_variant",    "legs",     "Right Arm Variant"),
+    ("eye_L_variant",   44,  "eyes",     "eyes_variant",    "eyes",     "Left Eye Variant"),
+    ("eye_R_variant",   49,  "eyes",     "eyes_variant",    "eyes",     "Right Eye Variant"),
+    ("eyebrow_L_variant", 54, "eyebrows", "eyebrows_variant", "eyebrows", "Left Eyebrow Variant"),
+    ("eyebrow_R_variant", 59, "eyebrows", "eyebrows_variant", "eyebrows", "Right Eyebrow Variant"),
+    ("ear_L_variant",   64,  "ears",     "ears_variant",    "ears",     "Left Ear Variant"),
+    ("ear_R_variant",   69,  "ears",     "ears_variant",    "ears",     "Right Ear Variant"),
+]
+
 _VISUAL_MUTATION_PART_LABELS = {
     "fur": "Fur",
     "body": "Body",
@@ -1284,10 +1301,23 @@ class Cat:
 
         r.skip(64)
         T = [r.u32() for _ in range(72)]
-        self.body_parts = {"texture": T[0], "bodyShape": T[3], "headShape": T[8]}
+        self.base_palette_index = T[1] if len(T) > 1 else 0
+        self.class_palette_index = T[2] if len(T) > 2 and T[2] < 256 else None
+        self.body_parts = {
+            "texture": T[0],
+            "color_palette_index": self.base_palette_index,
+            "class_palette_index": self.class_palette_index,
+            "bodyShape": T[3],
+            "headShape": T[8],
+        }
         self.visual_mutation_slots = {
             slot_key: T[table_index]
             for slot_key, table_index, *_ in _VISUAL_MUTATION_FIELDS
+            if table_index < len(T)
+        }
+        self.visual_mutation_variant_slots = {
+            slot_key: T[table_index]
+            for slot_key, table_index, *_ in _VISUAL_MUTATION_VARIANT_FIELDS
             if table_index < len(T)
         }
         visual_entries = _read_visual_mutation_entries(T)
@@ -1514,6 +1544,21 @@ class Cat:
     def short_name(self) -> str:
         """First word of name for compact displays."""
         return self.name.split()[0] if self.name else "?"
+
+    def get_effective_texture(self, slot: str) -> Optional[int]:
+        """Get effective texture ID for a body part slot, using variant as fallback.
+
+        Variant textures represent the base/default limb when no mutation is present.
+        If the primary texture is 0 or unset, falls back to the variant slot.
+        """
+        primary = self.visual_mutation_slots.get(slot)
+        if primary and primary != 0:
+            return primary
+        variant_slot = f"{slot}_variant"
+        variant = getattr(self, 'visual_mutation_variant_slots', {}).get(variant_slot)
+        if variant and variant != 0:
+            return variant
+        return primary
 
 
 # ── Ancestry helpers ──────────────────────────────────────────────────────────

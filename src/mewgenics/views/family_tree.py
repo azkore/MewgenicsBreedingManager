@@ -7,14 +7,55 @@ from PySide6.QtWidgets import (
     QPushButton, QScrollArea, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget,
 )
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont, QFontMetrics
+from PySide6.QtCore import Qt, QThread
+from PySide6.QtGui import QFont, QFontMetrics, QPixmap
 
 from save_parser import Cat
 from mewgenics.models.cat_table_model import _SortKeyItem
 from mewgenics.utils.localization import _tr
 from mewgenics.utils.styling import _enforce_min_font_in_widget_tree, _sidebar_btn
 from mewgenics.utils.tags import _make_tag_icon, _cat_tags
+from mewgenics.utils.config import _load_app_config, _save_app_config
+
+try:
+    import swf_cat_renderer
+    _SWF_RENDERER_AVAILABLE = True
+except Exception:
+    _SWF_RENDERER_AVAILABLE = False
+
+_FAMILY_TREE_THUMBNAILS_KEY = "family_tree_show_thumbnails"
+_THUMB_SIZE = 96  # px
+
+
+def _load_family_tree_show_thumbnails() -> bool:
+    """Return persisted Family Tree thumbnail preference; default OFF."""
+    return bool(_load_app_config().get(_FAMILY_TREE_THUMBNAILS_KEY, False))
+
+
+def _save_family_tree_show_thumbnails(enabled: bool) -> None:
+    data = _load_app_config()
+    data[_FAMILY_TREE_THUMBNAILS_KEY] = bool(enabled)
+    _save_app_config(data)
+
+
+class FamilyTreeThumbnailPreloadWorker(QThread):
+    """Warm thumbnail disk-cache for visible cats off the UI thread."""
+
+    def __init__(self, cats: list[Cat], thumbnail_size: int, parent=None):
+        super().__init__(parent)
+        self._cats = list(cats)
+        self._thumbnail_size = int(thumbnail_size)
+
+    def run(self):
+        if not _SWF_RENDERER_AVAILABLE:
+            return
+        try:
+            for cat in self._cats:
+                if self.isInterruptionRequested():
+                    return
+                swf_cat_renderer.render_cat_thumbnail(cat, size=self._thumbnail_size)
+        except Exception:
+            pass  # Thumbnails are decorative; never crash the app
 
 
 class FamilyTreeBrowserView(QWidget):
@@ -40,6 +81,8 @@ class FamilyTreeBrowserView(QWidget):
         self._cats: list[Cat] = []
         self._by_key: dict[int, Cat] = {}
         self._alive_only: bool = True
+        self._show_thumbnails: bool = _load_family_tree_show_thumbnails()
+        self._thumb_worker: Optional[FamilyTreeThumbnailPreloadWorker] = None
 
         root = QHBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
@@ -94,12 +137,32 @@ class FamilyTreeBrowserView(QWidget):
         lv.addWidget(self._list, 1)
         root.addWidget(left)
 
-        # Right pane: tree
+        # Right pane: tree + thumbnail toggle
+        right = QWidget()
+        rv = QVBoxLayout(right)
+        rv.setContentsMargins(0, 0, 0, 0)
+        rv.setSpacing(4)
+        self._thumb_toggle = QPushButton("Show Cat Images")
+        self._thumb_toggle.setCheckable(True)
+        self._thumb_toggle.setChecked(self._show_thumbnails)
+        self._thumb_toggle.setEnabled(_SWF_RENDERER_AVAILABLE)
+        if not _SWF_RENDERER_AVAILABLE:
+            self._thumb_toggle.setToolTip("Cat image rendering requires Pillow and numpy (pip install Pillow numpy)")
+        self._thumb_toggle.setStyleSheet(
+            "QPushButton { background:#131326; color:#aaa; border:1px solid #252545;"
+            " border-radius:4px; padding:4px 10px; font-size:10px; }"
+            "QPushButton:checked { background:#1d2f4a; color:#7fb3f5; border-color:#3b5f95; }"
+            "QPushButton:hover { background:#1a2040; }"
+            "QPushButton:disabled { color:#444; }"
+        )
+        self._thumb_toggle.clicked.connect(self._toggle_thumbnails)
+        rv.addWidget(self._thumb_toggle, 0, Qt.AlignRight)
         self._tree_scroll = QScrollArea()
         self._tree_scroll.setWidgetResizable(True)
         self._tree_content = QWidget()
         self._tree_scroll.setWidget(self._tree_content)
-        root.addWidget(self._tree_scroll, 1)
+        rv.addWidget(self._tree_scroll, 1)
+        root.addWidget(right, 1)
 
         self._search.textChanged.connect(self._refresh_list)
         self._list.currentCellChanged.connect(self._on_current_item_changed)
@@ -112,7 +175,33 @@ class FamilyTreeBrowserView(QWidget):
         self._all_btn.setText(f"{_tr('family_tree.filter_all')} ({total})")
         self._alive_btn.setText(f"{_tr('family_tree.filter_alive')} ({alive})")
 
+    # ── Thumbnail helpers ──────────────────────────────────────────────────────
+
+    def _toggle_thumbnails(self):
+        self._show_thumbnails = self._thumb_toggle.isChecked()
+        _save_family_tree_show_thumbnails(self._show_thumbnails)
+        cur = self._list.currentItem()
+        if cur is not None:
+            cat = self._by_key.get(int(cur.data(Qt.UserRole)))
+            self._render_tree(cat)
+        else:
+            self._render_tree(None)
+
+    def _stop_thumbnail_preload(self):
+        if self._thumb_worker and self._thumb_worker.isRunning():
+            self._thumb_worker.requestInterruption()
+            self._thumb_worker.wait(500)
+        self._thumb_worker = None
+
+    def _queue_thumbnail_preload(self, cats: list[Cat]):
+        self._stop_thumbnail_preload()
+        if not _SWF_RENDERER_AVAILABLE or not self._show_thumbnails or not cats:
+            return
+        self._thumb_worker = FamilyTreeThumbnailPreloadWorker(cats, _THUMB_SIZE, self)
+        self._thumb_worker.start()
+
     def set_cats(self, cats: list[Cat]):
+        self._stop_thumbnail_preload()
         selected_key = None
         cur = self._list.currentItem()
         if cur is not None:
@@ -255,7 +344,9 @@ class FamilyTreeBrowserView(QWidget):
         root.addWidget(title)
         root.addWidget(QLabel(_tr("family_tree.click_hint"), styleSheet="color:#666; font-size:11px;"))
 
-        def cat_box(c: Optional[Cat], highlight=False):
+        visible_tree_cats: list[Cat] = []
+
+        def cat_box(c: Optional[Cat], highlight=False) -> QWidget:
             if c is None:
                 btn = QPushButton(_tr("family_tree.unknown"))
                 btn.setEnabled(False)
@@ -263,6 +354,7 @@ class FamilyTreeBrowserView(QWidget):
                     "QPushButton { color:#303040; font-size:10px; padding:7px 10px;"
                     " background:#0e0e1c; border:1px solid #18182a; border-radius:6px; }")
                 return btn
+            visible_tree_cats.append(c)
             line2 = c.gender_display
             if c.room_display:
                 line2 += f"  {c.room_display}"
@@ -286,6 +378,38 @@ class FamilyTreeBrowserView(QWidget):
             else:
                 btn.setEnabled(False)
             btn.setMinimumWidth(120)
+
+            # Optionally wrap in a card with thumbnail image above the button
+            if self._show_thumbnails and _SWF_RENDERER_AVAILABLE:
+                try:
+                    png = swf_cat_renderer.render_cat_thumbnail(c, size=_THUMB_SIZE)
+                    if png:
+                        pix = QPixmap()
+                        pix.loadFromData(bytes(png))
+                        card = QWidget()
+                        card.setStyleSheet(
+                            f"QWidget {{ background:{bg}; border:1px solid {border};"
+                            " border-radius:6px; }")
+                        cv = QVBoxLayout(card)
+                        cv.setContentsMargins(4, 4, 4, 0)
+                        cv.setSpacing(2)
+                        img_lbl = QLabel()
+                        img_lbl.setPixmap(pix.scaled(
+                            _THUMB_SIZE, _THUMB_SIZE,
+                            Qt.KeepAspectRatio, Qt.SmoothTransformation,
+                        ))
+                        img_lbl.setAlignment(Qt.AlignCenter)
+                        img_lbl.setStyleSheet("border:none; background:transparent;")
+                        btn.setStyleSheet(
+                            f"QPushButton {{ color:#ddd; font-size:10px; padding:4px 6px;"
+                            f" background:transparent; border:none; border-radius:0; }}"
+                            "QPushButton:hover { color:#fff; }")
+                        cv.addWidget(img_lbl)
+                        cv.addWidget(btn)
+                        return card
+                except Exception:
+                    pass  # Fall through to plain button
+
             return btn
 
         def row_label(text: str) -> QLabel:
@@ -392,3 +516,4 @@ class FamilyTreeBrowserView(QWidget):
 
         root.addStretch()
         _enforce_min_font_in_widget_tree(self._tree_content)
+        self._queue_thumbnail_preload(visible_tree_cats)

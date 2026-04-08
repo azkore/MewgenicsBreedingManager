@@ -804,11 +804,9 @@ class WhatsNewDialog(QDialog):
         )
 
         default_highlights = highlights or [
-            "Persisted zoom and font-size settings so the app opens exactly how you left it.",
-            "Added Help, About, and first-run onboarding dialogs.",
-            "Consolidated pair search into Mating Pair Search with Best Pair as the default mode.",
-            "Expanded tag editing with custom colors and optional images.",
-            "Added roster total-stat and stat-icon display toggles.",
+            "Added cat sprite visualizer — toggle <b>Show Cat Images</b> in the Family Tree to render actual in-game cat portraits.",
+            "Cat thumbnails are composited from game assets with correct palette, class, and body part data.",
+            "Thumbnails are cached on disk after first render — instant on subsequent opens.",
         ]
 
         root = QVBoxLayout(self)
@@ -825,7 +823,7 @@ class WhatsNewDialog(QDialog):
         body.setHtml(
             f"""
             <div style="line-height:1.5;">
-              <p>This release focuses on the CatScan-inspired quality-of-life batch.</p>
+              <p>This release adds in-game cat sprite visualization to the Family Tree.</p>
               <ul>{bullets}</ul>
               <p><a href="https://github.com/frankieg33/MewgenicsBreedingManager/releases">View releases on GitHub</a></p>
             </div>
