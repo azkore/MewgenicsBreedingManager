@@ -20,6 +20,7 @@ a = Analysis(
         'lz4.block',
         'visual_mutation_catalog',
         'swf_cat_renderer',
+        'swf_database',
         'PIL',
         'PIL.Image',
         'PIL.ImageOps',
