@@ -1,0 +1,2147 @@
+{
+  "11007": {
+    "class_name": "CatHeadPlacements",
+    "table_name": "CatHeadPlacements",
+    "is_named": true
+  },
+  "10983": {
+    "class_name": "CatTail",
+    "table_name": "CatTail",
+    "is_named": true
+  },
+  "10758": {
+    "class_name": "catparts_fla.Firem_58",
+    "table_name": "catparts_fla.Firem_58",
+    "is_named": true
+  },
+  "9926": {
+    "class_name": "CatLeg",
+    "table_name": "CatLeg",
+    "is_named": true
+  },
+  "8846": {
+    "class_name": "CatBody",
+    "table_name": "CatBody",
+    "is_named": true
+  },
+  "8052": {
+    "class_name": "CatEar",
+    "table_name": "CatEar",
+    "is_named": true
+  },
+  "7133": {
+    "class_name": "CatHead",
+    "table_name": "CatHead",
+    "is_named": true
+  },
+  "7115": {
+    "class_name": "catparts_fla.Symbol167copy_53",
+    "table_name": "catparts_fla.Symbol167copy_53",
+    "is_named": true
+  },
+  "7096": {
+    "class_name": "catparts_fla.eye3_46",
+    "table_name": "catparts_fla.eye3_46",
+    "is_named": true
+  },
+  "7092": {
+    "class_name": "catparts_fla.eye2_42",
+    "table_name": "catparts_fla.eye2_42",
+    "is_named": true
+  },
+  "6989": {
+    "class_name": "catparts_fla.fire2_29",
+    "table_name": "catparts_fla.fire2_29",
+    "is_named": true
+  },
+  "5950": {
+    "class_name": "CatEye",
+    "table_name": "CatEye",
+    "is_named": true
+  },
+  "5948": {
+    "class_name": "CatMouth",
+    "table_name": "CatMouth",
+    "is_named": true
+  },
+  "5520": {
+    "class_name": "CatEyebrow",
+    "table_name": "CatEyebrow",
+    "is_named": true
+  },
+  "5166": {
+    "class_name": "CatEyeClosed",
+    "table_name": "CatEyeClosed",
+    "is_named": true
+  },
+  "5164": {
+    "class_name": "CatMouthOpen",
+    "table_name": "CatMouthOpen",
+    "is_named": true
+  },
+  "4731": {
+    "class_name": "HeadItemF",
+    "table_name": "HeadItemF",
+    "is_named": true
+  },
+  "4569": {
+    "class_name": "HeadItemB",
+    "table_name": "HeadItemB",
+    "is_named": true
+  },
+  "4547": {
+    "class_name": "catparts_fla.Symbol341_158",
+    "table_name": "catparts_fla.Symbol341_158",
+    "is_named": true
+  },
+  "4540": {
+    "class_name": "catparts_fla.Symbol37_157",
+    "table_name": "catparts_fla.Symbol37_157",
+    "is_named": true
+  },
+  "4277": {
+    "class_name": "catparts_fla.housecrown_101",
+    "table_name": "catparts_fla.housecrown_101",
+    "is_named": true
+  },
+  "4271": {
+    "class_name": "catparts_fla.fire2_103",
+    "table_name": "catparts_fla.fire2_103",
+    "is_named": true
+  },
+  "4196": {
+    "class_name": "NeckItemF",
+    "table_name": "NeckItemF",
+    "is_named": true
+  },
+  "4071": {
+    "class_name": "NeckItemB",
+    "table_name": "NeckItemB",
+    "is_named": true
+  },
+  "3807": {
+    "class_name": "FaceItemF",
+    "table_name": "FaceItemF",
+    "is_named": true
+  },
+  "3742": {
+    "class_name": "catparts_fla.eye2_38",
+    "table_name": "catparts_fla.eye2_38",
+    "is_named": true
+  },
+  "3698": {
+    "class_name": "FaceItemB",
+    "table_name": "FaceItemB",
+    "is_named": true
+  },
+  "3585": {
+    "class_name": "catparts_fla.Symbol341_141",
+    "table_name": "catparts_fla.Symbol341_141",
+    "is_named": true
+  },
+  "3558": {
+    "class_name": "catparts_fla.eye3_40",
+    "table_name": "catparts_fla.eye3_40",
+    "is_named": true
+  },
+  "3435": {
+    "class_name": "CatMouthSmile",
+    "table_name": "CatMouthSmile",
+    "is_named": true
+  },
+  "3002": {
+    "class_name": "Weapon",
+    "table_name": "Weapon",
+    "is_named": true
+  },
+  "2980": {
+    "class_name": "catparts_fla.GAMdiceart_329",
+    "table_name": "catparts_fla.GAMdiceart_329",
+    "is_named": true
+  },
+  "2965": {
+    "class_name": "catparts_fla.Symbol80copy2_328",
+    "table_name": "catparts_fla.Symbol80copy2_328",
+    "is_named": true
+  },
+  "2676": {
+    "class_name": "Trinket",
+    "table_name": "Trinket",
+    "is_named": true
+  },
+  "2675": {
+    "class_name": "CatTexture",
+    "table_name": "CatTexture",
+    "is_named": true
+  },
+  "2670": {
+    "class_name": "catparts_fla.Symbol114_10",
+    "table_name": "catparts_fla.Symbol114_10",
+    "is_named": true
+  },
+  "2664": {
+    "class_name": "catparts_fla.Symbol115_9",
+    "table_name": "catparts_fla.Symbol115_9",
+    "is_named": true
+  },
+  "2338": {
+    "class_name": "CatEye_Right",
+    "table_name": "CatEye_Right",
+    "is_named": true
+  },
+  "2315": {
+    "class_name": "catparts_fla.Symbol167_68",
+    "table_name": "catparts_fla.Symbol167_68",
+    "is_named": true
+  },
+  "2306": {
+    "class_name": "catparts_fla.eye4_92",
+    "table_name": "catparts_fla.eye4_92",
+    "is_named": true
+  },
+  "2303": {
+    "class_name": "catparts_fla.eye5_50",
+    "table_name": "catparts_fla.eye5_50",
+    "is_named": true
+  },
+  "1858": {
+    "class_name": "CatEyeClosed_Right",
+    "table_name": "CatEyeClosed_Right",
+    "is_named": true
+  },
+  "1714": {
+    "class_name": "catparts_fla.Wispfire_73",
+    "table_name": "catparts_fla.Wispfire_73",
+    "is_named": true
+  },
+  "1628": {
+    "class_name": "catparts_fla.diceeye_76",
+    "table_name": "catparts_fla.diceeye_76",
+    "is_named": true
+  },
+  "1356": {
+    "class_name": "HeadItemIcon",
+    "table_name": "HeadItemIcon",
+    "is_named": true
+  },
+  "1355": {
+    "class_name": "FaceItemIcon",
+    "table_name": "FaceItemIcon",
+    "is_named": true
+  },
+  "1354": {
+    "class_name": "NeckItemIcon",
+    "table_name": "NeckItemIcon",
+    "is_named": true
+  },
+  "1353": {
+    "class_name": "WeaponIcon",
+    "table_name": "WeaponIcon",
+    "is_named": true
+  },
+  "1352": {
+    "class_name": "TrinketIcon",
+    "table_name": "TrinketIcon",
+    "is_named": true
+  },
+  "1351": {
+    "class_name": "HeadItemIcon_Worn",
+    "table_name": "HeadItemIcon_Worn",
+    "is_named": true
+  },
+  "1350": {
+    "class_name": "FaceItemIcon_Worn",
+    "table_name": "FaceItemIcon_Worn",
+    "is_named": true
+  },
+  "1349": {
+    "class_name": "NeckItemIcon_Worn",
+    "table_name": "NeckItemIcon_Worn",
+    "is_named": true
+  },
+  "1348": {
+    "class_name": "WeaponIcon_Worn",
+    "table_name": "WeaponIcon_Worn",
+    "is_named": true
+  },
+  "1347": {
+    "class_name": "TrinketIcon_Worn",
+    "table_name": "TrinketIcon_Worn",
+    "is_named": true
+  },
+  "1346": {
+    "class_name": "catparts_fla.Symbol206_420",
+    "table_name": "catparts_fla.Symbol206_420",
+    "is_named": true
+  },
+  "1343": {
+    "class_name": "catparts_fla.Symbol210_418",
+    "table_name": "catparts_fla.Symbol210_418",
+    "is_named": true
+  },
+  "1340": {
+    "class_name": "HeadItemIcon_Broken",
+    "table_name": "HeadItemIcon_Broken",
+    "is_named": true
+  },
+  "1128": {
+    "class_name": "FaceItemIcon_Broken",
+    "table_name": "FaceItemIcon_Broken",
+    "is_named": true
+  },
+  "910": {
+    "class_name": "NeckItemIcon_Broken",
+    "table_name": "NeckItemIcon_Broken",
+    "is_named": true
+  },
+  "718": {
+    "class_name": "WeaponIcon_Broken",
+    "table_name": "WeaponIcon_Broken",
+    "is_named": true
+  },
+  "412": {
+    "class_name": "TrinketIcon_Broken",
+    "table_name": "TrinketIcon_Broken",
+    "is_named": true
+  },
+  "22": {
+    "class_name": "catparts_fla.Symbol207_427",
+    "table_name": "catparts_fla.Symbol207_427",
+    "is_named": true
+  },
+  "3": {
+    "class_name": "sprite_3",
+    "table_name": "sprite_3",
+    "is_named": false
+  },
+  "6": {
+    "class_name": "sprite_6",
+    "table_name": "sprite_6",
+    "is_named": false
+  },
+  "9": {
+    "class_name": "sprite_9",
+    "table_name": "sprite_9",
+    "is_named": false
+  },
+  "12": {
+    "class_name": "sprite_12",
+    "table_name": "sprite_12",
+    "is_named": false
+  },
+  "13": {
+    "class_name": "sprite_13",
+    "table_name": "sprite_13",
+    "is_named": false
+  },
+  "16": {
+    "class_name": "sprite_16",
+    "table_name": "sprite_16",
+    "is_named": false
+  },
+  "17": {
+    "class_name": "sprite_17",
+    "table_name": "sprite_17",
+    "is_named": false
+  },
+  "24": {
+    "class_name": "sprite_24",
+    "table_name": "sprite_24",
+    "is_named": false
+  },
+  "31": {
+    "class_name": "sprite_31",
+    "table_name": "sprite_31",
+    "is_named": false
+  },
+  "33": {
+    "class_name": "sprite_33",
+    "table_name": "sprite_33",
+    "is_named": false
+  },
+  "35": {
+    "class_name": "sprite_35",
+    "table_name": "sprite_35",
+    "is_named": false
+  },
+  "37": {
+    "class_name": "sprite_37",
+    "table_name": "sprite_37",
+    "is_named": false
+  },
+  "39": {
+    "class_name": "sprite_39",
+    "table_name": "sprite_39",
+    "is_named": false
+  },
+  "41": {
+    "class_name": "sprite_41",
+    "table_name": "sprite_41",
+    "is_named": false
+  },
+  "42": {
+    "class_name": "sprite_42",
+    "table_name": "sprite_42",
+    "is_named": false
+  },
+  "44": {
+    "class_name": "sprite_44",
+    "table_name": "sprite_44",
+    "is_named": false
+  },
+  "54": {
+    "class_name": "sprite_54",
+    "table_name": "sprite_54",
+    "is_named": false
+  },
+  "56": {
+    "class_name": "sprite_56",
+    "table_name": "sprite_56",
+    "is_named": false
+  },
+  "58": {
+    "class_name": "sprite_58",
+    "table_name": "sprite_58",
+    "is_named": false
+  },
+  "60": {
+    "class_name": "sprite_60",
+    "table_name": "sprite_60",
+    "is_named": false
+  },
+  "62": {
+    "class_name": "sprite_62",
+    "table_name": "sprite_62",
+    "is_named": false
+  },
+  "64": {
+    "class_name": "sprite_64",
+    "table_name": "sprite_64",
+    "is_named": false
+  },
+  "66": {
+    "class_name": "sprite_66",
+    "table_name": "sprite_66",
+    "is_named": false
+  },
+  "68": {
+    "class_name": "sprite_68",
+    "table_name": "sprite_68",
+    "is_named": false
+  },
+  "70": {
+    "class_name": "sprite_70",
+    "table_name": "sprite_70",
+    "is_named": false
+  },
+  "72": {
+    "class_name": "sprite_72",
+    "table_name": "sprite_72",
+    "is_named": false
+  },
+  "74": {
+    "class_name": "sprite_74",
+    "table_name": "sprite_74",
+    "is_named": false
+  },
+  "76": {
+    "class_name": "sprite_76",
+    "table_name": "sprite_76",
+    "is_named": false
+  },
+  "85": {
+    "class_name": "sprite_85",
+    "table_name": "sprite_85",
+    "is_named": false
+  },
+  "87": {
+    "class_name": "sprite_87",
+    "table_name": "sprite_87",
+    "is_named": false
+  },
+  "90": {
+    "class_name": "sprite_90",
+    "table_name": "sprite_90",
+    "is_named": false
+  },
+  "93": {
+    "class_name": "sprite_93",
+    "table_name": "sprite_93",
+    "is_named": false
+  },
+  "95": {
+    "class_name": "sprite_95",
+    "table_name": "sprite_95",
+    "is_named": false
+  },
+  "97": {
+    "class_name": "sprite_97",
+    "table_name": "sprite_97",
+    "is_named": false
+  },
+  "113": {
+    "class_name": "sprite_113",
+    "table_name": "sprite_113",
+    "is_named": false
+  },
+  "121": {
+    "class_name": "sprite_121",
+    "table_name": "sprite_121",
+    "is_named": false
+  },
+  "123": {
+    "class_name": "sprite_123",
+    "table_name": "sprite_123",
+    "is_named": false
+  },
+  "159": {
+    "class_name": "sprite_159",
+    "table_name": "sprite_159",
+    "is_named": false
+  },
+  "161": {
+    "class_name": "sprite_161",
+    "table_name": "sprite_161",
+    "is_named": false
+  },
+  "180": {
+    "class_name": "sprite_180",
+    "table_name": "sprite_180",
+    "is_named": false
+  },
+  "188": {
+    "class_name": "sprite_188",
+    "table_name": "sprite_188",
+    "is_named": false
+  },
+  "191": {
+    "class_name": "sprite_191",
+    "table_name": "sprite_191",
+    "is_named": false
+  },
+  "221": {
+    "class_name": "sprite_221",
+    "table_name": "sprite_221",
+    "is_named": false
+  },
+  "247": {
+    "class_name": "sprite_247",
+    "table_name": "sprite_247",
+    "is_named": false
+  },
+  "250": {
+    "class_name": "sprite_250",
+    "table_name": "sprite_250",
+    "is_named": false
+  },
+  "252": {
+    "class_name": "sprite_252",
+    "table_name": "sprite_252",
+    "is_named": false
+  },
+  "257": {
+    "class_name": "sprite_257",
+    "table_name": "sprite_257",
+    "is_named": false
+  },
+  "260": {
+    "class_name": "sprite_260",
+    "table_name": "sprite_260",
+    "is_named": false
+  },
+  "262": {
+    "class_name": "sprite_262",
+    "table_name": "sprite_262",
+    "is_named": false
+  },
+  "264": {
+    "class_name": "sprite_264",
+    "table_name": "sprite_264",
+    "is_named": false
+  },
+  "283": {
+    "class_name": "sprite_283",
+    "table_name": "sprite_283",
+    "is_named": false
+  },
+  "290": {
+    "class_name": "sprite_290",
+    "table_name": "sprite_290",
+    "is_named": false
+  },
+  "293": {
+    "class_name": "sprite_293",
+    "table_name": "sprite_293",
+    "is_named": false
+  },
+  "324": {
+    "class_name": "sprite_324",
+    "table_name": "sprite_324",
+    "is_named": false
+  },
+  "336": {
+    "class_name": "sprite_336",
+    "table_name": "sprite_336",
+    "is_named": false
+  },
+  "356": {
+    "class_name": "sprite_356",
+    "table_name": "sprite_356",
+    "is_named": false
+  },
+  "572": {
+    "class_name": "sprite_572",
+    "table_name": "sprite_572",
+    "is_named": false
+  },
+  "576": {
+    "class_name": "sprite_576",
+    "table_name": "sprite_576",
+    "is_named": false
+  },
+  "579": {
+    "class_name": "sprite_579",
+    "table_name": "sprite_579",
+    "is_named": false
+  },
+  "586": {
+    "class_name": "sprite_586",
+    "table_name": "sprite_586",
+    "is_named": false
+  },
+  "599": {
+    "class_name": "sprite_599",
+    "table_name": "sprite_599",
+    "is_named": false
+  },
+  "601": {
+    "class_name": "sprite_601",
+    "table_name": "sprite_601",
+    "is_named": false
+  },
+  "622": {
+    "class_name": "sprite_622",
+    "table_name": "sprite_622",
+    "is_named": false
+  },
+  "630": {
+    "class_name": "sprite_630",
+    "table_name": "sprite_630",
+    "is_named": false
+  },
+  "637": {
+    "class_name": "sprite_637",
+    "table_name": "sprite_637",
+    "is_named": false
+  },
+  "647": {
+    "class_name": "sprite_647",
+    "table_name": "sprite_647",
+    "is_named": false
+  },
+  "666": {
+    "class_name": "sprite_666",
+    "table_name": "sprite_666",
+    "is_named": false
+  },
+  "667": {
+    "class_name": "sprite_667",
+    "table_name": "sprite_667",
+    "is_named": false
+  },
+  "687": {
+    "class_name": "sprite_687",
+    "table_name": "sprite_687",
+    "is_named": false
+  },
+  "689": {
+    "class_name": "sprite_689",
+    "table_name": "sprite_689",
+    "is_named": false
+  },
+  "698": {
+    "class_name": "sprite_698",
+    "table_name": "sprite_698",
+    "is_named": false
+  },
+  "700": {
+    "class_name": "sprite_700",
+    "table_name": "sprite_700",
+    "is_named": false
+  },
+  "914": {
+    "class_name": "sprite_914",
+    "table_name": "sprite_914",
+    "is_named": false
+  },
+  "1093": {
+    "class_name": "sprite_1093",
+    "table_name": "sprite_1093",
+    "is_named": false
+  },
+  "1095": {
+    "class_name": "sprite_1095",
+    "table_name": "sprite_1095",
+    "is_named": false
+  },
+  "1097": {
+    "class_name": "sprite_1097",
+    "table_name": "sprite_1097",
+    "is_named": false
+  },
+  "1099": {
+    "class_name": "sprite_1099",
+    "table_name": "sprite_1099",
+    "is_named": false
+  },
+  "1102": {
+    "class_name": "sprite_1102",
+    "table_name": "sprite_1102",
+    "is_named": false
+  },
+  "1104": {
+    "class_name": "sprite_1104",
+    "table_name": "sprite_1104",
+    "is_named": false
+  },
+  "1106": {
+    "class_name": "sprite_1106",
+    "table_name": "sprite_1106",
+    "is_named": false
+  },
+  "1107": {
+    "class_name": "sprite_1107",
+    "table_name": "sprite_1107",
+    "is_named": false
+  },
+  "1109": {
+    "class_name": "sprite_1109",
+    "table_name": "sprite_1109",
+    "is_named": false
+  },
+  "1111": {
+    "class_name": "sprite_1111",
+    "table_name": "sprite_1111",
+    "is_named": false
+  },
+  "1308": {
+    "class_name": "sprite_1308",
+    "table_name": "sprite_1308",
+    "is_named": false
+  },
+  "1342": {
+    "class_name": "sprite_1342",
+    "table_name": "sprite_1342",
+    "is_named": false
+  },
+  "2131": {
+    "class_name": "sprite_2131",
+    "table_name": "sprite_2131",
+    "is_named": false
+  },
+  "2133": {
+    "class_name": "sprite_2133",
+    "table_name": "sprite_2133",
+    "is_named": false
+  },
+  "2141": {
+    "class_name": "sprite_2141",
+    "table_name": "sprite_2141",
+    "is_named": false
+  },
+  "2142": {
+    "class_name": "sprite_2142",
+    "table_name": "sprite_2142",
+    "is_named": false
+  },
+  "2152": {
+    "class_name": "sprite_2152",
+    "table_name": "sprite_2152",
+    "is_named": false
+  },
+  "2161": {
+    "class_name": "sprite_2161",
+    "table_name": "sprite_2161",
+    "is_named": false
+  },
+  "2162": {
+    "class_name": "sprite_2162",
+    "table_name": "sprite_2162",
+    "is_named": false
+  },
+  "2169": {
+    "class_name": "sprite_2169",
+    "table_name": "sprite_2169",
+    "is_named": false
+  },
+  "2171": {
+    "class_name": "sprite_2171",
+    "table_name": "sprite_2171",
+    "is_named": false
+  },
+  "2172": {
+    "class_name": "sprite_2172",
+    "table_name": "sprite_2172",
+    "is_named": false
+  },
+  "2219": {
+    "class_name": "sprite_2219",
+    "table_name": "sprite_2219",
+    "is_named": false
+  },
+  "2256": {
+    "class_name": "sprite_2256",
+    "table_name": "sprite_2256",
+    "is_named": false
+  },
+  "2257": {
+    "class_name": "sprite_2257",
+    "table_name": "sprite_2257",
+    "is_named": false
+  },
+  "2277": {
+    "class_name": "sprite_2277",
+    "table_name": "sprite_2277",
+    "is_named": false
+  },
+  "2279": {
+    "class_name": "sprite_2279",
+    "table_name": "sprite_2279",
+    "is_named": false
+  },
+  "2301": {
+    "class_name": "sprite_2301",
+    "table_name": "sprite_2301",
+    "is_named": false
+  },
+  "2636": {
+    "class_name": "sprite_2636",
+    "table_name": "sprite_2636",
+    "is_named": false
+  },
+  "2652": {
+    "class_name": "sprite_2652",
+    "table_name": "sprite_2652",
+    "is_named": false
+  },
+  "2655": {
+    "class_name": "sprite_2655",
+    "table_name": "sprite_2655",
+    "is_named": false
+  },
+  "2657": {
+    "class_name": "sprite_2657",
+    "table_name": "sprite_2657",
+    "is_named": false
+  },
+  "2659": {
+    "class_name": "sprite_2659",
+    "table_name": "sprite_2659",
+    "is_named": false
+  },
+  "2672": {
+    "class_name": "sprite_2672",
+    "table_name": "sprite_2672",
+    "is_named": false
+  },
+  "2673": {
+    "class_name": "sprite_2673",
+    "table_name": "sprite_2673",
+    "is_named": false
+  },
+  "2688": {
+    "class_name": "sprite_2688",
+    "table_name": "sprite_2688",
+    "is_named": false
+  },
+  "2695": {
+    "class_name": "sprite_2695",
+    "table_name": "sprite_2695",
+    "is_named": false
+  },
+  "2697": {
+    "class_name": "sprite_2697",
+    "table_name": "sprite_2697",
+    "is_named": false
+  },
+  "2702": {
+    "class_name": "sprite_2702",
+    "table_name": "sprite_2702",
+    "is_named": false
+  },
+  "2704": {
+    "class_name": "sprite_2704",
+    "table_name": "sprite_2704",
+    "is_named": false
+  },
+  "2706": {
+    "class_name": "sprite_2706",
+    "table_name": "sprite_2706",
+    "is_named": false
+  },
+  "2708": {
+    "class_name": "sprite_2708",
+    "table_name": "sprite_2708",
+    "is_named": false
+  },
+  "2710": {
+    "class_name": "sprite_2710",
+    "table_name": "sprite_2710",
+    "is_named": false
+  },
+  "2712": {
+    "class_name": "sprite_2712",
+    "table_name": "sprite_2712",
+    "is_named": false
+  },
+  "2714": {
+    "class_name": "sprite_2714",
+    "table_name": "sprite_2714",
+    "is_named": false
+  },
+  "2716": {
+    "class_name": "sprite_2716",
+    "table_name": "sprite_2716",
+    "is_named": false
+  },
+  "2718": {
+    "class_name": "sprite_2718",
+    "table_name": "sprite_2718",
+    "is_named": false
+  },
+  "2721": {
+    "class_name": "sprite_2721",
+    "table_name": "sprite_2721",
+    "is_named": false
+  },
+  "2723": {
+    "class_name": "sprite_2723",
+    "table_name": "sprite_2723",
+    "is_named": false
+  },
+  "2725": {
+    "class_name": "sprite_2725",
+    "table_name": "sprite_2725",
+    "is_named": false
+  },
+  "2729": {
+    "class_name": "sprite_2729",
+    "table_name": "sprite_2729",
+    "is_named": false
+  },
+  "2731": {
+    "class_name": "sprite_2731",
+    "table_name": "sprite_2731",
+    "is_named": false
+  },
+  "2733": {
+    "class_name": "sprite_2733",
+    "table_name": "sprite_2733",
+    "is_named": false
+  },
+  "2735": {
+    "class_name": "sprite_2735",
+    "table_name": "sprite_2735",
+    "is_named": false
+  },
+  "2737": {
+    "class_name": "sprite_2737",
+    "table_name": "sprite_2737",
+    "is_named": false
+  },
+  "2739": {
+    "class_name": "sprite_2739",
+    "table_name": "sprite_2739",
+    "is_named": false
+  },
+  "2741": {
+    "class_name": "sprite_2741",
+    "table_name": "sprite_2741",
+    "is_named": false
+  },
+  "2743": {
+    "class_name": "sprite_2743",
+    "table_name": "sprite_2743",
+    "is_named": false
+  },
+  "2744": {
+    "class_name": "sprite_2744",
+    "table_name": "sprite_2744",
+    "is_named": false
+  },
+  "2745": {
+    "class_name": "sprite_2745",
+    "table_name": "sprite_2745",
+    "is_named": false
+  },
+  "2747": {
+    "class_name": "sprite_2747",
+    "table_name": "sprite_2747",
+    "is_named": false
+  },
+  "2749": {
+    "class_name": "sprite_2749",
+    "table_name": "sprite_2749",
+    "is_named": false
+  },
+  "2751": {
+    "class_name": "sprite_2751",
+    "table_name": "sprite_2751",
+    "is_named": false
+  },
+  "2753": {
+    "class_name": "sprite_2753",
+    "table_name": "sprite_2753",
+    "is_named": false
+  },
+  "2790": {
+    "class_name": "sprite_2790",
+    "table_name": "sprite_2790",
+    "is_named": false
+  },
+  "2796": {
+    "class_name": "sprite_2796",
+    "table_name": "sprite_2796",
+    "is_named": false
+  },
+  "2803": {
+    "class_name": "sprite_2803",
+    "table_name": "sprite_2803",
+    "is_named": false
+  },
+  "2805": {
+    "class_name": "sprite_2805",
+    "table_name": "sprite_2805",
+    "is_named": false
+  },
+  "2807": {
+    "class_name": "sprite_2807",
+    "table_name": "sprite_2807",
+    "is_named": false
+  },
+  "2809": {
+    "class_name": "sprite_2809",
+    "table_name": "sprite_2809",
+    "is_named": false
+  },
+  "2833": {
+    "class_name": "sprite_2833",
+    "table_name": "sprite_2833",
+    "is_named": false
+  },
+  "2885": {
+    "class_name": "sprite_2885",
+    "table_name": "sprite_2885",
+    "is_named": false
+  },
+  "2889": {
+    "class_name": "sprite_2889",
+    "table_name": "sprite_2889",
+    "is_named": false
+  },
+  "2892": {
+    "class_name": "sprite_2892",
+    "table_name": "sprite_2892",
+    "is_named": false
+  },
+  "2909": {
+    "class_name": "sprite_2909",
+    "table_name": "sprite_2909",
+    "is_named": false
+  },
+  "2912": {
+    "class_name": "sprite_2912",
+    "table_name": "sprite_2912",
+    "is_named": false
+  },
+  "2916": {
+    "class_name": "sprite_2916",
+    "table_name": "sprite_2916",
+    "is_named": false
+  },
+  "2937": {
+    "class_name": "sprite_2937",
+    "table_name": "sprite_2937",
+    "is_named": false
+  },
+  "2956": {
+    "class_name": "sprite_2956",
+    "table_name": "sprite_2956",
+    "is_named": false
+  },
+  "2960": {
+    "class_name": "sprite_2960",
+    "table_name": "sprite_2960",
+    "is_named": false
+  },
+  "2962": {
+    "class_name": "sprite_2962",
+    "table_name": "sprite_2962",
+    "is_named": false
+  },
+  "2966": {
+    "class_name": "sprite_2966",
+    "table_name": "sprite_2966",
+    "is_named": false
+  },
+  "2982": {
+    "class_name": "sprite_2982",
+    "table_name": "sprite_2982",
+    "is_named": false
+  },
+  "3356": {
+    "class_name": "sprite_3356",
+    "table_name": "sprite_3356",
+    "is_named": false
+  },
+  "3440": {
+    "class_name": "sprite_3440",
+    "table_name": "sprite_3440",
+    "is_named": false
+  },
+  "3452": {
+    "class_name": "sprite_3452",
+    "table_name": "sprite_3452",
+    "is_named": false
+  },
+  "3463": {
+    "class_name": "sprite_3463",
+    "table_name": "sprite_3463",
+    "is_named": false
+  },
+  "3465": {
+    "class_name": "sprite_3465",
+    "table_name": "sprite_3465",
+    "is_named": false
+  },
+  "3467": {
+    "class_name": "sprite_3467",
+    "table_name": "sprite_3467",
+    "is_named": false
+  },
+  "3469": {
+    "class_name": "sprite_3469",
+    "table_name": "sprite_3469",
+    "is_named": false
+  },
+  "3472": {
+    "class_name": "sprite_3472",
+    "table_name": "sprite_3472",
+    "is_named": false
+  },
+  "3474": {
+    "class_name": "sprite_3474",
+    "table_name": "sprite_3474",
+    "is_named": false
+  },
+  "3476": {
+    "class_name": "sprite_3476",
+    "table_name": "sprite_3476",
+    "is_named": false
+  },
+  "3478": {
+    "class_name": "sprite_3478",
+    "table_name": "sprite_3478",
+    "is_named": false
+  },
+  "3480": {
+    "class_name": "sprite_3480",
+    "table_name": "sprite_3480",
+    "is_named": false
+  },
+  "3482": {
+    "class_name": "sprite_3482",
+    "table_name": "sprite_3482",
+    "is_named": false
+  },
+  "3483": {
+    "class_name": "sprite_3483",
+    "table_name": "sprite_3483",
+    "is_named": false
+  },
+  "3485": {
+    "class_name": "sprite_3485",
+    "table_name": "sprite_3485",
+    "is_named": false
+  },
+  "3487": {
+    "class_name": "sprite_3487",
+    "table_name": "sprite_3487",
+    "is_named": false
+  },
+  "3489": {
+    "class_name": "sprite_3489",
+    "table_name": "sprite_3489",
+    "is_named": false
+  },
+  "3491": {
+    "class_name": "sprite_3491",
+    "table_name": "sprite_3491",
+    "is_named": false
+  },
+  "3528": {
+    "class_name": "sprite_3528",
+    "table_name": "sprite_3528",
+    "is_named": false
+  },
+  "3547": {
+    "class_name": "sprite_3547",
+    "table_name": "sprite_3547",
+    "is_named": false
+  },
+  "3549": {
+    "class_name": "sprite_3549",
+    "table_name": "sprite_3549",
+    "is_named": false
+  },
+  "3550": {
+    "class_name": "sprite_3550",
+    "table_name": "sprite_3550",
+    "is_named": false
+  },
+  "3552": {
+    "class_name": "sprite_3552",
+    "table_name": "sprite_3552",
+    "is_named": false
+  },
+  "3554": {
+    "class_name": "sprite_3554",
+    "table_name": "sprite_3554",
+    "is_named": false
+  },
+  "3556": {
+    "class_name": "sprite_3556",
+    "table_name": "sprite_3556",
+    "is_named": false
+  },
+  "3560": {
+    "class_name": "sprite_3560",
+    "table_name": "sprite_3560",
+    "is_named": false
+  },
+  "3562": {
+    "class_name": "sprite_3562",
+    "table_name": "sprite_3562",
+    "is_named": false
+  },
+  "3564": {
+    "class_name": "sprite_3564",
+    "table_name": "sprite_3564",
+    "is_named": false
+  },
+  "3565": {
+    "class_name": "sprite_3565",
+    "table_name": "sprite_3565",
+    "is_named": false
+  },
+  "3567": {
+    "class_name": "sprite_3567",
+    "table_name": "sprite_3567",
+    "is_named": false
+  },
+  "3569": {
+    "class_name": "sprite_3569",
+    "table_name": "sprite_3569",
+    "is_named": false
+  },
+  "3580": {
+    "class_name": "sprite_3580",
+    "table_name": "sprite_3580",
+    "is_named": false
+  },
+  "3582": {
+    "class_name": "sprite_3582",
+    "table_name": "sprite_3582",
+    "is_named": false
+  },
+  "3584": {
+    "class_name": "sprite_3584",
+    "table_name": "sprite_3584",
+    "is_named": false
+  },
+  "3664": {
+    "class_name": "sprite_3664",
+    "table_name": "sprite_3664",
+    "is_named": false
+  },
+  "3666": {
+    "class_name": "sprite_3666",
+    "table_name": "sprite_3666",
+    "is_named": false
+  },
+  "3668": {
+    "class_name": "sprite_3668",
+    "table_name": "sprite_3668",
+    "is_named": false
+  },
+  "3670": {
+    "class_name": "sprite_3670",
+    "table_name": "sprite_3670",
+    "is_named": false
+  },
+  "3672": {
+    "class_name": "sprite_3672",
+    "table_name": "sprite_3672",
+    "is_named": false
+  },
+  "3675": {
+    "class_name": "sprite_3675",
+    "table_name": "sprite_3675",
+    "is_named": false
+  },
+  "3676": {
+    "class_name": "sprite_3676",
+    "table_name": "sprite_3676",
+    "is_named": false
+  },
+  "3678": {
+    "class_name": "sprite_3678",
+    "table_name": "sprite_3678",
+    "is_named": false
+  },
+  "3681": {
+    "class_name": "sprite_3681",
+    "table_name": "sprite_3681",
+    "is_named": false
+  },
+  "3686": {
+    "class_name": "sprite_3686",
+    "table_name": "sprite_3686",
+    "is_named": false
+  },
+  "3688": {
+    "class_name": "sprite_3688",
+    "table_name": "sprite_3688",
+    "is_named": false
+  },
+  "3699": {
+    "class_name": "sprite_3699",
+    "table_name": "sprite_3699",
+    "is_named": false
+  },
+  "3740": {
+    "class_name": "sprite_3740",
+    "table_name": "sprite_3740",
+    "is_named": false
+  },
+  "3744": {
+    "class_name": "sprite_3744",
+    "table_name": "sprite_3744",
+    "is_named": false
+  },
+  "3798": {
+    "class_name": "sprite_3798",
+    "table_name": "sprite_3798",
+    "is_named": false
+  },
+  "3799": {
+    "class_name": "sprite_3799",
+    "table_name": "sprite_3799",
+    "is_named": false
+  },
+  "3809": {
+    "class_name": "sprite_3809",
+    "table_name": "sprite_3809",
+    "is_named": false
+  },
+  "3819": {
+    "class_name": "sprite_3819",
+    "table_name": "sprite_3819",
+    "is_named": false
+  },
+  "3821": {
+    "class_name": "sprite_3821",
+    "table_name": "sprite_3821",
+    "is_named": false
+  },
+  "3823": {
+    "class_name": "sprite_3823",
+    "table_name": "sprite_3823",
+    "is_named": false
+  },
+  "3825": {
+    "class_name": "sprite_3825",
+    "table_name": "sprite_3825",
+    "is_named": false
+  },
+  "3827": {
+    "class_name": "sprite_3827",
+    "table_name": "sprite_3827",
+    "is_named": false
+  },
+  "3829": {
+    "class_name": "sprite_3829",
+    "table_name": "sprite_3829",
+    "is_named": false
+  },
+  "3831": {
+    "class_name": "sprite_3831",
+    "table_name": "sprite_3831",
+    "is_named": false
+  },
+  "3833": {
+    "class_name": "sprite_3833",
+    "table_name": "sprite_3833",
+    "is_named": false
+  },
+  "3835": {
+    "class_name": "sprite_3835",
+    "table_name": "sprite_3835",
+    "is_named": false
+  },
+  "3837": {
+    "class_name": "sprite_3837",
+    "table_name": "sprite_3837",
+    "is_named": false
+  },
+  "3839": {
+    "class_name": "sprite_3839",
+    "table_name": "sprite_3839",
+    "is_named": false
+  },
+  "3840": {
+    "class_name": "sprite_3840",
+    "table_name": "sprite_3840",
+    "is_named": false
+  },
+  "3842": {
+    "class_name": "sprite_3842",
+    "table_name": "sprite_3842",
+    "is_named": false
+  },
+  "3844": {
+    "class_name": "sprite_3844",
+    "table_name": "sprite_3844",
+    "is_named": false
+  },
+  "3846": {
+    "class_name": "sprite_3846",
+    "table_name": "sprite_3846",
+    "is_named": false
+  },
+  "3849": {
+    "class_name": "sprite_3849",
+    "table_name": "sprite_3849",
+    "is_named": false
+  },
+  "3851": {
+    "class_name": "sprite_3851",
+    "table_name": "sprite_3851",
+    "is_named": false
+  },
+  "3853": {
+    "class_name": "sprite_3853",
+    "table_name": "sprite_3853",
+    "is_named": false
+  },
+  "3855": {
+    "class_name": "sprite_3855",
+    "table_name": "sprite_3855",
+    "is_named": false
+  },
+  "3857": {
+    "class_name": "sprite_3857",
+    "table_name": "sprite_3857",
+    "is_named": false
+  },
+  "3858": {
+    "class_name": "sprite_3858",
+    "table_name": "sprite_3858",
+    "is_named": false
+  },
+  "3860": {
+    "class_name": "sprite_3860",
+    "table_name": "sprite_3860",
+    "is_named": false
+  },
+  "3891": {
+    "class_name": "sprite_3891",
+    "table_name": "sprite_3891",
+    "is_named": false
+  },
+  "3909": {
+    "class_name": "sprite_3909",
+    "table_name": "sprite_3909",
+    "is_named": false
+  },
+  "3912": {
+    "class_name": "sprite_3912",
+    "table_name": "sprite_3912",
+    "is_named": false
+  },
+  "3914": {
+    "class_name": "sprite_3914",
+    "table_name": "sprite_3914",
+    "is_named": false
+  },
+  "3916": {
+    "class_name": "sprite_3916",
+    "table_name": "sprite_3916",
+    "is_named": false
+  },
+  "3917": {
+    "class_name": "sprite_3917",
+    "table_name": "sprite_3917",
+    "is_named": false
+  },
+  "3919": {
+    "class_name": "sprite_3919",
+    "table_name": "sprite_3919",
+    "is_named": false
+  },
+  "3921": {
+    "class_name": "sprite_3921",
+    "table_name": "sprite_3921",
+    "is_named": false
+  },
+  "3922": {
+    "class_name": "sprite_3922",
+    "table_name": "sprite_3922",
+    "is_named": false
+  },
+  "3974": {
+    "class_name": "sprite_3974",
+    "table_name": "sprite_3974",
+    "is_named": false
+  },
+  "3975": {
+    "class_name": "sprite_3975",
+    "table_name": "sprite_3975",
+    "is_named": false
+  },
+  "3997": {
+    "class_name": "sprite_3997",
+    "table_name": "sprite_3997",
+    "is_named": false
+  },
+  "3998": {
+    "class_name": "sprite_3998",
+    "table_name": "sprite_3998",
+    "is_named": false
+  },
+  "3999": {
+    "class_name": "sprite_3999",
+    "table_name": "sprite_3999",
+    "is_named": false
+  },
+  "4000": {
+    "class_name": "sprite_4000",
+    "table_name": "sprite_4000",
+    "is_named": false
+  },
+  "4030": {
+    "class_name": "sprite_4030",
+    "table_name": "sprite_4030",
+    "is_named": false
+  },
+  "4032": {
+    "class_name": "sprite_4032",
+    "table_name": "sprite_4032",
+    "is_named": false
+  },
+  "4035": {
+    "class_name": "sprite_4035",
+    "table_name": "sprite_4035",
+    "is_named": false
+  },
+  "4041": {
+    "class_name": "sprite_4041",
+    "table_name": "sprite_4041",
+    "is_named": false
+  },
+  "4044": {
+    "class_name": "sprite_4044",
+    "table_name": "sprite_4044",
+    "is_named": false
+  },
+  "4047": {
+    "class_name": "sprite_4047",
+    "table_name": "sprite_4047",
+    "is_named": false
+  },
+  "4048": {
+    "class_name": "sprite_4048",
+    "table_name": "sprite_4048",
+    "is_named": false
+  },
+  "4050": {
+    "class_name": "sprite_4050",
+    "table_name": "sprite_4050",
+    "is_named": false
+  },
+  "4052": {
+    "class_name": "sprite_4052",
+    "table_name": "sprite_4052",
+    "is_named": false
+  },
+  "4054": {
+    "class_name": "sprite_4054",
+    "table_name": "sprite_4054",
+    "is_named": false
+  },
+  "4055": {
+    "class_name": "sprite_4055",
+    "table_name": "sprite_4055",
+    "is_named": false
+  },
+  "4072": {
+    "class_name": "sprite_4072",
+    "table_name": "sprite_4072",
+    "is_named": false
+  },
+  "4078": {
+    "class_name": "sprite_4078",
+    "table_name": "sprite_4078",
+    "is_named": false
+  },
+  "4272": {
+    "class_name": "sprite_4272",
+    "table_name": "sprite_4272",
+    "is_named": false
+  },
+  "4294": {
+    "class_name": "sprite_4294",
+    "table_name": "sprite_4294",
+    "is_named": false
+  },
+  "4296": {
+    "class_name": "sprite_4296",
+    "table_name": "sprite_4296",
+    "is_named": false
+  },
+  "4298": {
+    "class_name": "sprite_4298",
+    "table_name": "sprite_4298",
+    "is_named": false
+  },
+  "4300": {
+    "class_name": "sprite_4300",
+    "table_name": "sprite_4300",
+    "is_named": false
+  },
+  "4302": {
+    "class_name": "sprite_4302",
+    "table_name": "sprite_4302",
+    "is_named": false
+  },
+  "4304": {
+    "class_name": "sprite_4304",
+    "table_name": "sprite_4304",
+    "is_named": false
+  },
+  "4306": {
+    "class_name": "sprite_4306",
+    "table_name": "sprite_4306",
+    "is_named": false
+  },
+  "4312": {
+    "class_name": "sprite_4312",
+    "table_name": "sprite_4312",
+    "is_named": false
+  },
+  "4314": {
+    "class_name": "sprite_4314",
+    "table_name": "sprite_4314",
+    "is_named": false
+  },
+  "4344": {
+    "class_name": "sprite_4344",
+    "table_name": "sprite_4344",
+    "is_named": false
+  },
+  "4349": {
+    "class_name": "sprite_4349",
+    "table_name": "sprite_4349",
+    "is_named": false
+  },
+  "4354": {
+    "class_name": "sprite_4354",
+    "table_name": "sprite_4354",
+    "is_named": false
+  },
+  "4359": {
+    "class_name": "sprite_4359",
+    "table_name": "sprite_4359",
+    "is_named": false
+  },
+  "4365": {
+    "class_name": "sprite_4365",
+    "table_name": "sprite_4365",
+    "is_named": false
+  },
+  "4367": {
+    "class_name": "sprite_4367",
+    "table_name": "sprite_4367",
+    "is_named": false
+  },
+  "4368": {
+    "class_name": "sprite_4368",
+    "table_name": "sprite_4368",
+    "is_named": false
+  },
+  "4370": {
+    "class_name": "sprite_4370",
+    "table_name": "sprite_4370",
+    "is_named": false
+  },
+  "4386": {
+    "class_name": "sprite_4386",
+    "table_name": "sprite_4386",
+    "is_named": false
+  },
+  "4387": {
+    "class_name": "sprite_4387",
+    "table_name": "sprite_4387",
+    "is_named": false
+  },
+  "4392": {
+    "class_name": "sprite_4392",
+    "table_name": "sprite_4392",
+    "is_named": false
+  },
+  "4393": {
+    "class_name": "sprite_4393",
+    "table_name": "sprite_4393",
+    "is_named": false
+  },
+  "4395": {
+    "class_name": "sprite_4395",
+    "table_name": "sprite_4395",
+    "is_named": false
+  },
+  "4397": {
+    "class_name": "sprite_4397",
+    "table_name": "sprite_4397",
+    "is_named": false
+  },
+  "4399": {
+    "class_name": "sprite_4399",
+    "table_name": "sprite_4399",
+    "is_named": false
+  },
+  "4404": {
+    "class_name": "sprite_4404",
+    "table_name": "sprite_4404",
+    "is_named": false
+  },
+  "4405": {
+    "class_name": "sprite_4405",
+    "table_name": "sprite_4405",
+    "is_named": false
+  },
+  "4406": {
+    "class_name": "sprite_4406",
+    "table_name": "sprite_4406",
+    "is_named": false
+  },
+  "4410": {
+    "class_name": "sprite_4410",
+    "table_name": "sprite_4410",
+    "is_named": false
+  },
+  "4412": {
+    "class_name": "sprite_4412",
+    "table_name": "sprite_4412",
+    "is_named": false
+  },
+  "4414": {
+    "class_name": "sprite_4414",
+    "table_name": "sprite_4414",
+    "is_named": false
+  },
+  "4415": {
+    "class_name": "sprite_4415",
+    "table_name": "sprite_4415",
+    "is_named": false
+  },
+  "4416": {
+    "class_name": "sprite_4416",
+    "table_name": "sprite_4416",
+    "is_named": false
+  },
+  "4464": {
+    "class_name": "sprite_4464",
+    "table_name": "sprite_4464",
+    "is_named": false
+  },
+  "4465": {
+    "class_name": "sprite_4465",
+    "table_name": "sprite_4465",
+    "is_named": false
+  },
+  "4490": {
+    "class_name": "sprite_4490",
+    "table_name": "sprite_4490",
+    "is_named": false
+  },
+  "4494": {
+    "class_name": "sprite_4494",
+    "table_name": "sprite_4494",
+    "is_named": false
+  },
+  "4512": {
+    "class_name": "sprite_4512",
+    "table_name": "sprite_4512",
+    "is_named": false
+  },
+  "4529": {
+    "class_name": "sprite_4529",
+    "table_name": "sprite_4529",
+    "is_named": false
+  },
+  "4533": {
+    "class_name": "sprite_4533",
+    "table_name": "sprite_4533",
+    "is_named": false
+  },
+  "4535": {
+    "class_name": "sprite_4535",
+    "table_name": "sprite_4535",
+    "is_named": false
+  },
+  "4537": {
+    "class_name": "sprite_4537",
+    "table_name": "sprite_4537",
+    "is_named": false
+  },
+  "4541": {
+    "class_name": "sprite_4541",
+    "table_name": "sprite_4541",
+    "is_named": false
+  },
+  "4542": {
+    "class_name": "sprite_4542",
+    "table_name": "sprite_4542",
+    "is_named": false
+  },
+  "4544": {
+    "class_name": "sprite_4544",
+    "table_name": "sprite_4544",
+    "is_named": false
+  },
+  "4545": {
+    "class_name": "sprite_4545",
+    "table_name": "sprite_4545",
+    "is_named": false
+  },
+  "4546": {
+    "class_name": "sprite_4546",
+    "table_name": "sprite_4546",
+    "is_named": false
+  },
+  "4550": {
+    "class_name": "sprite_4550",
+    "table_name": "sprite_4550",
+    "is_named": false
+  },
+  "4552": {
+    "class_name": "sprite_4552",
+    "table_name": "sprite_4552",
+    "is_named": false
+  },
+  "4554": {
+    "class_name": "sprite_4554",
+    "table_name": "sprite_4554",
+    "is_named": false
+  },
+  "4555": {
+    "class_name": "sprite_4555",
+    "table_name": "sprite_4555",
+    "is_named": false
+  },
+  "4559": {
+    "class_name": "sprite_4559",
+    "table_name": "sprite_4559",
+    "is_named": false
+  },
+  "4561": {
+    "class_name": "sprite_4561",
+    "table_name": "sprite_4561",
+    "is_named": false
+  },
+  "4568": {
+    "class_name": "sprite_4568",
+    "table_name": "sprite_4568",
+    "is_named": false
+  },
+  "4583": {
+    "class_name": "sprite_4583",
+    "table_name": "sprite_4583",
+    "is_named": false
+  },
+  "4587": {
+    "class_name": "sprite_4587",
+    "table_name": "sprite_4587",
+    "is_named": false
+  },
+  "4589": {
+    "class_name": "sprite_4589",
+    "table_name": "sprite_4589",
+    "is_named": false
+  },
+  "4591": {
+    "class_name": "sprite_4591",
+    "table_name": "sprite_4591",
+    "is_named": false
+  },
+  "4596": {
+    "class_name": "sprite_4596",
+    "table_name": "sprite_4596",
+    "is_named": false
+  },
+  "4655": {
+    "class_name": "sprite_4655",
+    "table_name": "sprite_4655",
+    "is_named": false
+  },
+  "4697": {
+    "class_name": "sprite_4697",
+    "table_name": "sprite_4697",
+    "is_named": false
+  },
+  "4725": {
+    "class_name": "sprite_4725",
+    "table_name": "sprite_4725",
+    "is_named": false
+  },
+  "4728": {
+    "class_name": "sprite_4728",
+    "table_name": "sprite_4728",
+    "is_named": false
+  },
+  "5085": {
+    "class_name": "sprite_5085",
+    "table_name": "sprite_5085",
+    "is_named": false
+  },
+  "5870": {
+    "class_name": "sprite_5870",
+    "table_name": "sprite_5870",
+    "is_named": false
+  },
+  "5935": {
+    "class_name": "sprite_5935",
+    "table_name": "sprite_5935",
+    "is_named": false
+  },
+  "5962": {
+    "class_name": "sprite_5962",
+    "table_name": "sprite_5962",
+    "is_named": false
+  },
+  "5973": {
+    "class_name": "sprite_5973",
+    "table_name": "sprite_5973",
+    "is_named": false
+  },
+  "6292": {
+    "class_name": "sprite_6292",
+    "table_name": "sprite_6292",
+    "is_named": false
+  },
+  "6338": {
+    "class_name": "sprite_6338",
+    "table_name": "sprite_6338",
+    "is_named": false
+  },
+  "6898": {
+    "class_name": "sprite_6898",
+    "table_name": "sprite_6898",
+    "is_named": false
+  },
+  "6900": {
+    "class_name": "sprite_6900",
+    "table_name": "sprite_6900",
+    "is_named": false
+  },
+  "6991": {
+    "class_name": "sprite_6991",
+    "table_name": "sprite_6991",
+    "is_named": false
+  },
+  "6992": {
+    "class_name": "sprite_6992",
+    "table_name": "sprite_6992",
+    "is_named": false
+  },
+  "6993": {
+    "class_name": "sprite_6993",
+    "table_name": "sprite_6993",
+    "is_named": false
+  },
+  "6995": {
+    "class_name": "sprite_6995",
+    "table_name": "sprite_6995",
+    "is_named": false
+  },
+  "6996": {
+    "class_name": "sprite_6996",
+    "table_name": "sprite_6996",
+    "is_named": false
+  },
+  "6998": {
+    "class_name": "sprite_6998",
+    "table_name": "sprite_6998",
+    "is_named": false
+  },
+  "6999": {
+    "class_name": "sprite_6999",
+    "table_name": "sprite_6999",
+    "is_named": false
+  },
+  "7017": {
+    "class_name": "sprite_7017",
+    "table_name": "sprite_7017",
+    "is_named": false
+  },
+  "7019": {
+    "class_name": "sprite_7019",
+    "table_name": "sprite_7019",
+    "is_named": false
+  },
+  "7020": {
+    "class_name": "sprite_7020",
+    "table_name": "sprite_7020",
+    "is_named": false
+  },
+  "7091": {
+    "class_name": "sprite_7091",
+    "table_name": "sprite_7091",
+    "is_named": false
+  },
+  "7093": {
+    "class_name": "sprite_7093",
+    "table_name": "sprite_7093",
+    "is_named": false
+  },
+  "7094": {
+    "class_name": "sprite_7094",
+    "table_name": "sprite_7094",
+    "is_named": false
+  },
+  "7095": {
+    "class_name": "sprite_7095",
+    "table_name": "sprite_7095",
+    "is_named": false
+  },
+  "7101": {
+    "class_name": "sprite_7101",
+    "table_name": "sprite_7101",
+    "is_named": false
+  },
+  "7104": {
+    "class_name": "sprite_7104",
+    "table_name": "sprite_7104",
+    "is_named": false
+  },
+  "7105": {
+    "class_name": "sprite_7105",
+    "table_name": "sprite_7105",
+    "is_named": false
+  },
+  "7269": {
+    "class_name": "sprite_7269",
+    "table_name": "sprite_7269",
+    "is_named": false
+  },
+  "7802": {
+    "class_name": "sprite_7802",
+    "table_name": "sprite_7802",
+    "is_named": false
+  },
+  "8054": {
+    "class_name": "sprite_8054",
+    "table_name": "sprite_8054",
+    "is_named": false
+  },
+  "8084": {
+    "class_name": "sprite_8084",
+    "table_name": "sprite_8084",
+    "is_named": false
+  },
+  "8823": {
+    "class_name": "sprite_8823",
+    "table_name": "sprite_8823",
+    "is_named": false
+  },
+  "9054": {
+    "class_name": "sprite_9054",
+    "table_name": "sprite_9054",
+    "is_named": false
+  },
+  "9084": {
+    "class_name": "sprite_9084",
+    "table_name": "sprite_9084",
+    "is_named": false
+  },
+  "9087": {
+    "class_name": "sprite_9087",
+    "table_name": "sprite_9087",
+    "is_named": false
+  },
+  "10121": {
+    "class_name": "sprite_10121",
+    "table_name": "sprite_10121",
+    "is_named": false
+  },
+  "10936": {
+    "class_name": "sprite_10936",
+    "table_name": "sprite_10936",
+    "is_named": false
+  },
+  "10985": {
+    "class_name": "sprite_10985",
+    "table_name": "sprite_10985",
+    "is_named": false
+  },
+  "10988": {
+    "class_name": "sprite_10988",
+    "table_name": "sprite_10988",
+    "is_named": false
+  },
+  "10990": {
+    "class_name": "sprite_10990",
+    "table_name": "sprite_10990",
+    "is_named": false
+  },
+  "10992": {
+    "class_name": "sprite_10992",
+    "table_name": "sprite_10992",
+    "is_named": false
+  },
+  "10994": {
+    "class_name": "sprite_10994",
+    "table_name": "sprite_10994",
+    "is_named": false
+  },
+  "10996": {
+    "class_name": "sprite_10996",
+    "table_name": "sprite_10996",
+    "is_named": false
+  },
+  "10998": {
+    "class_name": "sprite_10998",
+    "table_name": "sprite_10998",
+    "is_named": false
+  },
+  "11000": {
+    "class_name": "sprite_11000",
+    "table_name": "sprite_11000",
+    "is_named": false
+  },
+  "11002": {
+    "class_name": "sprite_11002",
+    "table_name": "sprite_11002",
+    "is_named": false
+  },
+  "11004": {
+    "class_name": "sprite_11004",
+    "table_name": "sprite_11004",
+    "is_named": false
+  },
+  "11006": {
+    "class_name": "sprite_11006",
+    "table_name": "sprite_11006",
+    "is_named": false
+  }
+}
