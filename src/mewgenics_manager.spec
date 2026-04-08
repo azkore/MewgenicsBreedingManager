@@ -1,19 +1,21 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
+_S = SPECPATH  # absolute path to the directory containing this spec file (src/)
 
 a = Analysis(
     ['mewgenics_manager.py'],
     pathex=[],
     binaries=[],
     datas=[
-        ('../locales/en.json', '.'),
-        ('../locales/ru.json', '.'),
-        ('../locales/zh_CN.json', '.'),
-        ('../locales/pl.json', '.'),
-        ('../images', 'images'),
-        ('../VERSION', '.'),
-        ('palette.png', '.'),
-        ('CatAssets/swf_database', 'CatAssets/swf_database'),
-        ('CatAssets/DefinedShapes', 'CatAssets/DefinedShapes'),
+        (os.path.join(_S, '..', 'locales', 'en.json'), '.'),
+        (os.path.join(_S, '..', 'locales', 'ru.json'), '.'),
+        (os.path.join(_S, '..', 'locales', 'zh_CN.json'), '.'),
+        (os.path.join(_S, '..', 'locales', 'pl.json'), '.'),
+        (os.path.join(_S, '..', 'images'), 'images'),
+        (os.path.join(_S, '..', 'VERSION'), '.'),
+        (os.path.join(_S, 'palette.png'), '.'),
+        (os.path.join(_S, 'CatAssets', 'swf_database'), 'CatAssets/swf_database'),
+        (os.path.join(_S, 'CatAssets', 'DefinedShapes'), 'CatAssets/DefinedShapes'),
     ],
     hiddenimports=[
         'lz4.frame',
