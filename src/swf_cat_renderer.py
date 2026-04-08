@@ -501,7 +501,7 @@ def render_cat_part(slot: str, part_id: int, size: int = 128, texture_data: Opti
     Returns:
         PNG bytes, or None if slot/frame is unavailable.
     """
-    if part_id is None or part_id == 0 or part_id == 0xFFFFFFFF:
+    if part_id is None or part_id == 0 or part_id >= 0xFFFFFFFE:
         return None
 
     part_name = _SLOT_PART_NAME.get(slot)
@@ -706,12 +706,15 @@ def _get_effective_parts(cat) -> dict[str, int]:
                 continue  # Skip non-body-part slots
             
             primary = parts.get(slot_name)
-            # If primary is 0 (no mutation), use variant as base
-            if not primary or primary == 0 or primary == 4294967294:
+            # If primary is 0 or a sentinel "no part" value, use variant as base
+            if not primary or primary == 0 or primary >= 0xFFFFFFFE:
                 variant_slot = f"{slot_name}_variant"
                 variant = variant_slots.get(variant_slot)
-                if variant and variant != 0:
+                if variant and variant != 0 and variant < 0xFFFFFFFE:
                     parts[slot_name] = variant
+                else:
+                    # No valid variant — remove sentinel so renderer skips this slot
+                    parts.pop(slot_name, None)
     
     return parts
 
@@ -806,9 +809,9 @@ def render_cat_thumbnail(cat, size: int = DEFAULT_TREE_THUMBNAIL_SIZE) -> Option
             continue
 
         part_id = parts.get(slot)
-        if not part_id:
+        if not part_id or part_id >= 0xFFFFFFFE:
             continue
-        
+
         # Save head part_id for later head detail placement lookup
         if slot == "headShape":
             head_part_id = part_id
@@ -862,9 +865,9 @@ def render_cat_thumbnail(cat, size: int = DEFAULT_TREE_THUMBNAIL_SIZE) -> Option
                     
                     # Get part_id for this slot
                     part_id = parts.get(slot_name)
-                    if not part_id:
+                    if not part_id or part_id >= 0xFFFFFFFE:
                         continue
-                    
+
                     # Render the part
                     png_bytes = None
                     if _is_textured_layered_slot(slot_name) and cached_texture_png:
@@ -973,9 +976,9 @@ def render_cat_thumbnail(cat, size: int = DEFAULT_TREE_THUMBNAIL_SIZE) -> Option
                         
                         # Get the part_id for this detail slot from parts dict
                         detail_part_id = parts.get(slot_name)
-                        
+
                         # Use fallback frame ID 1 if detail is missing (for eyes, ears, etc. that should always exist)
-                        if not detail_part_id:
+                        if not detail_part_id or detail_part_id >= 0xFFFFFFFE:
                             detail_part_id = 1
                         
                         # Render the detail part
