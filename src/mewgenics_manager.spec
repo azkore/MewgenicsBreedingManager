@@ -12,8 +12,8 @@ a = Analysis(
         ('../images', 'images'),
         ('../VERSION', '.'),
         ('palette.png', '.'),
-        ('../CatAssets/swf_database', 'CatAssets/swf_database'),
-        ('../CatAssets/DefinedShapes', 'CatAssets/DefinedShapes'),
+        ('CatAssets/swf_database', 'CatAssets/swf_database'),
+        ('CatAssets/DefinedShapes', 'CatAssets/DefinedShapes'),
     ],
     hiddenimports=[
         'lz4.frame',
