@@ -1,0 +1,72 @@
+{
+  "91": {
+    "class_name": "FlatCat",
+    "table_name": "FlatCat",
+    "is_named": true
+  },
+  "90": {
+    "class_name": "_2d_catanis_fla.ragdollarmaturebone_68",
+    "table_name": "_2d_catanis_fla.ragdollarmaturebone_68",
+    "is_named": true
+  },
+  "87": {
+    "class_name": "_2d_catanis_fla.boxside_66",
+    "table_name": "_2d_catanis_fla.boxside_66",
+    "is_named": true
+  },
+  "85": {
+    "class_name": "_2d_catanis_fla.boxcenter_64",
+    "table_name": "_2d_catanis_fla.boxcenter_64",
+    "is_named": true
+  },
+  "81": {
+    "class_name": "_2d_catanis_fla.ragdollLandHard_60",
+    "table_name": "_2d_catanis_fla.ragdollLandHard_60",
+    "is_named": true
+  },
+  "80": {
+    "class_name": "_2d_catanis_fla.hissing_59",
+    "table_name": "_2d_catanis_fla.hissing_59",
+    "is_named": true
+  },
+  "73": {
+    "class_name": "_2d_catanis_fla.playfulRoll_53",
+    "table_name": "_2d_catanis_fla.playfulRoll_53",
+    "is_named": true
+  },
+  "49": {
+    "class_name": "_2d_catanis_fla.scratching_37",
+    "table_name": "_2d_catanis_fla.scratching_37",
+    "is_named": true
+  },
+  "43": {
+    "class_name": "_2d_catanis_fla.swat_33",
+    "table_name": "_2d_catanis_fla.swat_33",
+    "is_named": true
+  },
+  "12": {
+    "class_name": "_2d_catanis_fla.layingIdle_9",
+    "table_name": "_2d_catanis_fla.layingIdle_9",
+    "is_named": true
+  },
+  "8": {
+    "class_name": "_2d_catanis_fla.AniFace1_6",
+    "table_name": "_2d_catanis_fla.AniFace1_6",
+    "is_named": true
+  },
+  "6": {
+    "class_name": "_2d_catanis_fla.AniBody_5",
+    "table_name": "_2d_catanis_fla.AniBody_5",
+    "is_named": true
+  },
+  "4": {
+    "class_name": "_2d_catanis_fla.AniLeg_4",
+    "table_name": "_2d_catanis_fla.AniLeg_4",
+    "is_named": true
+  },
+  "2": {
+    "class_name": "_2d_catanis_fla.AniTail_3",
+    "table_name": "_2d_catanis_fla.AniTail_3",
+    "is_named": true
+  }
+}

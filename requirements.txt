@@ -1,3 +1,5 @@
 PySide6
 lz4
 openpyxl
+Pillow
+numpy
