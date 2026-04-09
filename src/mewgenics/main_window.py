@@ -2381,7 +2381,8 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_furniture_view") and self._furniture_view is not None:
             self._furniture_view.hide()
         if self._mutation_planner_view is not None:
-            self._mutation_planner_view.set_cats(self._cats)
+            if self._mutation_planner_view._cats is not self._cats:
+                self._mutation_planner_view.set_cats(self._cats)
             self._mutation_planner_view.show()
         if hasattr(self, "_btn_tree_view"):
             self._btn_tree_view.setChecked(False)
