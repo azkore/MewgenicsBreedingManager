@@ -70,6 +70,8 @@ src/
       cat_persistence.py            # Blacklist, must-breed, pinned, tags load/save
       cat_analysis.py               # _cat_base_sum, exceptional/donation checks
       abilities.py                  # Ability/mutation descriptions, tooltips, effect lines
+      ability_icons.py              # SWF shape parser, ability icon rendering from GPAK
+      shape_extractor.py            # DefinedShape PNG extraction from ZIP or GPAK catparts.swf
       table_state.py                # Table view header/sort state persistence
 ```
 
@@ -147,6 +149,23 @@ All PySide6 code lives here. `mewgenics/__init__.py` runs one-time initializatio
 4. `BreedingCache` pre-computes all pair outcomes in a background thread
 5. `QFileSystemWatcher` triggers auto-refresh when the save file changes on disk
 
+## Cat Sprite Rendering
+
+Cat sprites are composited from DefinedShape PNGs in `src/CatAssets/DefinedShapes/`. These are rasterized SWF vector shapes extracted from `catparts.swf` in the game's GPAK archive.
+
+**Extraction chain** (in `app.py` at startup via `ensure_defined_shapes()`):
+1. If `DefinedShapes/` has >= 5000 PNGs, skip (already cached)
+2. Try extracting from `CatAssets/DefinedShapes.zip` (~3 s, bundled in git)
+3. Fall back to parsing `catparts.swf` from the GPAK (~25 s, requires game)
+
+**Key files:**
+- `utils/shape_extractor.py` — ZIP extraction + GPAK SWF parsing + Qt QPainter rendering
+- `utils/ability_icons.py` — Shared SWF parsing primitives (`_BitReader`, `_parse_shape`, `_gpak_entry_bytes`)
+- `swf_cat_renderer.py` — Reads PNGs from `DefinedShapes/`, composites layered sprites with palette texturing
+- `swf_database.py` — `SWFDatabaseAccessor` for precomputed sprite frame data + shape bounds
+- `CatAssets/swf_database/shapes.db` — Shape bounds metadata (10K+ entries)
+- `CatAssets/DefinedShapes.zip` — Pre-rendered shape PNGs (6,894 files, 16.5 MB)
+
 ## Conventions
 
 - Windows-targeted: save paths use `%LOCALAPPDATA%`, build produces `.exe`
@@ -162,6 +181,7 @@ All PySide6 code lives here. `mewgenics/__init__.py` runs one-time initializatio
 - **Inbredness/sexuality dual field**: During `Cat.__init__`, `inbredness` temporarily holds the raw sexuality float. It is overwritten with true COI in `MainWindow._on_save_loaded()`. `parsed_inbredness` preserves the original for calibration override detection.
 - **Cross-class access**: Views expose public properties/methods (`room_priority_panel`, `cat_locator`, `offspring_tracker`, `set_navigate_to_cat_callback()`, `save_session_state()`) for MainWindow to use. Avoid accessing `_private` attributes across class boundaries.
 - **Module-level initialization**: `mewgenics/__init__.py` runs setup (game data, locale, tags, thresholds) once when the package is first imported. Modules that need initialized state import it after this runs.
+- **DefinedShape extraction**: Shapes are extracted once and cached as PNGs. The ZIP is the primary source (fast, no game dependency). GPAK is the fallback (requires game). Individual PNGs are gitignored; only the ZIP is tracked.
 
 ## tools/field_mapper/
 
