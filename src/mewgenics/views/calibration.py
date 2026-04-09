@@ -127,16 +127,22 @@ class CalibrationView(QWidget):
             "QLineEdit { background:#0d0d1c; color:#ccc; border:1px solid #2a2a4a;"
             " border-radius:4px; padding:4px 8px; }"
         )
+        self._search_input.setToolTip(_tr("calibration.search.tooltip", default="Filter cats by name"))
         self._search_input.textChanged.connect(self._apply_search_filter)
         filter_row.addWidget(self._search_input, 1)
         root.addLayout(filter_row)
 
         actions = QHBoxLayout()
         self._save_btn = QPushButton()
+        self._save_btn.setToolTip(_tr("calibration.save.tooltip", default="Save calibration overrides to disk"))
         self._reload_btn = QPushButton()
+        self._reload_btn.setToolTip(_tr("calibration.reload.tooltip", default="Reload calibration data from disk"))
         self._export_btn = QPushButton()
+        self._export_btn.setToolTip(_tr("calibration.export.tooltip", default="Export gender overrides as CSV"))
         self._import_btn = QPushButton()
+        self._import_btn.setToolTip(_tr("calibration.import.tooltip", default="Import gender overrides from CSV"))
         self._clear_overrides_btn = QPushButton()
+        self._clear_overrides_btn.setToolTip(_tr("calibration.clear_overrides.tooltip", default="Remove all calibration overrides"))
         self._clear_overrides_btn.setStyleSheet(
             "QPushButton { background:#3a2a2a; color:#e0a0a0; border:1px solid #5a3a3a; "
             "border-radius:4px; padding:6px 10px; font-size:11px; }"
@@ -169,10 +175,12 @@ class CalibrationView(QWidget):
             "border-radius:4px; padding:4px 10px; font-size:10px; }"
             "QPushButton:hover { background:#3a4a3a; color:#ddd; }"
         )
+        self._bulk_apply_btn.setToolTip(_tr("calibration.bulk_apply.tooltip", default="Apply selected sexuality to all checked cats"))
         self._bulk_apply_btn.clicked.connect(self._on_bulk_apply_sexuality)
         actions.addWidget(self._bulk_apply_btn)
 
         self._deselect_btn = QPushButton(_tr("calibration.deselect_all", default="Deselect All"))
+        self._deselect_btn.setToolTip(_tr("calibration.deselect.tooltip", default="Deselect all checked cats"))
         self._deselect_btn.setStyleSheet(
             "QPushButton { background:#1a1a32; color:#888; border:1px solid #2a2a4a; "
             "border-radius:4px; padding:4px 10px; font-size:10px; }"

@@ -55,6 +55,7 @@ class BreedingPartnersView(QWidget):
         root.addLayout(header)
 
         self._search = QLineEdit()
+        self._search.setToolTip(_tr("breeding_partners.search.tooltip", default="Filter pairs by cat name"))
         root.addWidget(self._search)
 
         self._table = QTableWidget(0, 6)
@@ -72,6 +73,7 @@ class BreedingPartnersView(QWidget):
         self._table.setSelectionMode(QAbstractItemView.NoSelection)
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._table.setSortingEnabled(True)
+        self._table.setToolTip(_tr("breeding_partners.table.tooltip", default="Breeding partner pairs with relationship status"))
         self._table.setContextMenuPolicy(Qt.CustomContextMenu)
         hh = self._table.horizontalHeader()
         hh.setStretchLastSection(False)

@@ -560,5 +560,42 @@
   "table.tooltip.must_breed": "必须繁殖 - 优化中优先考虑",
   "table.tooltip.normal_priority": "普通繁殖优先级",
   "table.tooltip.pinned": "已固定 - 在固定筛选视图中可见",
-  "table.tooltip.not_pinned": "未固定"
+  "table.tooltip.not_pinned": "未固定",
+
+  "breeding_partners.search.tooltip": "Filter pairs by cat name",
+  "breeding_partners.table.tooltip": "Breeding partner pairs with relationship status",
+
+  "calibration.search.tooltip": "Filter cats by name",
+  "calibration.save.tooltip": "Save calibration overrides to disk",
+  "calibration.reload.tooltip": "Reload calibration data from disk",
+  "calibration.export.tooltip": "Export gender overrides as CSV",
+  "calibration.import.tooltip": "Import gender overrides from CSV",
+  "calibration.clear_overrides.tooltip": "Remove all calibration overrides",
+  "calibration.bulk_apply.tooltip": "Apply selected sexuality to all checked cats",
+  "calibration.deselect.tooltip": "Deselect all checked cats",
+
+  "family_tree.search.tooltip": "Filter cats by name",
+  "family_tree.filter_all.tooltip": "Show all cats including gone",
+  "family_tree.filter_alive.tooltip": "Show only alive cats",
+  "family_tree.thumb_toggle.tooltip": "Toggle cat image thumbnails in the tree",
+  "family_tree.thumb_toggle_disabled.tooltip": "Cat image rendering requires Pillow and numpy (pip install Pillow numpy)",
+
+  "room_priority.header.tooltip": "Set each room's capacity and base stimulation level.",
+  "room_priority.capacity.tooltip": "Maximum cats allowed in this room. 0 means unlimited.",
+  "room_priority.stim_override.tooltip": "User override for the room's base stimulation. The calculated value is shown beside it.",
+  "room_priority.calc_stim.tooltip": "Calculated from the room's current furniture.",
+  "room_priority.move_up.tooltip": "Move this room higher in priority.",
+  "room_priority.move_down.tooltip": "Move this room lower in priority.",
+  "room_priority.remove.tooltip": "Remove this room from the priority list.",
+  "room_priority.calc_stim_value.tooltip": "Calculated stimulation from furniture: {stim}",
+
+  "furniture.table.tooltip": "Room overview with furniture stat totals",
+  "furniture.search.tooltip": "Filter furniture items by name",
+  "furniture.item_table.tooltip": "Furniture items in the selected room",
+  "furniture.pin_only.tooltip": "Show only pinned items in the current room.",
+
+  "safe_breeding.no_mutations.tooltip": "No likely mutations",
+  "safe_breeding.no_abilities.tooltip": "No inherited abilities",
+
+  "cat_detail.game_tag": "Game tag from save file"
 }

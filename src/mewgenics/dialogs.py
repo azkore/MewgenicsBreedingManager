@@ -804,9 +804,10 @@ class WhatsNewDialog(QDialog):
         )
 
         default_highlights = highlights or [
-            "Added cat sprite visualizer — toggle <b>Show Cat Images</b> in the Family Tree to render actual in-game cat portraits.",
-            "Cat thumbnails are composited from game assets with correct palette, class, and body part data.",
-            "Thumbnails are cached on disk after first render — instant on subsequent opens.",
+            "Automatic DefinedShape extraction — cat sprite shapes are now extracted from the game's GPAK or a bundled ZIP at first launch.",
+            "Improved tooltip coverage across all views with full localization support.",
+            "Updated onboarding tutorial with cat sprite rendering and shape extraction information.",
+            "New tests for shape extraction, localization, and configuration modules.",
         ]
 
         root = QVBoxLayout(self)
@@ -823,7 +824,7 @@ class WhatsNewDialog(QDialog):
         body.setHtml(
             f"""
             <div style="line-height:1.5;">
-              <p>This release adds in-game cat sprite visualization to the Family Tree.</p>
+              <p>This release improves the cat sprite pipeline, tooltip coverage, onboarding, and test coverage.</p>
               <ul>{bullets}</ul>
               <p><a href="https://github.com/frankieg33/MewgenicsBreedingManager/releases">View releases on GitHub</a></p>
             </div>
@@ -900,6 +901,20 @@ class OnboardingDialog(QDialog):
             """
             <p>The Settings menu now includes accessibility presets and saved UI scale controls.</p>
             <p>The Help menu gives you this walkthrough again, What&apos;s New, and About.</p>
+            <p>Cat sprites require shape assets &mdash; these are extracted automatically from
+            <code>DefinedShapes.zip</code> or the game&apos;s <code>resources.gpak</code> on first launch.</p>
+            """,
+        ))
+        self._stack.addWidget(self._make_page(
+            "5. Cat Sprites",
+            """
+            <p>The Family Tree view can render in-game cat portraits using sprite data
+            from the game&apos;s <code>resources.gpak</code>.</p>
+            <ul>
+              <li>On first launch, shape assets are extracted automatically (~3 s from bundled ZIP, ~25 s from GPAK).</li>
+              <li>Rendered thumbnails are cached on disk for instant loading on subsequent opens.</li>
+              <li>Toggle <b>Show Cat Images</b> in the Family Tree view to enable portraits.</li>
+            </ul>
             """,
         ))
         root.addWidget(self._stack, 1)

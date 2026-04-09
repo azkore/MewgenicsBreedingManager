@@ -944,11 +944,10 @@ class CatDetailPanel(QWidget):
         risk_row.addWidget(_risk_chip(f"Combined {combined_ch*100:.1f}%", combined_ch))
         disorder_tip = QLabel("(?)")
         disorder_tip.setStyleSheet("color:#555; font-size:10px;")
-        disorder_tip.setToolTip(
-            "Disorder: base 2%, scales above 0.20 CoI\n"
-            "Part defect: 0 below 0.05 CoI, then 1.5x CoI\n"
-            "Combined: chance of at least one occurring"
-        )
+        disorder_tip.setToolTip(_tr(
+            "cat_detail.disorder_risk.tooltip",
+            default="Disorder: base 2%, scales above 0.20 CoI\nPart defect: 0 below 0.05 CoI, then 1.5x CoI\nCombined: chance of at least one occurring",
+        ))
         risk_row.addWidget(disorder_tip)
         risk_row.addStretch()
         inh.addLayout(risk_row)

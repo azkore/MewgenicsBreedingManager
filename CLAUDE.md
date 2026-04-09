@@ -14,7 +14,7 @@ python src/mewgenics_manager.py
 build.bat
 ```
 
-No test suite or linter. Testing is manual through the GUI.
+Tests: `pytest tests/ --basetemp=tmp/pytest` (use basetemp on WSL/Windows to avoid permission issues).
 
 ## Module Structure
 
@@ -182,6 +182,15 @@ Cat sprites are composited from DefinedShape PNGs in `src/CatAssets/DefinedShape
 - **Cross-class access**: Views expose public properties/methods (`room_priority_panel`, `cat_locator`, `offspring_tracker`, `set_navigate_to_cat_callback()`, `save_session_state()`) for MainWindow to use. Avoid accessing `_private` attributes across class boundaries.
 - **Module-level initialization**: `mewgenics/__init__.py` runs setup (game data, locale, tags, thresholds) once when the package is first imported. Modules that need initialized state import it after this runs.
 - **DefinedShape extraction**: Shapes are extracted once and cached as PNGs. The ZIP is the primary source (fast, no game dependency). GPAK is the fallback (requires game). Individual PNGs are gitignored; only the ZIP is tracked.
+
+## Release Checklist
+
+Before pushing a release commit:
+
+1. Update `VERSION` file with the new version number.
+2. Update `WhatsNewDialog` default highlights and body text in `src/mewgenics/dialogs.py` to reflect the new release.
+3. Update `README.md` current release and add release notes.
+4. Commit, tag (`vX.Y.Z`), push, and create a GitHub release.
 
 ## tools/field_mapper/
 

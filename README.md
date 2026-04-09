@@ -2,7 +2,7 @@
 
 A high-performance, Python-based tool for optimizing breeding operations in Mewgenics. It extracts data directly from your save files and helps you compare pairings, optimize room layouts, and plan long-term lines to maximize strong offspring while minimizing inbreeding risk.
 
-Current release: `v5.3.1`
+Current release: `v5.4.0`
 
 If you'd like to support the project, you can [here](https://ko-fi.com/frankieg33).
 
@@ -66,6 +66,15 @@ On Linux, use `build.sh`.
 - Original idea and reference from frankieg33
 
 ## Release Notes
+
+### v5.4.0
+
+- Improved tooltip coverage across all views with full localization support
+- Updated onboarding tutorial with cat sprite rendering and shape extraction info
+- Updated What's New dialog for v5.4.0 release content
+- Added new locale keys for tooltips and dialogs across all 4 languages (en, zh_CN, ru, pl)
+- Added tests for shape extraction, localization, configuration, and dialog modules
+- Wrapped hardcoded tooltips in `_tr()` across breeding partners, calibration, family tree, room priority, furniture, safe breeding, and cat detail views
 
 ### v5.3.1
 

@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 
 from save_parser import FurnitureRoomSummary
 from mewgenics.constants import ROOM_COLORS, _room_color, _room_tint
-from mewgenics.utils.localization import ROOM_DISPLAY
+from mewgenics.utils.localization import ROOM_DISPLAY, _tr
 from mewgenics.utils.optimizer_settings import (
     _default_room_priority_config,
     _load_room_priority_config,
@@ -53,7 +53,7 @@ class RoomPriorityPanel(QWidget):
         header = QHBoxLayout()
         lbl = QLabel("Configure Rooms:")
         lbl.setStyleSheet("color:#888; font-size:11px; font-weight:bold;")
-        lbl.setToolTip("Set each room's capacity and base stimulation level.")
+        lbl.setToolTip(_tr("room_priority.header.tooltip", default="Set each room's capacity and base stimulation level."))
         header.addWidget(lbl)
         header.addStretch(1)
 
@@ -279,7 +279,7 @@ class RoomPriorityPanel(QWidget):
             "QSpinBox { background:#0d0d1c; color:#ccc; border:1px solid #2a2a4a;"
             " border-radius:3px; padding:2px 4px; font-size:11px; }"
         )
-        cap_spin.setToolTip("Maximum cats allowed in this room. 0 means unlimited.")
+        cap_spin.setToolTip(_tr("room_priority.capacity.tooltip", default="Maximum cats allowed in this room. 0 means unlimited."))
         if max_cats is not None:
             capacity = max_cats
         else:
@@ -302,7 +302,7 @@ class RoomPriorityPanel(QWidget):
             "QSpinBox { background:#0d0d1c; color:#ccc; border:1px solid #2a2a4a;"
             " border-radius:3px; padding:2px 4px; font-size:11px; }"
         )
-        stim_spin.setToolTip("User override for the room's base stimulation. The calculated value is shown beside it.")
+        stim_spin.setToolTip(_tr("room_priority.stim_override.tooltip", default="User override for the room's base stimulation. The calculated value is shown beside it."))
         stim_value = base_stim if base_stim is not None else self._default_room_stim(room)
         try:
             stim_spin.setValue(max(0, min(200, int(round(float(stim_value))))))
@@ -312,20 +312,20 @@ class RoomPriorityPanel(QWidget):
 
         calc_lbl = QLabel("(calc: —)")
         calc_lbl.setStyleSheet("color:#999; font-size:10px; font-style:italic;")
-        calc_lbl.setToolTip("Calculated from the room's current furniture.")
+        calc_lbl.setToolTip(_tr("room_priority.calc_stim.tooltip", default="Calculated from the room's current furniture."))
         calc_lbl.setFixedWidth(82)
         row.addWidget(calc_lbl)
 
         up_btn = QPushButton("↑")
         up_btn.setFixedWidth(22)
         up_btn.setStyleSheet(self._SS_BTN)
-        up_btn.setToolTip("Move this room higher in priority.")
+        up_btn.setToolTip(_tr("room_priority.move_up.tooltip", default="Move this room higher in priority."))
         row.addWidget(up_btn)
 
         dn_btn = QPushButton("↓")
         dn_btn.setFixedWidth(22)
         dn_btn.setStyleSheet(self._SS_BTN)
-        dn_btn.setToolTip("Move this room lower in priority.")
+        dn_btn.setToolTip(_tr("room_priority.move_down.tooltip", default="Move this room lower in priority."))
         row.addWidget(dn_btn)
 
         rm_btn = QPushButton("×")
@@ -335,7 +335,7 @@ class RoomPriorityPanel(QWidget):
             " border-radius:3px; font-size:11px; }"
             "QPushButton:hover { background:#5a2a2a; }"
         )
-        rm_btn.setToolTip("Remove this room from the priority list.")
+        rm_btn.setToolTip(_tr("room_priority.remove.tooltip", default="Remove this room from the priority list."))
         row.addWidget(rm_btn)
         row.addStretch(1)
 
@@ -522,12 +522,12 @@ class RoomPriorityPanel(QWidget):
             summary = room_map.get(room)
             if summary is None:
                 slot["calc_lbl"].setText("(calc: —)")
-                slot["calc_lbl"].setToolTip("Calculated from the room's current furniture.")
+                slot["calc_lbl"].setToolTip(_tr("room_priority.calc_stim.tooltip", default="Calculated from the room's current furniture."))
                 continue
             stim = max(0, min(200, int(round(float(summary.raw_effects.get("Stimulation", 0.0) or 0.0)))))
             slot["calc_lbl"].setText(f"(calc: {stim})")
             slot["calc_lbl"].setToolTip(
-                f"Calculated stimulation from furniture: {stim}"
+                _tr("room_priority.calc_stim_value.tooltip", default="Calculated stimulation from furniture: {stim}", stim=stim)
             )
 
         self.configChanged.emit()

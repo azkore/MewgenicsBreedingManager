@@ -812,8 +812,8 @@ class SafeBreedingView(QWidget):
                 ability_tooltip_parts.append(passive_tip)
             ability_item = QTableWidgetItem(" | ".join(ability_parts) if ability_parts else "—")
             mutation_item = QTableWidgetItem(mutation_text)
-            mutation_item.setToolTip(mutation_tip if item.get("mutation_candidates") else "No likely mutations")
-            ability_item.setToolTip("\n\n".join(ability_tooltip_parts) if ability_tooltip_parts else "No inherited abilities")
+            mutation_item.setToolTip(mutation_tip if item.get("mutation_candidates") else _tr("safe_breeding.no_mutations.tooltip", default="No likely mutations"))
+            ability_item.setToolTip("\n\n".join(ability_tooltip_parts) if ability_tooltip_parts else _tr("safe_breeding.no_abilities.tooltip", default="No inherited abilities"))
             for it in (name_item, quality_item, risk_item, shared_item, recent_shared_item, mutation_item, ability_item):
                 if it in (mutation_item, ability_item):
                     it.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)

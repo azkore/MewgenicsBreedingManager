@@ -171,6 +171,7 @@ class FurnitureView(QWidget):
             _tr("furniture.table.mutation", default="MUT"),
         ])
         self._table.verticalHeader().setVisible(False)
+        self._table.setToolTip(_tr("furniture.table.tooltip", default="Room overview with furniture stat totals"))
         self._table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -238,6 +239,7 @@ class FurnitureView(QWidget):
         self._search.setPlaceholderText(
             _tr("furniture.search.placeholder", default="Search furniture items…")
         )
+        self._search.setToolTip(_tr("furniture.search.tooltip", default="Filter furniture items by name"))
         self._search.setStyleSheet(
             "QLineEdit { background:#0d0d1c; color:#ccc; border:1px solid #2a2a4a;"
             " border-radius:4px; padding:4px 8px; }"
@@ -291,6 +293,7 @@ class FurnitureView(QWidget):
         self._item_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._item_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._item_table.setSortingEnabled(False)
+        self._item_table.setToolTip(_tr("furniture.item_table.tooltip", default="Furniture items in the selected room"))
         self._item_table.setAlternatingRowColors(True)
         self._item_table.setWordWrap(True)
         self._item_table.setStyleSheet(

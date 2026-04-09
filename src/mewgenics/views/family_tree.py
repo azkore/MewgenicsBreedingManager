@@ -100,6 +100,8 @@ class FamilyTreeBrowserView(QWidget):
         mode_row.setSpacing(6)
         self._all_btn = _sidebar_btn(_tr("family_tree.filter_all"))
         self._alive_btn = _sidebar_btn(_tr("family_tree.filter_alive"))
+        self._all_btn.setToolTip(_tr("family_tree.filter_all.tooltip", default="Show all cats including gone"))
+        self._alive_btn.setToolTip(_tr("family_tree.filter_alive.tooltip", default="Show only alive cats"))
         self._all_btn.setCheckable(True)
         self._alive_btn.setCheckable(True)
         self._alive_btn.setChecked(True)
@@ -110,6 +112,7 @@ class FamilyTreeBrowserView(QWidget):
         lv.addLayout(mode_row)
         self._search = QLineEdit()
         self._search.setPlaceholderText(_tr("family_tree.search_placeholder"))
+        self._search.setToolTip(_tr("family_tree.search.tooltip", default="Filter cats by name"))
         lv.addWidget(self._search)
         self._list = QTableWidget(0, 4)
         self._list.setHorizontalHeaderLabels([
@@ -146,8 +149,9 @@ class FamilyTreeBrowserView(QWidget):
         self._thumb_toggle.setCheckable(True)
         self._thumb_toggle.setChecked(self._show_thumbnails)
         self._thumb_toggle.setEnabled(_SWF_RENDERER_AVAILABLE)
+        self._thumb_toggle.setToolTip(_tr("family_tree.thumb_toggle.tooltip", default="Toggle cat image thumbnails in the tree"))
         if not _SWF_RENDERER_AVAILABLE:
-            self._thumb_toggle.setToolTip("Cat image rendering requires Pillow and numpy (pip install Pillow numpy)")
+            self._thumb_toggle.setToolTip(_tr("family_tree.thumb_toggle_disabled.tooltip", default="Cat image rendering requires Pillow and numpy (pip install Pillow numpy)"))
         self._thumb_toggle.setStyleSheet(
             "QPushButton { background:#131326; color:#aaa; border:1px solid #252545;"
             " border-radius:4px; padding:4px 10px; font-size:10px; }"
