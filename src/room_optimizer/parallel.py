@@ -425,6 +425,17 @@ def _p7p_sa_chain(
 
     neighbors_per_temp = max(1, int(sa_neighbors))
 
+    # Pre-build index: cat_key -> set of pair_indices that involve that cat.
+    # _candidate_pool previously did an O(P) linear scan per call; with this
+    # index it becomes O(|used_cats| * avg_pairs_per_cat) — critical for large
+    # rosters where P can be in the tens of thousands.
+    _cat_to_pairs: dict[int, set[int]] = {}
+    for p in pair_data:
+        pid = p["pair_index"]
+        _cat_to_pairs.setdefault(p["cat_a_key"], set()).add(pid)
+        _cat_to_pairs.setdefault(p["cat_b_key"], set()).add(pid)
+    _all_pair_ids: set[int] = set(pair_by_id.keys())
+
     def _state_key(ids: list[int]) -> list[int]:
         return sorted(ids)
 
@@ -445,15 +456,10 @@ def _p7p_sa_chain(
         return used
 
     def _candidate_pool(blocked: set[int], used_cats: set[int]) -> list[int]:
-        cands: list[int] = []
-        for p in pair_data:
-            pid = p["pair_index"]
-            if pid in blocked:
-                continue
-            if {p["cat_a_key"], p["cat_b_key"]} & used_cats:
-                continue
-            cands.append(pid)
-        return cands
+        excluded = set(blocked)
+        for cat_key in used_cats:
+            excluded.update(_cat_to_pairs.get(cat_key, set()))
+        return list(_all_pair_ids - excluded)
 
     def _neighbor(ids: list[int]) -> list[int] | None:
         if not ids:
