@@ -129,6 +129,23 @@ def _normalize_room_priority_config(config: list[dict]) -> tuple[list[dict], boo
 
 
 def _load_room_priority_config(save_path: Optional[str] = None) -> list[dict]:
+    # No save bound yet (panel init happens before a save is selected):
+    # read the global default from app config WITHOUT running the version
+    # check or writing anything. Running the version-reset path here would
+    # stamp defaults into settings.json and, via the mirror-write on save,
+    # clobber the user's real per-save room priority. The real load +
+    # version check happens when set_save_path() is called with a valid
+    # path, at which point the sidecar is the source of truth.
+    if not save_path:
+        try:
+            cfg = _load_planner_state_value("room_priority_config", [], save_path=None)
+            if isinstance(cfg, list) and cfg:
+                valid, _ = _normalize_room_priority_config(cfg)
+                if valid:
+                    return valid
+        except Exception:
+            pass
+        return _default_room_priority_config()
     try:
         stored_version = _load_planner_state_value(
             "room_priority_config_version", 0, save_path=save_path,
