@@ -2,7 +2,7 @@
 
 A high-performance, Python-based tool for optimizing breeding operations in Mewgenics. It extracts data directly from your save files and helps you compare pairings, optimize room layouts, and plan long-term lines to maximize strong offspring while minimizing inbreeding risk.
 
-Current release: `v5.4.0`
+Current release: `v5.4.1`
 
 If you'd like to support the project, you can [here](https://ko-fi.com/frankieg33).
 
@@ -66,6 +66,12 @@ On Linux, use `build.sh`.
 - Original idea and reference from frankieg33
 
 ## Release Notes
+
+### v5.4.1
+
+- Fixed Perfect 7 Planner "More Depth" hanging for hours on large rosters (issue #63) — the SA candidate pool is now index-based instead of doing an O(pairs) scan on every neighbor generation
+- Fixed Configure Rooms settings being wiped when upgrading to a new version of the program — the panel no longer stamps defaults into the global config during init before a save is selected
+- Updated 3 pre-existing tests that drifted from current code behavior (iterative pedigree cycle break, room-level lover exclusivity, renamed "Import Breeding Planner" locale string)
 
 ### v5.4.0
 

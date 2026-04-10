@@ -804,10 +804,9 @@ class WhatsNewDialog(QDialog):
         )
 
         default_highlights = highlights or [
-            "Automatic DefinedShape extraction — cat sprite shapes are now extracted from the game's GPAK or a bundled ZIP at first launch.",
-            "Improved tooltip coverage across all views with full localization support.",
-            "Updated onboarding tutorial with cat sprite rendering and shape extraction information.",
-            "New tests for shape extraction, localization, and configuration modules.",
+            "Fixed Perfect 7 Planner \"More Depth\" hanging for hours on large rosters (issue #63) — the SA candidate pool is now index-based.",
+            "Fixed Configure Rooms settings being wiped when upgrading the program — the panel no longer stamps defaults into the global config during init.",
+            "Updated tests to match current code behavior (pedigree cycle breaking, room-level lover exclusivity, renamed locale strings).",
         ]
 
         root = QVBoxLayout(self)
@@ -824,7 +823,7 @@ class WhatsNewDialog(QDialog):
         body.setHtml(
             f"""
             <div style="line-height:1.5;">
-              <p>This release improves the cat sprite pipeline, tooltip coverage, onboarding, and test coverage.</p>
+              <p>This release fixes two issues reported against v5.4.0: a hang in the Perfect 7 Planner's More Depth search on large rosters, and Configure Rooms settings being erased after a program upgrade.</p>
               <ul>{bullets}</ul>
               <p><a href="https://github.com/frankieg33/MewgenicsBreedingManager/releases">View releases on GitHub</a></p>
             </div>
