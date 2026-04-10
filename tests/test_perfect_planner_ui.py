@@ -405,7 +405,7 @@ def test_room_optimizer_setup_controls_stack_and_help_panel(qt_app, planner_conf
     setup_text = view._setup_info_browser.toPlainText()
     assert "Optimizer options" in setup_text
     assert "Description" in setup_text
-    assert "Import Mutation Planner" in setup_text
+    assert "Import Breeding Planner" in setup_text
     assert "Run the optimizer once" in setup_text
 
 
