@@ -804,9 +804,14 @@ class WhatsNewDialog(QDialog):
         )
 
         default_highlights = highlights or [
-            "Fixed Perfect 7 Planner \"More Depth\" hanging for hours on large rosters (issue #63) — the SA candidate pool is now index-based.",
-            "Fixed Configure Rooms settings being wiped when upgrading the program — the panel no longer stamps defaults into the global config during init.",
-            "Updated tests to match current code behavior (pedigree cycle breaking, room-level lover exclusivity, renamed locale strings).",
+            "Total Stats on the cat detail panel now includes visual mutation stat bonuses (e.g. Conjoined Body +2 CON). Previously these were silently missing from the total.",
+            "Mutation descriptions no longer show all languages glued together, are no longer cropped at the first comma (so \"+2 STR, -1 DEX\" is preserved), and both halves of a two-stat modifier now display.",
+            "Base body parts (fur/head/body sprite IDs) no longer show up as fake mutations in the detail panel.",
+            "\"Adv Ready\" column no longer shows a ✓ for retired/dead (\"Gone\") cats.",
+            "Auto-refresh after an in-game day now re-subscribes the file watcher so subsequent saves continue to trigger reloads instead of going stale after the first day.",
+            "Unhandled exceptions and Qt warnings are now captured to a rotating log at %APPDATA%/MewgenicsBreedingManager/logs/mewgenics.log, with a crash dialog pointing at the file.",
+            "Regenerated DefinedShapes.zip from 6,894 → 10,564 shapes, restoring color to most cat portraits that previously rendered black (a few remain under investigation).",
+            "Silenced \"Could not parse stylesheet\" warnings on QLabel — letter-spacing is now applied via QFont instead of unsupported Qt QSS.",
         ]
 
         root = QVBoxLayout(self)
@@ -823,7 +828,7 @@ class WhatsNewDialog(QDialog):
         body.setHtml(
             f"""
             <div style="line-height:1.5;">
-              <p>This release fixes two issues reported against v5.4.0: a hang in the Perfect 7 Planner's More Depth search on large rosters, and Configure Rooms settings being erased after a program upgrade.</p>
+              <p>This release bundles a batch of bug fixes across the detail panel, mutation parsing, save-file watching, and crash logging.</p>
               <ul>{bullets}</ul>
               <p><a href="https://github.com/frankieg33/MewgenicsBreedingManager/releases">View releases on GitHub</a></p>
             </div>

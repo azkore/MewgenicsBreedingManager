@@ -394,7 +394,15 @@ def _trait_display_kind(category: str) -> str:
 
 
 def _trait_description_preview(tip: str) -> str:
-    """Return a compact one-line preview of a trait's description."""
+    """Return a compact one-line preview of a trait's description.
+
+    Previously this cropped everything after the first comma or semicolon
+    as a workaround for :func:`save_parser._load_gpak_text_strings`
+    returning multi-language glob (``"English,Polski,Русский,中文"``). The
+    parser now returns a single-language value, so cropping at commas just
+    loses legitimate content like ``"+2 STR, -1 DEX"``. Full descriptions
+    are returned as-is and let downstream widgets wrap/truncate visually.
+    """
     text = str(tip or "").replace("\u00a0", " ").strip()
     if not text:
         return ""
@@ -415,9 +423,6 @@ def _trait_description_preview(tip: str) -> str:
     if re.fullmatch(r"[A-Z0-9_]+(?:_DESC)?", text):
         return ""
 
-    text = re.split(r"\s*[,;]\s*", text, maxsplit=1)[0].strip()
-    if not text or re.fullmatch(r"[A-Z0-9_]+(?:_DESC)?", text):
-        return ""
     return text
 
 
@@ -482,12 +487,19 @@ def _mutations_tooltip(cat: "Cat") -> str:
 
 _MUTATION_EFFECT_LABELS = {
     "strength": "STR",
+    "str": "STR",
     "dexterity": "DEX",
+    "dex": "DEX",
     "constitution": "CON",
+    "con": "CON",
     "intelligence": "INT",
+    "int": "INT",
     "speed": "SPD",
+    "spd": "SPD",
     "charisma": "CHA",
+    "cha": "CHA",
     "luck": "LCK",
+    "lck": "LCK",
     "all stats": "All Stats",
     "crit chance": "Crit Chance",
     "critical chance": "Crit Chance",

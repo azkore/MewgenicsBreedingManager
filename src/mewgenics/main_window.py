@@ -794,8 +794,13 @@ class MainWindow(QMainWindow):
 
         def sl(text):
             l = QLabel(text)
+            # letter-spacing is not supported by Qt QSS — apply via QFont
+            # to avoid "Could not parse stylesheet" warnings.
             l.setStyleSheet("color:#444; font-size:10px; font-weight:bold;"
-                            " letter-spacing:1px; padding:8px 4px 4px 4px;")
+                            " padding:8px 4px 4px 4px;")
+            f = l.font()
+            f.setLetterSpacing(QFont.AbsoluteSpacing, 1.0)
+            l.setFont(f)
             return l
 
         self._filters_section_label = sl(_tr("sidebar.section.filters"))
@@ -1129,9 +1134,12 @@ class MainWindow(QMainWindow):
         self._mode_badge_lbl.setVisible(False)
         self._mode_badge_lbl.setStyleSheet(
             "QLabel { color:#ffe8a3; background:#5a4516; border:1px solid #9f7b2c;"
-            " border-radius:10px; padding:2px 8px; font-size:10px; font-weight:bold;"
-            " letter-spacing:0.8px; }"
+            " border-radius:10px; padding:2px 8px; font-size:10px; font-weight:bold; }"
         )
+        # letter-spacing isn't a Qt QSS property — apply via QFont instead.
+        _badge_font = self._mode_badge_lbl.font()
+        _badge_font.setLetterSpacing(QFont.AbsoluteSpacing, 0.8)
+        self._mode_badge_lbl.setFont(_badge_font)
         self._count_lbl = QLabel("")
         self._count_lbl.setStyleSheet("color:#555; font-size:12px; padding-left:8px;")
         self._summary_lbl = QLabel("")
@@ -1488,9 +1496,11 @@ class MainWindow(QMainWindow):
             panel_h = 200 if len(cats) == 1 else 300
             self._detail_splitter.setSizes([max(10, total - panel_h), panel_h])
 
-        # Highlight compatibility: dim incompatible cats when 1 is selected
+        # Highlight compatibility: dim incompatible cats when 1 is selected.
+        # Fight Club isn't a breeding view, so skip the dimming there.
         focus = cats[0] if len(cats) == 1 else None
-        self._source_model.set_focus_cat(focus)
+        table_focus = None if room_key == "__fight_club__" else focus
+        self._source_model.set_focus_cat(table_focus)
         if self._tree_view is not None and self._tree_view.isVisible() and focus is not None:
             self._tree_view.select_cat(focus)
         if self._safe_breeding_view is not None and self._safe_breeding_view.isVisible() and focus is not None:
@@ -2451,7 +2461,8 @@ class MainWindow(QMainWindow):
                 finally:
                     self._total_stats_action.blockSignals(False)
 
-            for col in (COL_GEN, COL_BL, COL_MB, COL_LIB, COL_INBRD, COL_SEXUALITY, COL_GEN_DEPTH, COL_SRC):
+            for col in (COL_GEN, COL_BL, COL_MB, COL_LIB, COL_INBRD, COL_SEXUALITY,
+                        COL_GEN_DEPTH, COL_SRC, COL_REL):
                 if col < col_count:
                     self._table.setColumnHidden(col, True)
             for col in (COL_TAGS, COL_NAME, COL_ROOM, COL_STAT, COL_SUM, COL_AGG, COL_ADV,
@@ -3344,11 +3355,32 @@ class MainWindow(QMainWindow):
     def _on_file_changed(self, path: str):
         if path != self._current_save:
             return
+        # Qt's QFileSystemWatcher stops watching a file after it's deleted
+        # or replaced — Mewgenics writes saves atomically by writing to a
+        # temp file then renaming over the original, which fires exactly
+        # one fileChanged event before the watcher drops the subscription.
+        # Re-add the path so subsequent in-game days still trigger refreshes.
+        if path not in self._watcher.files():
+            # Defer slightly: Qt sometimes fires fileChanged before the new
+            # inode is fully materialised on NTFS, so addPath() fails silently.
+            QTimer.singleShot(100, lambda p=path: self._rewatch_save(p))
         # If cats are already loaded and no full reload is running, try the fast path.
         if self._cats and self._save_load_worker is None:
             self._start_quick_room_refresh()
         else:
             self._reload()
+
+    def _rewatch_save(self, path: str):
+        """Re-subscribe the file watcher to *path* after the game rewrites it."""
+        if path != self._current_save:
+            return
+        if not os.path.isfile(path):
+            # File not materialised yet — try again shortly.
+            QTimer.singleShot(100, lambda p=path: self._rewatch_save(p))
+            return
+        if path in self._watcher.files():
+            return
+        self._watcher.addPath(path)
 
     def _start_quick_room_refresh(self):
         if self._quick_refresh_worker is not None:

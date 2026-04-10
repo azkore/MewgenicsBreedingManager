@@ -393,7 +393,14 @@ class CatTableModel(QAbstractTableModel):
         is_exceptional = _is_exceptional_breeder(cat)
         donation_reason = _donation_candidate_reason(cat)
         is_donation = donation_reason is not None
-        can_adventure = cat.db_key in self._accessible_cat_keys
+        # Adv Ready: the cat must be alive, in the house (or currently on
+        # an adventure), AND flagged as accessible by the game's own
+        # pedigree table. "Gone" covers dead/retired/aged-out cats — those
+        # must never show ✓ even if a stale entry lingers in the hash table.
+        can_adventure = (
+            cat.status != "Gone"
+            and cat.db_key in self._accessible_cat_keys
+        )
 
         def _badge_background() -> Optional[QColor]:
             if is_exceptional:

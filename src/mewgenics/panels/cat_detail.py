@@ -1164,9 +1164,13 @@ class LineageDialog(QDialog):
         # ── Generation label ─────────────────────────────────────────────
         def gen_row_label(text):
             lbl = QLabel(text)
+            # letter-spacing is not a Qt QSS property — apply via QFont.
             lbl.setStyleSheet(
-                "color:#333; font-size:9px; font-weight:bold; letter-spacing:1px;"
+                "color:#333; font-size:9px; font-weight:bold;"
                 " min-width:90px;")
+            f = lbl.font()
+            f.setLetterSpacing(QFont.AbsoluteSpacing, 1.0)
+            lbl.setFont(f)
             lbl.setAlignment(Qt.AlignVCenter | Qt.AlignRight)
             return lbl
 

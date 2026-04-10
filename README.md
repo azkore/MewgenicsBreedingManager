@@ -2,7 +2,7 @@
 
 A high-performance, Python-based tool for optimizing breeding operations in Mewgenics. It extracts data directly from your save files and helps you compare pairings, optimize room layouts, and plan long-term lines to maximize strong offspring while minimizing inbreeding risk.
 
-Current release: `v5.4.1`
+Current release: `v5.4.2`
 
 If you'd like to support the project, you can [here](https://ko-fi.com/frankieg33).
 
@@ -66,6 +66,17 @@ On Linux, use `build.sh`.
 - Original idea and reference from frankieg33
 
 ## Release Notes
+
+### v5.4.2
+
+- Total Stats on the cat detail panel now includes visual mutation stat bonuses (e.g. Conjoined Body +2 CON). Previously these contributions were silently missing from the total — `base + mod + secondary` is now also augmented with `mutation_stat_bonus`, and a new `_parse_mutation_stat_delta` / `_mutation_stat_bonus_from_entries` pair handles regex extraction and L/R paired-part deduplication
+- Mutation description formatting fixes: no longer glues all language variants (`"English,Polski,Русский,中文"`) together, no longer truncates after the first comma so `"+2 STR, -1 DEX"` survives in full, both halves of a two-stat modifier now show as separate chips, and short stat aliases (`STR`, `DEX`, …) are recognized alongside the full names
+- Base body parts (fur/head/body sprite IDs stored in the same save slots as mutations) no longer surface as fake mutations in the detail panel — only entries with an actual gpak/catalog hit, or the 0xFFFFFFFE missing-part sentinel, are shown
+- "Adv Ready" column no longer shows a ✓ for retired/dead ("Gone") cats even if a stale entry lingers in the game's accessible-cat hash table
+- Auto-refresh after an in-game day now re-subscribes the `QFileSystemWatcher` to the save path after Mewgenics atomically renames the file, so subsequent days continue to trigger reloads instead of the watcher going silent after day one
+- Added a rotating crash log at `%APPDATA%/MewgenicsBreedingManager/logs/mewgenics.log` that captures unhandled exceptions (main + worker threads) and Qt warnings via `qInstallMessageHandler`. Main-thread crashes now also show a dialog pointing at the log file
+- Regenerated `DefinedShapes.zip` from 6,894 → 10,564 shapes, restoring color to the vast majority of cat portraits that previously rendered as black silhouettes. The old zip was built from an incomplete extraction pass that never triggered the GPAK fallback because the cache count was already above the threshold. A handful of black faces remain and are still under investigation
+- Silenced spammy `Could not parse stylesheet of object QLabel` warnings that appeared when selecting a cat. `letter-spacing` is not a Qt QSS property; tracking is now applied via `QFont.setLetterSpacing` in `styling._sec()` and the handful of other call sites so the visual result is identical
 
 ### v5.4.1
 

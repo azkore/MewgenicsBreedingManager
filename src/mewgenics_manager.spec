@@ -15,7 +15,12 @@ a = Analysis(
         (os.path.join(_S, '..', 'VERSION'), '.'),
         (os.path.join(_S, 'palette.png'), '.'),
         (os.path.join(_S, 'CatAssets', 'swf_database'), 'CatAssets/swf_database'),
-        (os.path.join(_S, 'CatAssets', 'DefinedShapes'), 'CatAssets/DefinedShapes'),
+        # Bundle the ZIP, not the 6,894 extracted PNGs. In onefile mode the
+        # bootloader extracts every bundled data file to _MEIPASS on every
+        # launch; 6,894 tiny PNGs cost ~15 s of startup time, while a single
+        # 16.5 MB ZIP extracts in milliseconds and is then unpacked once per
+        # install into APPDATA (see shape_extractor.defined_shapes_dir).
+        (os.path.join(_S, 'CatAssets', 'DefinedShapes.zip'), 'CatAssets'),
     ],
     hiddenimports=[
         'lz4.frame',

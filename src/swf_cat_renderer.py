@@ -225,6 +225,13 @@ def _render_texture_frame(texture_id: int, palette_row: int = 0) -> Optional[byt
                         layer = _get_nested_shape(layer, db)
                         char_id = layer.get("characterId")
                     data = _render_shape(char_id)
+                    if not data:
+                        # Some DefinedShape PNGs are missing from the
+                        # extracted cache (unrenderable tag variants). Skip
+                        # this texture layer rather than aborting the whole
+                        # texture, so cats still get their remaining tint
+                        # layers instead of rendering as solid black.
+                        continue
                     im = Image.open(io.BytesIO(data)).convert("RGBA")
                     relative_x, relative_y = 0,0
                     matrix = og_layer.get("matrix", {})
@@ -263,9 +270,11 @@ def _render_shape(character_id: int) -> Optional[bytes]:
     if cache_key in _LAYER_IMAGE_CACHE:
         return _LAYER_IMAGE_CACHE[cache_key]
 
-    # Load directly from DefinedShapes folder (no need to copy to part_cache)
-    defined_shapes_dir = Path(__file__).parent / "CatAssets" / "DefinedShapes"
-    shape_path = defined_shapes_dir / f"{character_id}.png"
+    # Load from the persistent DefinedShapes cache directory. This lives
+    # outside the PyInstaller bundle in frozen mode — see
+    # mewgenics.utils.shape_extractor.defined_shapes_dir() for why.
+    from mewgenics.utils.shape_extractor import defined_shapes_dir as _defined_shapes_dir
+    shape_path = _defined_shapes_dir() / f"{character_id}.png"
     
     if shape_path.exists():
         try:
@@ -435,13 +444,14 @@ def _create_part(part_name: str, frame_id: int, texture_data: Optional[bytes] = 
                 basebounds = get_shape_bounds(base, db)
                 basecanvas = Image.new("RGBA", (int(basebounds[2]), int(basebounds[3])), (0,0,0,0))
                 data = _render_shape(char_id)
-                im = Image.open(io.BytesIO(data)).convert("RGBA")
-                basecanvas.alpha_composite(im, (0, 0))
-                if texture is not None and texture_data is not None:
-                    texture_image = Image.open(io.BytesIO(texture_data)).convert("RGBA")
-                    basecanvas = _replace_canvas_pixels_with_texture(
-                    basecanvas, texture_image,
-                    preserve_dark=20)      
+                if data:
+                    im = Image.open(io.BytesIO(data)).convert("RGBA")
+                    basecanvas.alpha_composite(im, (0, 0))
+                    if texture is not None and texture_data is not None:
+                        texture_image = Image.open(io.BytesIO(texture_data)).convert("RGBA")
+                        basecanvas = _replace_canvas_pixels_with_texture(
+                        basecanvas, texture_image,
+                        preserve_dark=20)
         if outline is not None:
             char_id = outline.get("characterId")
             if char_id:
@@ -451,10 +461,17 @@ def _create_part(part_name: str, frame_id: int, texture_data: Optional[bytes] = 
                 bounds = get_shape_bounds(outline, db)
                 canvas = Image.new("RGBA", (int(bounds[2]), int(bounds[3])), (0,0,0,0))
                 data = _render_shape(char_id)
-                im = Image.open(io.BytesIO(data)).convert("RGBA")
-                relative_x, relative_y = calculate_layer_position_within_outline(bounds, basebounds[0], basebounds[1], False)
-                canvas.alpha_composite(basecanvas, (int(relative_x), int(relative_y)))
-                canvas.alpha_composite(im, (0, 0))
+                if data:
+                    im = Image.open(io.BytesIO(data)).convert("RGBA")
+                    # basebounds can be None if the base layer's shape PNG was
+                    # missing — fall back to the outline's own origin so the
+                    # base composite still lines up instead of crashing on
+                    # `basebounds[0]`.
+                    bbx = basebounds[0] if basebounds is not None else 0
+                    bby = basebounds[1] if basebounds is not None else 0
+                    relative_x, relative_y = calculate_layer_position_within_outline(bounds, bbx, bby, False)
+                    canvas.alpha_composite(basecanvas, (int(relative_x), int(relative_y)))
+                    canvas.alpha_composite(im, (0, 0))
         if details is not None and len(details) > 0:
             for detail in details:
                 detail_base = detail
@@ -464,6 +481,8 @@ def _create_part(part_name: str, frame_id: int, texture_data: Optional[bytes] = 
                         detail = _get_nested_shape(detail, db)
                         char_id = detail.get("characterId")
                     data = _render_shape(char_id)
+                    if not data:
+                        continue
                     im = Image.open(io.BytesIO(data)).convert("RGBA")
                     relative_x, relative_y = 0, 0
                     matrix = detail_base.get("matrix", {})
@@ -543,8 +562,16 @@ def render_cat_part(slot: str, part_id: int, size: int = 128, texture_data: Opti
         logger.warning("[SWF] Failed to render part %s[%d]", part_name, part_id)
         return None
     
-    # Cache based on what was actually rendered
-    if not has_texture_layer:
+    # Cache based on whether the caller actually supplied texture data.
+    # `has_texture_layer` reports whether the part *definition* contains a
+    # texture layer — not whether we applied one. When `texture_data` is
+    # None the render path skips the texture-replace pass, producing a
+    # plain untextured PNG that belongs in the "untextured-v1" cache.
+    # The previous version crashed here with
+    # `_texture_cache_digest(None) → TypeError` whenever the fallback
+    # render path (line ~829 in render_cat_thumbnail) rendered a layered
+    # part without texture, which is why thumbnails were silently failing.
+    if not (use_texture and has_texture_layer):
         cache_key = (sprite_chid, part_id, "untextured-v1")
         _LAYER_IMAGE_CACHE[cache_key] = rendered
         logger.debug("[SWF] Cached non-textured part %s[%d]", part_name, part_id)

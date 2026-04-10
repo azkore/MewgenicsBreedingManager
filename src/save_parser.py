@@ -346,13 +346,60 @@ def set_visual_mut_data(data: dict[str, dict[int, tuple[str, str]]]):
 
 
 def _load_gpak_text_strings(file_obj, file_offsets: dict[str, tuple[int, int]]) -> dict[str, str]:
-    """Read the embedded text table from a resources.gpak file."""
+    """Read every CSV text table from a resources.gpak file into one dict.
+
+    Game CSVs are multi-column ``KEY,en,pl,ru,zh_CN`` files — the previous
+    implementation used ``line.split(',', 1)`` which stored every localized
+    column as one concatenated value, so mutation descriptions rendered as
+    ``"Blue Fur,Fur Azul,Синий Мех,藍毛"`` with every language glued
+    together. That then confused downstream consumers that tried to recover
+    the English text by splitting on commas, which cropped any English
+    description that legitimately contained a comma (e.g. "+2 STR, -1 DEX").
+
+    The fix: parse each CSV with :class:`csv.DictReader`, read only the
+    ``en`` column (falling back to the first non-KEY, non-notes column when
+    ``en`` is missing). Legacy single-value files that have no header row
+    fall back to the old split-on-first-comma behaviour so 2-column key/value
+    tables still work.
+    """
     game_strings: dict[str, str] = {}
     for fname, (offset, size) in file_offsets.items():
         if not fname.endswith(".csv"):
             continue
         file_obj.seek(offset)
-        text = file_obj.read(size).decode("utf-8", errors="replace")
+        text = file_obj.read(size).decode("utf-8-sig", errors="replace")
+
+        # Try structured CSV parsing first.
+        parsed_any = False
+        try:
+            reader = csv.DictReader(io.StringIO(text))
+            fieldnames = reader.fieldnames or []
+            if fieldnames and "KEY" in fieldnames:
+                value_columns = [c for c in fieldnames if c not in ("KEY", "notes")]
+                preferred = "en" if "en" in value_columns else (value_columns[0] if value_columns else None)
+                for row in reader:
+                    key = (row.get("KEY") or "").strip()
+                    if not key:
+                        continue
+                    value = ""
+                    if preferred:
+                        value = (row.get(preferred) or "").strip()
+                    if not value:
+                        for column in value_columns:
+                            candidate = (row.get(column) or "").strip()
+                            if candidate:
+                                value = candidate
+                                break
+                    if value:
+                        game_strings[key] = html.unescape(value)
+                        parsed_any = True
+        except Exception:
+            parsed_any = False
+
+        if parsed_any:
+            continue
+
+        # Legacy fallback — headerless 2-column "key,value" file.
         for line in text.splitlines():
             parts = line.split(",", 1)
             if len(parts) != 2:
@@ -852,6 +899,12 @@ def _read_visual_mutation_entries(table: list[int]) -> list[dict[str, object]]:
         source = "generic"
         catalog_name = fallback_names.get((fallback_part, mutation_id))
         gpak_info = _VISUAL_MUT_DATA.get(gpak_category, {}).get(mutation_id)
+        # Skip base/default part IDs — real mutations have gpak_info or a
+        # catalog entry, or the special "missing part" sentinel. Low IDs
+        # (< 300) without a lookup are the cat's base sprite selection,
+        # not a mutation, and must not appear in the mutation chip list.
+        if gpak_info is None and catalog_name is None and mutation_id != 0xFFFF_FFFE:
+            continue
         if gpak_info:
             raw_name, stat_desc = gpak_info
             raw_name = str(raw_name).strip()
@@ -899,6 +952,71 @@ def _read_visual_mutation_entries(table: list[int]) -> list[dict[str, object]]:
             "is_defect": is_defect,
         })
     return entries
+
+
+# Regex used to extract per-stat deltas from a mutation/defect detail string
+# like "+1 LCK", "-1 SPD, +2 LCK" or "+2 CON, -1 DEX". Only the 7 core stats
+# are recognized — things like "+1 Range" or "+1 Charge" are deliberately
+# ignored because they don't feed into the Total Stats sum.
+_MUTATION_STAT_ALIASES: dict[str, str] = {
+    "STR": "STR", "STRENGTH": "STR",
+    "DEX": "DEX", "DEXTERITY": "DEX",
+    "CON": "CON", "CONSTITUTION": "CON",
+    "INT": "INT", "INTELLIGENCE": "INT",
+    "SPD": "SPD", "SPEED": "SPD",
+    "CHA": "CHA", "CHARISMA": "CHA",
+    "LCK": "LCK", "LUCK": "LCK",
+}
+_MUTATION_STAT_RE = re.compile(
+    r"(?P<sign>[+-])\s*(?P<value>\d+)\s*"
+    r"(?P<label>" + "|".join(sorted(_MUTATION_STAT_ALIASES, key=len, reverse=True)) + r")\b",
+    re.IGNORECASE,
+)
+
+
+def _parse_mutation_stat_delta(detail: str) -> dict[str, int]:
+    """Parse stat deltas from a mutation/defect detail string.
+
+    Returns {stat: delta} with stat ∈ STAT_NAMES. Non-stat effects such as
+    "+1 Range", "+1 Reach" or free-form text are ignored. Examples::
+
+        '+1 LCK'            -> {'LCK': 1}
+        '-1 SPD, +2 LCK'    -> {'SPD': -1, 'LCK': 2}
+        '+1 Range'          -> {}
+    """
+    if not detail:
+        return {}
+    deltas: dict[str, int] = {}
+    for match in _MUTATION_STAT_RE.finditer(str(detail)):
+        key = _MUTATION_STAT_ALIASES.get(match.group("label").upper())
+        if not key:
+            continue
+        try:
+            amount = int(match.group("sign") + match.group("value"))
+        except Exception:
+            continue
+        deltas[key] = deltas.get(key, 0) + amount
+    return deltas
+
+
+def _mutation_stat_bonus_from_entries(entries: list[dict[str, object]]) -> dict[str, int]:
+    """Sum mutation stat deltas across all unique visual mutations.
+
+    Paired body parts (e.g. ``arm_L`` + ``arm_R``) that share the same
+    mutation id represent a single mutation affecting both slots and are
+    therefore counted once, matching how the UI merges them into one chip.
+    """
+    bonus: dict[str, int] = {name: 0 for name in STAT_NAMES}
+    seen: set[tuple[str, int]] = set()
+    for entry in entries or []:
+        key = (str(entry.get("group_key") or ""), int(entry.get("mutation_id") or 0))
+        if key in seen:
+            continue
+        seen.add(key)
+        deltas = _parse_mutation_stat_delta(str(entry.get("detail") or ""))
+        for stat, delta in deltas.items():
+            bonus[stat] = bonus.get(stat, 0) + delta
+    return bonus
 
 
 def _is_synthetic_visual_mutation_name(display_name: str, part_label: str, slot_label: str, mutation_id: int) -> bool:
@@ -1348,9 +1466,21 @@ class Cat:
         self.stat_mod  = [r.i32() for _ in range(7)]
         self.stat_sec  = [r.i32() for _ in range(7)]
 
+        # Visual mutations grant stat bonuses described in their detail
+        # string (e.g. "+2 CON, -1 DEX"). The game applies these on top of
+        # stat_base/stat_mod/stat_sec at the character-sheet level — the
+        # save file does not roll them into any of those three fields — so
+        # we parse the deltas from visual_mutation_entries and fold them
+        # into total_stats here. base_stats is deliberately left alone: it
+        # represents the cat's unmodified birth stats used for breeding
+        # math, which mutations do not change.
+        self.mutation_stat_bonus = _mutation_stat_bonus_from_entries(visual_entries)
+
         self.base_stats  = {n: self.stat_base[i] for i, n in enumerate(STAT_NAMES)}
-        self.total_stats = {n: self.stat_base[i] + self.stat_mod[i] + self.stat_sec[i]
-                            for i, n in enumerate(STAT_NAMES)}
+        self.total_stats = {
+            n: self.stat_base[i] + self.stat_mod[i] + self.stat_sec[i] + self.mutation_stat_bonus.get(n, 0)
+            for i, n in enumerate(STAT_NAMES)
+        }
         self.parsed_stats = dict(self.base_stats)
 
         # Personality stats (age, aggression, libido, inbredness).

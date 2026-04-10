@@ -418,7 +418,11 @@ class FamilyTreeBrowserView(QWidget):
 
         def row_label(text: str) -> QLabel:
             lbl = QLabel(text)
-            lbl.setStyleSheet("color:#444; font-weight:bold; letter-spacing:1px;")
+            # letter-spacing is not a Qt QSS property — apply via QFont.
+            lbl.setStyleSheet("color:#444; font-weight:bold;")
+            f = lbl.font()
+            f.setLetterSpacing(QFont.AbsoluteSpacing, 1.0)
+            lbl.setFont(f)
             lbl.setFixedWidth(row_label_width)
             lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             return lbl

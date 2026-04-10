@@ -26,12 +26,34 @@ from mewgenics.utils.ability_icons import (
     _parse_shape,
     _swf_rect_size,
 )
+from mewgenics.utils.paths import APPDATA_CONFIG_DIR
 
 logger = logging.getLogger("mewgenics.shapes")
 
 _CATPARTS_SWF_NAME = "swfs/catparts.swf"
 _CAT_ASSETS_DIR = Path(__file__).resolve().parent.parent.parent / "CatAssets"
-_DEFINED_SHAPES_DIR = _CAT_ASSETS_DIR / "DefinedShapes"
+
+
+def defined_shapes_dir() -> Path:
+    """Return the persistent cache directory for extracted DefinedShape PNGs.
+
+    In frozen PyInstaller builds the cache MUST live outside the bundle,
+    because onefile mode wipes ``sys._MEIPASS`` between runs. A previous
+    release bundled 6,894 small PNGs directly into the exe; the
+    bootloader's small-file extraction on every launch cost ~15 s of
+    startup time on Windows. Writing the cache to ``%APPDATA%`` means the
+    ZIP is unpacked exactly once per install.
+
+    In dev mode the cache lives next to the source at
+    ``src/CatAssets/DefinedShapes`` so developers can inspect individual
+    PNGs without installing the app.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(APPDATA_CONFIG_DIR) / "CatAssets" / "DefinedShapes"
+    return _CAT_ASSETS_DIR / "DefinedShapes"
+
+
+_DEFINED_SHAPES_DIR = defined_shapes_dir()
 
 # Maximum pixel dimension for a single shape — skip anything absurd.
 _MAX_SHAPE_DIM = 2000
