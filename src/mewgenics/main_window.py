@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QMessageBox, QProgressBar, QMenu,
 )
 from PySide6.QtCore import (
-    Qt, QModelIndex, QItemSelection, QItemSelectionModel,
+    Qt, QEvent, QModelIndex, QItemSelection, QItemSelectionModel,
     QFileSystemWatcher, QTimer,
 )
 from PySide6.QtGui import (
@@ -231,6 +231,14 @@ class MainWindow(QMainWindow):
         self._furniture_data: dict[str, FurnitureDefinition] = dict(_FURNITURE_DATA)
         self._room_btns: dict = {}
         self._active_btn = None
+        # Navigation history for mouse back/forward buttons. Each entry is
+        # a dict describing the view (+ table filter + selection). `_back_stack`
+        # holds snapshots taken BEFORE a navigation action; `_forward_stack`
+        # is rebuilt when the user navigates anywhere new. `_nav_suppress`
+        # blocks recursive pushes while we restore a state.
+        self._nav_back_stack: list[dict] = []
+        self._nav_forward_stack: list[dict] = []
+        self._nav_suppress: bool = False
         self._show_lineage: bool = False
         self._pair_detail_override: bool = False
         self._pedigree_coi_memos: dict[tuple[int, int], float] = {}
@@ -285,6 +293,10 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
         self._build_menu()
+        # Route mouse back/forward button presses through our navigation
+        # history. Installed at app level so it catches clicks on any
+        # child widget regardless of focus.
+        QApplication.instance().installEventFilter(self)
         self._source_model.set_show_total_stats(_saved_total_stats_display())
         self._source_model.set_show_stat_icons(_saved_stat_icon_mode())
         self._apply_accessibility_style(self._accessibility_preset)
@@ -1577,6 +1589,7 @@ class MainWindow(QMainWindow):
     # ── Filtering ──────────────────────────────────────────────────────────
 
     def _filter(self, room_key, btn: QPushButton):
+        self._push_nav_history()
         if not getattr(self, "_save_view_disabled", False):
             _save_current_view("table")
         self._show_table_view()
@@ -2310,14 +2323,145 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_btn_furniture_view"):
             self._btn_furniture_view.setChecked(True)
 
+    # ---- Navigation history (mouse back / forward buttons) -------------
+
+    def _current_view_kind(self) -> str:
+        """Return which major view is currently visible."""
+        checks = [
+            ("tree", getattr(self, "_tree_view", None)),
+            ("safe_breeding", getattr(self, "_safe_breeding_view", None)),
+            ("breeding_partners", getattr(self, "_breeding_partners_view", None)),
+            ("room_optimizer", getattr(self, "_room_optimizer_view", None)),
+            ("perfect_planner", getattr(self, "_perfect_planner_view", None)),
+            ("calibration", getattr(self, "_calibration_view", None)),
+            ("mutation_planner", getattr(self, "_mutation_planner_view", None)),
+            ("furniture", getattr(self, "_furniture_view", None)),
+        ]
+        for kind, widget in checks:
+            if widget is not None and widget.isVisible():
+                return kind
+        return "table"
+
+    def _capture_nav_state(self) -> dict:
+        """Snapshot the current view so it can be restored by a back click."""
+        view = self._current_view_kind()
+        state: dict = {"view": view}
+        if view == "table":
+            state["room_key"] = getattr(self._proxy_model, "_room", None)
+            selected = []
+            selection_model = self._table.selectionModel() if hasattr(self, "_table") else None
+            if selection_model is not None:
+                for idx in selection_model.selectedRows():
+                    src_idx = self._proxy_model.mapToSource(idx)
+                    if not src_idx.isValid():
+                        continue
+                    cat = self._source_model.cat_at(src_idx.row())
+                    if cat is not None:
+                        selected.append(cat.db_key)
+            state["selected"] = selected
+        return state
+
+    def _push_nav_history(self) -> None:
+        """Called BEFORE a navigation action. Snapshots current state onto the
+        back stack (unless suppressed or it would duplicate the top) and
+        clears the forward stack so new history supersedes the redo trail.
+        """
+        if self._nav_suppress:
+            return
+        # Bail out while the UI is still being constructed — the table,
+        # proxy model, and sidebar buttons may not exist yet.
+        if not hasattr(self, "_proxy_model") or not hasattr(self, "_table"):
+            return
+        state = self._capture_nav_state()
+        if self._nav_back_stack and self._nav_back_stack[-1] == state:
+            return
+        self._nav_back_stack.append(state)
+        # Cap unbounded growth from long sessions.
+        if len(self._nav_back_stack) > 100:
+            self._nav_back_stack.pop(0)
+        self._nav_forward_stack.clear()
+
+    def _apply_nav_state(self, state: dict) -> None:
+        """Restore a snapshot produced by _capture_nav_state. Suppresses any
+        further history pushes triggered by the restore calls themselves.
+        """
+        self._nav_suppress = True
+        try:
+            view = state.get("view", "table")
+            if view == "table":
+                room_key = state.get("room_key")
+                btn = self._room_btns.get(room_key)
+                if btn is not None:
+                    self._filter(room_key, btn)
+                else:
+                    # Unknown room (e.g. a room that disappeared) — fall back
+                    # to the Alive filter so the user still lands somewhere.
+                    self._filter(None, self._btn_all)
+                selected = state.get("selected") or []
+                if selected:
+                    self._select_cats_by_db_keys(selected)
+            elif view == "tree":
+                self._show_tree_view()
+            elif view == "safe_breeding":
+                self._show_safe_breeding_view()
+            elif view == "breeding_partners":
+                self._show_breeding_partners_view()
+            elif view == "room_optimizer":
+                self._show_room_optimizer_view()
+            elif view == "perfect_planner":
+                self._show_perfect_planner_view()
+            elif view == "calibration":
+                self._show_calibration_view()
+            elif view == "mutation_planner":
+                self._show_mutation_planner_view()
+            elif view == "furniture":
+                self._show_furniture_view()
+        finally:
+            self._nav_suppress = False
+
+    def _navigate_back(self) -> None:
+        if not self._nav_back_stack:
+            return
+        current = self._capture_nav_state()
+        target = self._nav_back_stack.pop()
+        self._nav_forward_stack.append(current)
+        self._apply_nav_state(target)
+
+    def _navigate_forward(self) -> None:
+        if not self._nav_forward_stack:
+            return
+        current = self._capture_nav_state()
+        target = self._nav_forward_stack.pop()
+        self._nav_back_stack.append(current)
+        self._apply_nav_state(target)
+
+    def eventFilter(self, obj, event):
+        # Mouse XButton1 (back) / XButton2 (forward) come through here via
+        # an app-level filter installed in _build_ui. We swallow them so no
+        # other widget tries to interpret them.
+        if event.type() == QEvent.MouseButtonPress:
+            btn = event.button()
+            if btn == Qt.BackButton:
+                self._navigate_back()
+                return True
+            if btn == Qt.ForwardButton:
+                self._navigate_forward()
+                return True
+        return super().eventFilter(obj, event)
+
     def _navigate_to_cat(self, db_key: int):
         """Switch to Alive Cats view and select the given cat by db_key."""
-        self._filter(None, self._btn_all)
-        if self._select_cats_by_db_keys([db_key]):
-            return
-        # Not found in Alive filter — try All Cats
-        self._filter("__all__", self._btn_everyone)
-        self._select_cats_by_db_keys([db_key])
+        self._push_nav_history()
+        self._nav_suppress = True
+        try:
+            self._filter(None, self._btn_all)
+            if self._select_cats_by_db_keys([db_key]):
+                return
+            # Not found in Alive filter — try All Cats
+            self._filter("__all__", self._btn_everyone)
+            self._select_cats_by_db_keys([db_key])
+        finally:
+            self._nav_suppress = False
 
     def _find_visible_cat_row(self, db_key: int) -> Optional[int]:
         for row in range(self._proxy_model.rowCount()):
@@ -2374,7 +2518,9 @@ class MainWindow(QMainWindow):
 
     def _navigate_to_cat_pair(self, db_key_a: int, db_key_b: int):
         """Switch to Alive Cats view and select both cats in the pair."""
+        self._push_nav_history()
         self._pair_detail_override = True
+        self._nav_suppress = True
         try:
             self._clear_pair_navigation_filters()
             self._filter(None, self._btn_all)
@@ -2389,6 +2535,7 @@ class MainWindow(QMainWindow):
                 self._detail.show_cats(pair_cats)
         finally:
             self._pair_detail_override = False
+            self._nav_suppress = False
 
     def _clear_pair_navigation_filters(self):
         """Clear filters that can hide one cat from a pair jump."""
@@ -3444,6 +3591,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(_tr("status.rooms_refreshed", default="Room locations updated."))
 
     def _open_tree_browser(self):
+        self._push_nav_history()
         _save_current_view("tree")
         self._show_tree_view()
         rows = list({
@@ -3461,6 +3609,7 @@ class MainWindow(QMainWindow):
         self._open_tree_browser()
 
     def _open_safe_breeding_view(self, quality: Optional[bool] = None):
+        self._push_nav_history()
         if quality is not None:
             self._safe_breeding_quality_mode = bool(quality)
         _save_current_view("safe_breeding")
@@ -3480,6 +3629,7 @@ class MainWindow(QMainWindow):
         self._open_safe_breeding_view(quality=quality)
 
     def _open_breeding_partners_view(self):
+        self._push_nav_history()
         _save_current_view("breeding_partners")
         self._show_breeding_partners_view()
 
@@ -3490,22 +3640,27 @@ class MainWindow(QMainWindow):
         self._open_perfect_planner_view()
 
     def _open_room_optimizer(self):
+        self._push_nav_history()
         _save_current_view("room_optimizer")
         self._show_room_optimizer_view()
 
     def _open_perfect_planner_view(self):
+        self._push_nav_history()
         _save_current_view("perfect_planner")
         self._show_perfect_planner_view()
 
     def _open_calibration_view(self):
+        self._push_nav_history()
         _save_current_view("calibration")
         self._show_calibration_view()
 
     def _open_mutation_planner_view(self):
+        self._push_nav_history()
         _save_current_view("mutation_planner")
         self._show_mutation_planner_view()
 
     def _open_furniture_view(self):
+        self._push_nav_history()
         _save_current_view("furniture")
         self._show_furniture_view()
 
