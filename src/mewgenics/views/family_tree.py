@@ -181,15 +181,34 @@ class FamilyTreeBrowserView(QWidget):
 
     # ── Thumbnail helpers ──────────────────────────────────────────────────────
 
+    def _current_cat_key(self) -> Optional[int]:
+        """Return the db_key of the currently selected row, or None.
+
+        Only COL_NAME stores the db_key in Qt.UserRole. If the user clicked
+        into any other column (e.g. Location has no UserRole at all, Gen/Age
+        store unrelated ints), ``currentItem().data(Qt.UserRole)`` is either
+        None or a wrong value. Always resolve through the name column.
+        """
+        row = self._list.currentRow()
+        if row < 0:
+            return None
+        item = self._list.item(row, self.COL_NAME)
+        if item is None:
+            return None
+        key = item.data(Qt.UserRole)
+        if key is None:
+            return None
+        try:
+            return int(key)
+        except (TypeError, ValueError):
+            return None
+
     def _toggle_thumbnails(self):
         self._show_thumbnails = self._thumb_toggle.isChecked()
         _save_family_tree_show_thumbnails(self._show_thumbnails)
-        cur = self._list.currentItem()
-        if cur is not None:
-            cat = self._by_key.get(int(cur.data(Qt.UserRole)))
-            self._render_tree(cat)
-        else:
-            self._render_tree(None)
+        key = self._current_cat_key()
+        cat = self._by_key.get(key) if key is not None else None
+        self._render_tree(cat)
 
     def _stop_thumbnail_preload(self):
         if self._thumb_worker and self._thumb_worker.isRunning():
@@ -206,10 +225,7 @@ class FamilyTreeBrowserView(QWidget):
 
     def set_cats(self, cats: list[Cat]):
         self._stop_thumbnail_preload()
-        selected_key = None
-        cur = self._list.currentItem()
-        if cur is not None:
-            selected_key = int(cur.data(Qt.UserRole))
+        selected_key = self._current_cat_key()
         self._cats = sorted(cats, key=lambda c: (c.name or "").lower())
         self._by_key = {c.db_key: c for c in self._cats}
         self._refresh_filter_button_labels()
@@ -258,10 +274,7 @@ class FamilyTreeBrowserView(QWidget):
 
     def _refresh_list(self):
         query = self._search.text().strip().lower()
-        current_key = None
-        cur = self._list.currentItem()
-        if cur is not None:
-            current_key = int(cur.data(Qt.UserRole))
+        current_key = self._current_cat_key()
 
         self._list.setSortingEnabled(False)
         self._list.clearContents()
