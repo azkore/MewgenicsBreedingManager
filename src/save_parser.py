@@ -1674,6 +1674,20 @@ class Cat:
         return self.status == "In House"
 
     @property
+    def has_adventured(self) -> bool:
+        """Return True if this cat has been on at least one adventure.
+
+        Adventure leveling writes non-zero values to ``stat_mod`` (per-stat
+        int32 deltas). A freshly-hatched cat has all zeros; any cat that
+        has levelled at least once will have at least one positive entry.
+        The game's accessible-cat hash table leaves retired cats as
+        "accessible", so the Adv Ready column needs this extra filter to
+        avoid marking retirees as ready.
+        """
+        stat_mod = getattr(self, "stat_mod", None) or []
+        return any(int(x) != 0 for x in stat_mod)
+
+    @property
     def short_name(self) -> str:
         """First word of name for compact displays."""
         return self.name.split()[0] if self.name else "?"

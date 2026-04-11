@@ -395,10 +395,15 @@ class CatTableModel(QAbstractTableModel):
         is_donation = donation_reason is not None
         # Adv Ready: the cat must be alive, in the house (or currently on
         # an adventure), AND flagged as accessible by the game's own
-        # pedigree table. "Gone" covers dead/retired/aged-out cats — those
-        # must never show ✓ even if a stale entry lingers in the hash table.
+        # pedigree table. "Gone" covers dead/aged-out cats — those must
+        # never show ✓ even if a stale entry lingers in the hash table.
+        # Retired cats (cats that have already gone on at least one
+        # adventure — detected via non-zero stat_mod level-up bonuses)
+        # also remain in the accessible hash but cannot be sent out
+        # again, so they must be filtered out here.
         can_adventure = (
             cat.status != "Gone"
+            and not cat.has_adventured
             and cat.db_key in self._accessible_cat_keys
         )
 

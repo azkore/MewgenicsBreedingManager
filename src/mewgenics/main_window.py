@@ -967,7 +967,9 @@ class MainWindow(QMainWindow):
         donation = sum(1 for c in self._cats if c.status != "Gone" and _is_donation_candidate(c))
         fight_club = sum(
             1 for c in self._cats
-            if c.status != "Gone" and c.db_key in self._accessible_cat_keys
+            if c.status != "Gone"
+            and not c.has_adventured
+            and c.db_key in self._accessible_cat_keys
         )
         adv = sum(1 for c in self._cats if c.status == "Adventure")
         gone = sum(1 for c in self._cats if c.status == "Gone")
