@@ -50,3 +50,7 @@ src/CatAssets/thumbnail_cache/*
 !src/CatAssets/thumbnail_cache/.gitkeep
 src/CatAssets/DefinedShapes/*.png
 !src/CatAssets/DefinedShapes/.gitkeep
+
+# SQLite WAL/SHM sidecars from swf_database at runtime
+*.db-shm
+*.db-wal
