@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QDialog, QToolButton, QMenu,
 )
 from PySide6.QtCore import Qt, Signal, QTimer, QItemSelectionModel
-from PySide6.QtGui import QColor, QBrush, QFont, QPixmap
+from PySide6.QtGui import QColor, QBrush, QFont, QFontMetrics, QPixmap
 
 from save_parser import (
     Cat, STAT_NAMES,
@@ -72,11 +72,22 @@ def _wrapped_chip_block(items, tooltip_fn=None, display_fn=None, max_per_row: in
 
 
 class ChipRow(QWidget):
-    def __init__(self, items, tooltip_fn=None, display_fn=None, icon_fn=None, defect: bool = False, icon_size: int = 16):
+    # Icon-bearing chips render the icon stacked ABOVE the text. The icon is
+    # scaled to match the text label's width (clamped to this range) so the
+    # glyph is prominent instead of a 16px speck next to it.
+    _STACKED_ICON_MIN = 24
+    _STACKED_ICON_MAX = 48
+
+    def __init__(self, items, tooltip_fn=None, display_fn=None, icon_fn=None, defect: bool = False, icon_size: int | None = None):
         super().__init__()
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(5)
+        row.setSpacing(6)
+
+        text_font = QFont()
+        text_font.setPixelSize(11)
+        metrics = QFontMetrics(text_font)
+
         for item in items:
             if isinstance(item, tuple):
                 text, tip = item
@@ -84,45 +95,52 @@ class ChipRow(QWidget):
             else:
                 text = display_fn(item) if display_fn else item
                 tip = tooltip_fn(item) if tooltip_fn else ""
+
+            # Text width determines how big the stacked icon should be.
+            text_width = metrics.horizontalAdvance(str(text))
+            target_size = max(self._STACKED_ICON_MIN, min(self._STACKED_ICON_MAX, text_width))
+
             pixmap = None
             if icon_fn is not None:
                 try:
-                    pixmap = icon_fn(item if not isinstance(item, tuple) else item[0], icon_size)
+                    pixmap = icon_fn(item if not isinstance(item, tuple) else item[0], target_size)
                 except Exception:
                     pixmap = None
+
             if pixmap is not None and not pixmap.isNull():
                 chip = QFrame()
                 chip.setObjectName("abilityChip")
                 chip.setStyleSheet(
                     "QFrame#abilityChip { background:#252545; color:#ccc; border-radius:6px;"
-                    " padding:2px 7px; font-size:11px; }"
+                    " padding:4px 7px; font-size:11px; }"
                     if not defect else
                     "QFrame#abilityChip { background:#3a1a1a; color:#e0a0a0; border-radius:6px;"
-                    " padding:2px 7px; font-size:11px; }"
+                    " padding:4px 7px; font-size:11px; }"
                 )
-                chip_row = QHBoxLayout(chip)
-                chip_row.setContentsMargins(0, 0, 0, 0)
-                chip_row.setSpacing(4)
+                chip_col = QVBoxLayout(chip)
+                chip_col.setContentsMargins(0, 0, 0, 0)
+                chip_col.setSpacing(2)
                 icon_lbl = QLabel()
                 icon_lbl.setPixmap(pixmap)
-                icon_lbl.setFixedSize(icon_size, icon_size)
+                icon_lbl.setFixedSize(target_size, target_size)
+                icon_lbl.setAlignment(Qt.AlignCenter)
                 icon_lbl.setStyleSheet("background:transparent;")
                 text_lbl = QLabel(text)
+                text_lbl.setAlignment(Qt.AlignCenter)
                 text_lbl.setStyleSheet(
                     "background:transparent; color:#ccc; font-size:11px;"
                     if not defect else
                     "background:transparent; color:#e0a0a0; font-size:11px;"
                 )
-                chip_row.addWidget(icon_lbl)
-                chip_row.addWidget(text_lbl)
-                chip_row.addStretch()
+                chip_col.addWidget(icon_lbl, 0, Qt.AlignHCenter)
+                chip_col.addWidget(text_lbl, 0, Qt.AlignHCenter)
                 if tip:
                     chip.setToolTip(tip)
                     icon_lbl.setToolTip(tip)
                     text_lbl.setToolTip(tip)
-                row.addWidget(chip)
+                row.addWidget(chip, 0, Qt.AlignTop)
             else:
-                row.addWidget(_defect_chip(text, tip) if defect else _chip(text, tip))
+                row.addWidget(_defect_chip(text, tip) if defect else _chip(text, tip), 0, Qt.AlignTop)
         row.addStretch()
 
 
