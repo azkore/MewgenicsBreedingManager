@@ -30,7 +30,16 @@ _TEXTURED_LAYER_BYTES_CACHE: dict[tuple[int, int, str], Optional[bytes]] = {}
 _TINTED_TEXTURE_CACHE: dict[tuple[int, str], Optional[bytes]] = {}
 
 DEFAULT_TREE_THUMBNAIL_SIZE = 192
-THUMBNAIL_CACHE_VERSION = 13
+# Bump whenever the render pipeline, tint math, palette lookup, or the
+# bundled DefinedShapes set changes in a way that would alter pixel output.
+# This invalidates the thumbnail cache AND is embedded into the on-disk
+# part/texture cache filenames so stale artifacts from older renders do not
+# survive an upgrade. v15: DefinedShapes.zip regenerated from JPEXS FFDEC
+# (replacing the buggy Qt shape parser that produced wrong output for
+# ~35% of shapes — missing outlines, flat fills, wrong colors).
+THUMBNAIL_CACHE_VERSION = 15
+# Same version number as a string, used for part/texture cache filenames.
+_PART_CACHE_VERSION = f"v{THUMBNAIL_CACHE_VERSION}"
 PART_RENDER_CANVAS_W = 570
 PART_RENDER_CANVAS_H = 580
 
@@ -364,7 +373,7 @@ def _get_tinted_texture_png(
         return _TINTED_TEXTURE_CACHE[cache_key]
 
     _PART_CACHE_DIR.mkdir(exist_ok=True)
-    disk_path = _PART_CACHE_DIR / f"texture_{cache_key[0]}_{cache_key[1]}.png"
+    disk_path = _PART_CACHE_DIR / f"texture_{_PART_CACHE_VERSION}_{cache_key[0]}_{cache_key[1]}.png"
     if disk_path.exists():
         data = disk_path.read_bytes()
         _TINTED_TEXTURE_CACHE[cache_key] = data
@@ -549,7 +558,7 @@ def render_cat_part(slot: str, part_id: int, size: int = 128, texture_data: Opti
         if cache_key in _TEXTURED_LAYER_BYTES_CACHE:
             return _TEXTURED_LAYER_BYTES_CACHE[cache_key]
         _PART_CACHE_DIR.mkdir(exist_ok=True)
-        disk_path = _PART_CACHE_DIR / f"part_{sprite_chid}_{part_id}_{texture_digest}.png"
+        disk_path = _PART_CACHE_DIR / f"part_{_PART_CACHE_VERSION}_{sprite_chid}_{part_id}_{texture_digest}.png"
         if disk_path.exists():
             cached = disk_path.read_bytes()
             _TEXTURED_LAYER_BYTES_CACHE[cache_key] = cached
