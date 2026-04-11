@@ -918,10 +918,26 @@ class MainWindow(QMainWindow):
         return w
 
     def _rebuild_room_buttons(self, cats: list[Cat]):
+        # Capture the active room key BEFORE destroying buttons so we can
+        # repoint `_active_btn` at the replacement for the same room. Without
+        # this rescue, `_active_btn` keeps pointing at a deleted C++ widget,
+        # and the next `_filter()` call raises RuntimeError on setChecked()
+        # mid-handler — leaving the clicked room button highlighted but the
+        # actual filter unchanged. See the "menu tab won't switch after an
+        # in-game day" regression.
+        active_room_key = self._active_room_key()
         while self._rooms_vb.count():
             item = self._rooms_vb.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
+        # Drop stale entries — rooms that no longer exist (e.g., last cat
+        # moved out of Attic) would otherwise leak deleted-widget references
+        # in `_room_btns` forever.
+        if active_room_key is not None and active_room_key in self._room_btns:
+            # Null out first so `_active_btn` doesn't briefly point at a
+            # dangling entry while we rebuild.
+            self._active_btn = None
+        self._room_btns.clear()
         _ROOM_ORDER = {
             "Attic": 0,
             "Floor2_Large": 1, "Floor2_Small": 2,
@@ -938,6 +954,11 @@ class MainWindow(QMainWindow):
             btn.clicked.connect(lambda _, r=room, b=btn: self._filter(r, b))
             self._rooms_vb.addWidget(btn)
             self._room_btns[room] = btn
+        # Repoint `_active_btn` at the rebuilt button for the previously
+        # active room (if that room still exists after the refresh).
+        if active_room_key is not None and active_room_key in self._room_btns:
+            self._active_btn = self._room_btns[active_room_key]
+            self._active_btn.setChecked(True)
 
     def _refresh_filter_button_counts(self):
         total = len(self._cats)
