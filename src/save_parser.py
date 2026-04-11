@@ -436,13 +436,16 @@ def _load_gpak_csv_strings(
             continue
         value = (row.get(value_column) or "").strip()
         if not value:
+            # Fall back to the first non-key, non-notes column with a value.
+            # (The previous implementation had mis-indented break/if that
+            # abandoned the outer row iteration after the first fallback hit.)
             for column in reader.fieldnames:
                 if column in {key_column, "notes"}:
                     continue
                 candidate = (row.get(column) or "").strip()
-            if candidate:
-                value = candidate
-                break
+                if candidate:
+                    value = candidate
+                    break
         if value:
             values[key] = html.unescape(value)
     return values
