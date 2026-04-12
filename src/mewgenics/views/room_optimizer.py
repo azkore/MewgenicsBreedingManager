@@ -757,8 +757,22 @@ class RoomOptimizerView(QWidget):
         )
         self._bind_persistent_toggle(self._deep_optimize_btn, "room_optimizer.toggle.use_sa", "use_sa")
         self._deep_optimize_btn.toggled.connect(lambda _: self._save_session_state())
+
+        self._cancel_btn = QPushButton()
+        self._cancel_btn.setText(_tr("room_optimizer.cancel_btn", default="Cancel"))
+        self._cancel_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self._cancel_btn.setStyleSheet(
+            "QPushButton { background:#5a1f1f; color:#f7f2f2; border:1px solid #8f3f3f; "
+            "border-radius:4px; padding:6px 14px; font-size:11px; font-weight:bold; }"
+            "QPushButton:hover { background:#732626; }"
+            "QPushButton:pressed { background:#4b1818; }"
+        )
+        self._cancel_btn.clicked.connect(self._cancel_optimization)
+        self._cancel_btn.setVisible(False)
+
         self._import_planner_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self._top_actions_layout.addWidget(self._optimize_btn)
+        self._top_actions_layout.addWidget(self._cancel_btn)
         self._top_actions_layout.addWidget(self._deep_optimize_btn)
         self._top_actions_layout.addWidget(self._import_planner_btn)
         self._top_actions_layout.addStretch(1)
@@ -1373,6 +1387,7 @@ class RoomOptimizerView(QWidget):
             )
         )
         self._optimize_btn.setText(_tr("room_optimizer.optimize_btn"))
+        self._cancel_btn.setText(_tr("room_optimizer.cancel_btn", default="Cancel"))
         self._set_mode_button_text(self._mode_toggle_btn.isChecked())
         RoomOptimizerView._set_toggle_button_label(self._deep_optimize_btn, "room_optimizer.toggle.use_sa")
         self._deep_optimize_btn.setEnabled(True)
@@ -1482,6 +1497,7 @@ class RoomOptimizerView(QWidget):
         self._save_session_state(has_run=True, use_sa=use_sa)
 
         self._optimize_btn.setEnabled(False)
+        self._cancel_btn.setVisible(True)
         self._summary.setText(_tr("room_optimizer.status.calculating"))
 
         worker = RoomOptimizerWorker(
@@ -1495,9 +1511,22 @@ class RoomOptimizerView(QWidget):
         self._optimizer_worker = worker
         worker.start()
 
+    def _cancel_optimization(self):
+        """Request cancellation of the running optimizer worker."""
+        if self._optimizer_worker is not None and self._optimizer_worker.isRunning():
+            self._optimizer_worker.requestInterruption()
+            self._summary.setText(_tr("room_optimizer.status.cancelling", default="Cancelling…"))
+            self._cancel_btn.setEnabled(False)
+
     def _on_optimizer_result(self, result: dict):
         self._optimizer_worker = None
         self._optimize_btn.setEnabled(True)
+        self._cancel_btn.setVisible(False)
+        self._cancel_btn.setEnabled(True)
+
+        if result.get("cancelled"):
+            self._summary.setText(_tr("room_optimizer.status.cancelled", default="Optimization cancelled."))
+            return
 
         if "error" in result:
             self._table.setRowCount(0)

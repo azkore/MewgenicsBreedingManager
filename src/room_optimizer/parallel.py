@@ -343,12 +343,16 @@ def run_parallel_sa(
     sa_cooling_rate: float,
     sa_neighbors_per_temp: int,
     n_chains: int = 0,
+    cancel_check=None,
 ) -> dict[int, str]:
     """Run multiple SA chains in parallel and return the best result.
 
     ``n_chains=0`` (default) auto-detects ``min(cpu_count, 4)``.
     ``n_chains=1`` runs a single chain in-process (no subprocess overhead).
+    *cancel_check* is an optional callable; when it returns True the solver
+    returns the best result found so far.
     """
+    _cancelled = cancel_check or (lambda: False)
     if n_chains <= 0:
         n_chains = _DEFAULT_SA_CHAINS
 
@@ -375,6 +379,9 @@ def run_parallel_sa(
         sa_neighbors_per_temp=sa_neighbors_per_temp,
     )
 
+    if _cancelled():
+        return dict(initial_state)
+
     if n_chains == 1:
         best_state, _ = _sa_chain(**kwargs, seed=0)
         return best_state
@@ -388,6 +395,11 @@ def run_parallel_sa(
             for i in range(n_chains)
         }
         for future in as_completed(futures):
+            if _cancelled():
+                for f in futures:
+                    f.cancel()
+                pool.shutdown(wait=False, cancel_futures=True)
+                break
             try:
                 state, score = future.result()
                 if score > best_score:

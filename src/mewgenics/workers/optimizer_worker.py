@@ -94,7 +94,12 @@ class RoomOptimizerWorker(QThread):
             params,
             cache=cache,
             excluded_keys=excluded_keys,
+            cancel_check=self.isInterruptionRequested,
         )
+
+        if self.isInterruptionRequested():
+            self.finished.emit({"cancelled": True})
+            return
 
         hater_key_map = {cat.db_key: {o.db_key for o in getattr(cat, "haters", [])} for cat in alive_cats}
         lover_key_map = {cat.db_key: {o.db_key for o in getattr(cat, "lovers", [])} for cat in alive_cats}
