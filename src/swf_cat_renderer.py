@@ -1079,8 +1079,10 @@ _FACE_BYTES_CACHE: dict[tuple, bytes] = {}
 
 
 def render_cat_face_thumbnail(cat, size: int = 64) -> Optional[bytes]:
-    """Render a face-only thumbnail by cropping the upper portion of
-    the full cat thumbnail and scaling the head to fill the target size.
+    """Render a trimmed cat thumbnail that fills the target square.
+
+    Renders the full cat at high resolution, trims transparent padding,
+    and scales the content to fill *size* × *size*.
 
     Returns PNG bytes or None.
     """
@@ -1117,11 +1119,9 @@ def render_cat_face_thumbnail(cat, size: int = 64) -> Optional[bytes]:
         return None
 
     cx0, cy0, cx1, cy1 = content_bbox
-    content_h = cy1 - cy0
 
-    # Use the full content area (no vertical crop).
-    head_bottom = cy1
-    head = full.crop((cx0, cy0, cx1, head_bottom))
+    # Crop to content bounds (trimming transparent buffer).
+    head = full.crop((cx0, cy0, cx1, cy1))
 
     # Auto-trim any remaining transparent edges.
     bbox = head.getbbox()

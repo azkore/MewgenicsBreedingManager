@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import (
     Qt, QEvent, QModelIndex, QItemSelection, QItemSelectionModel,
-    QFileSystemWatcher, QTimer,
+    QFileSystemWatcher, QTimer, QSize,
 )
 from PySide6.QtGui import (
     QColor, QBrush, QAction, QActionGroup, QFont, QKeySequence,
@@ -63,6 +63,7 @@ from mewgenics.utils.localization import (
 )
 from mewgenics.utils.tags import (
     _TAG_DEFS, _TAG_ICON_CACHE, _TAG_PIX_CACHE, _cat_tags,
+    _make_tag_icon,
 )
 from mewgenics.utils.thresholds import (
     _load_threshold_preferences, _save_threshold_preferences,
@@ -97,7 +98,8 @@ from mewgenics.models.breeding_cache import (
     _breeding_cache_fingerprint, _breeding_save_signature,
 )
 from mewgenics.models.cat_table_model import (
-    TagStripDelegate, CatTableModel, VisualIconDelegate, clear_cat_sprite_cache,
+    TagStripDelegate, CatTableModel, VisualIconDelegate,
+    clear_cat_sprite_cache, clear_mutation_part_cache,
 )
 from mewgenics.models.room_filter_model import RoomFilterModel
 from mewgenics.workers.save_loader import SaveLoadWorker
@@ -795,18 +797,22 @@ class MainWindow(QMainWindow):
             vh = self._table.verticalHeader()
             if enabled:
                 vh.setDefaultSectionSize(self._scaled(self._VISUAL_ROW_HEIGHT))
-                self._table.setIconSize(
-                    QPixmap(self._VISUAL_SPRITE_SIZE, self._VISUAL_SPRITE_SIZE).size()
-                )
+                self._table.setIconSize(QSize(self._VISUAL_SPRITE_SIZE, self._VISUAL_SPRITE_SIZE))
                 # Widen name / abilities / mutations so icons have room.
                 self._table.setColumnWidth(COL_NAME, max(self._table.columnWidth(COL_NAME), self._VISUAL_NAME_COL_WIDTH))
                 self._table.setColumnWidth(COL_ABIL, max(self._table.columnWidth(COL_ABIL), self._VISUAL_ABIL_COL_WIDTH))
                 self._table.setColumnWidth(COL_MUTS, max(self._table.columnWidth(COL_MUTS), self._VISUAL_MUTS_COL_WIDTH))
             else:
                 vh.setDefaultSectionSize(self._scaled(24))
-                self._table.setIconSize(QPixmap(16, 16).size())
+                self._table.setIconSize(QSize(16, 16))
+                # Restore column widths to their base defaults.
+                if hasattr(self, "_base_col_widths"):
+                    for col in (COL_NAME, COL_ABIL, COL_MUTS):
+                        if col in self._base_col_widths:
+                            self._table.setColumnWidth(col, self._base_col_widths[col])
             self._table.viewport().update()
         clear_cat_sprite_cache()
+        clear_mutation_part_cache()
 
     # ── Layout ────────────────────────────────────────────────────────────
 
@@ -1684,15 +1690,8 @@ class MainWindow(QMainWindow):
             tid = td["id"]
             label = td.get("name") or "\u25CF"
             all_have = all(tid in _cat_tags(c) for c in cats)
-            pix = QPixmap(12, 12)
-            pix.fill(Qt.transparent)
-            p = QPainter(pix)
-            p.setRenderHint(QPainter.Antialiasing)
-            p.setBrush(QBrush(QColor(td.get("color", "#888"))))
-            p.setPen(Qt.NoPen)
-            p.drawEllipse(1, 1, 10, 10)
-            p.end()
-            action = tag_menu.addAction(QIcon(pix), label)
+            icon = _make_tag_icon([tid], dot_size=12)
+            action = tag_menu.addAction(icon, label)
             action.setCheckable(True)
             action.setChecked(all_have)
             action.triggered.connect(

@@ -155,7 +155,12 @@ def _cat_sprite_pixmap(cat: Cat, size: int) -> Optional[QPixmap]:
     if not _SWF_CAT_RENDERER_AVAILABLE or cat is None:
         return None
     size = int(max(16, size))
-    key = (int(getattr(cat, "db_key", id(cat)) or id(cat)), size)
+    db_key = getattr(cat, "db_key", None)
+    if db_key is None or db_key == 0:
+        # Use uid as a stable, non-reusable key instead of id() which can
+        # be recycled after GC.
+        db_key = getattr(cat, "uid", None) or id(cat)
+    key = (int(db_key), size)
     cached = _CAT_SPRITE_PIXMAP_CACHE.get(key)
     if cached is not None:
         return cached
@@ -277,6 +282,7 @@ def _mutation_part_pixmap(slot_key: str, part_id: int, size: int) -> Optional[QP
 
 def clear_mutation_part_cache():
     _MUTATION_PART_PIXMAP_CACHE.clear()
+    _BRIGHTEN_CACHE.clear()
 
 
 _BRIGHTEN_CACHE: dict[int, QPixmap] = {}
@@ -399,9 +405,7 @@ class VisualIconDelegate(QStyledItemDelegate):
             # Use visual_mutation_entries so we can render the body-part
             # sprite as the icon (keyed by slot_key + mutation_id).
             entries = getattr(cat, "visual_mutation_entries", None) or []
-            chip_items = getattr(cat, "mutation_chip_items", None) or []
-            defect_chip_items = getattr(cat, "defect_chip_items", None) or []
-            # Build a fast lookup: display_name -> first (slot_key, mutation_id)
+            # Build a lookup: display_name -> first (slot_key, mutation_id)
             seen_names: set[str] = set()
             for entry in entries:
                 name = str(entry.get("name", ""))
