@@ -230,6 +230,17 @@ def _set_stat_icon_mode(enabled: bool):
     _save_app_config(data)
 
 
+def _saved_roster_visual_mode(default: bool = False) -> bool:
+    data = _load_app_config()
+    return _coerce_bool(data.get("roster_visual_mode"), default)
+
+
+def _set_roster_visual_mode(enabled: bool):
+    data = _load_app_config()
+    data["roster_visual_mode"] = bool(enabled)
+    _save_app_config(data)
+
+
 # ── Tag color palette persistence ──────────────────────────────────────────
 
 def _normalize_tag_color_hex(value, default: str = "") -> str:

@@ -50,6 +50,7 @@ from mewgenics.utils.config import (
     _saved_accessibility_preset, _set_accessibility_preset,
     _saved_total_stats_display, _set_total_stats_display,
     _saved_stat_icon_mode, _set_stat_icon_mode,
+    _saved_roster_visual_mode, _set_roster_visual_mode,
     _gpak_search_start_dir,
     _candidate_gpak_paths,
 )
@@ -95,7 +96,9 @@ from mewgenics.models.breeding_cache import (
     BreedingCache, BreedingCacheWorker,
     _breeding_cache_fingerprint, _breeding_save_signature,
 )
-from mewgenics.models.cat_table_model import TagStripDelegate, CatTableModel
+from mewgenics.models.cat_table_model import (
+    TagStripDelegate, CatTableModel, VisualIconDelegate, clear_cat_sprite_cache,
+)
 from mewgenics.models.room_filter_model import RoomFilterModel
 from mewgenics.workers.save_loader import SaveLoadWorker
 from mewgenics.workers.room_refresh import QuickRoomRefreshWorker
@@ -301,6 +304,9 @@ class MainWindow(QMainWindow):
         self._source_model.set_show_stat_icons(_saved_stat_icon_mode())
         self._apply_accessibility_style(self._accessibility_preset)
         self._apply_zoom()
+        # Restore roster visual-mode choice. Must happen after the table
+        # has been built and delegates installed.
+        self._apply_roster_visual_mode(_saved_roster_visual_mode())
 
         # Progress bar for breeding cache computation
         self._cache_progress = QProgressBar()
@@ -386,7 +392,125 @@ class MainWindow(QMainWindow):
         exit_action.triggered.connect(self.close)
         fm.addAction(exit_action)
 
+        # ── View menu ─────────────────────────────────────────────────────
+        vm = self.menuBar().addMenu(_tr("menu.view", default="View"))
+
+        self._lineage_action = QAction(_tr("menu.settings.show_lineage"), self)
+        self._lineage_action.setCheckable(True)
+        self._lineage_action.setChecked(self._show_lineage)
+        self._lineage_action.triggered.connect(self._toggle_lineage)
+        vm.addAction(self._lineage_action)
+
+        self._room_optimizer_auto_recalc_action = QAction(_tr("menu.settings.room_optimizer_auto_recalc", default="Auto Recalculate Room Optimizer"), self)
+        self._room_optimizer_auto_recalc_action.setCheckable(True)
+        self._room_optimizer_auto_recalc_action.setChecked(_saved_room_optimizer_auto_recalc())
+        self._room_optimizer_auto_recalc_action.toggled.connect(self._toggle_room_optimizer_auto_recalc)
+        vm.addAction(self._room_optimizer_auto_recalc_action)
+
+        vm.addSeparator()
+
+        self._roster_display_menu = vm.addMenu(_tr("menu.settings.roster_display", default="Roster Display"))
+        self._total_stats_action = QAction(_tr("menu.settings.show_total_stats", default="Show Total Stats"), self)
+        self._total_stats_action.setCheckable(True)
+        self._total_stats_action.setShortcut("Ctrl+T")
+        self._total_stats_action.setChecked(_saved_total_stats_display())
+        self._total_stats_action.triggered.connect(self._toggle_total_stats_display)
+        self._roster_display_menu.addAction(self._total_stats_action)
+
+        self._stat_icons_action = QAction(_tr("menu.settings.show_stat_icons", default="Stat Icons"), self)
+        self._stat_icons_action.setCheckable(True)
+        self._stat_icons_action.setChecked(_saved_stat_icon_mode())
+        self._stat_icons_action.triggered.connect(self._toggle_stat_icon_mode)
+        self._roster_display_menu.addAction(self._stat_icons_action)
+
+        self._visual_mode_action = QAction(
+            _tr("menu.settings.roster_visual_mode", default="Visual Mode (larger rows, sprites & icons)"),
+            self,
+        )
+        self._visual_mode_action.setCheckable(True)
+        self._visual_mode_action.setChecked(_saved_roster_visual_mode())
+        self._visual_mode_action.triggered.connect(self._toggle_roster_visual_mode)
+        self._roster_display_menu.addAction(self._visual_mode_action)
+
+        vm.addSeparator()
+
+        zoom_in = QAction(_tr("menu.settings.zoom_in"), self)
+        zoom_in_keys = QKeySequence.keyBindings(QKeySequence.StandardKey.ZoomIn)
+        if not zoom_in_keys:
+            zoom_in_keys = []
+        for seq in (QKeySequence("Ctrl+="), QKeySequence("Ctrl++")):
+            if seq not in zoom_in_keys:
+                zoom_in_keys.append(seq)
+        zoom_in.setShortcuts(zoom_in_keys)
+        zoom_in.triggered.connect(lambda: self._change_zoom(+1))
+        vm.addAction(zoom_in)
+
+        zoom_out = QAction(_tr("menu.settings.zoom_out"), self)
+        zoom_out_keys = QKeySequence.keyBindings(QKeySequence.StandardKey.ZoomOut)
+        if not zoom_out_keys:
+            zoom_out_keys = []
+        if QKeySequence("Ctrl+-") not in zoom_out_keys:
+            zoom_out_keys.append(QKeySequence("Ctrl+-"))
+        zoom_out.setShortcuts(zoom_out_keys)
+        zoom_out.triggered.connect(lambda: self._change_zoom(-1))
+        vm.addAction(zoom_out)
+
+        zoom_reset = QAction(_tr("menu.settings.reset_zoom"), self)
+        zoom_reset.setShortcut("Ctrl+0")
+        zoom_reset.triggered.connect(self._reset_zoom)
+        vm.addAction(zoom_reset)
+
+        self._zoom_info_action = QAction("", self)
+        self._zoom_info_action.setEnabled(False)
+        vm.addAction(self._zoom_info_action)
+        self._update_zoom_info_action()
+
+        vm.addSeparator()
+
+        fs_in = QAction(_tr("menu.settings.increase_font_size"), self)
+        fs_in.setShortcut("Ctrl+]")
+        fs_in.triggered.connect(lambda: self._change_font_size(+1))
+        vm.addAction(fs_in)
+
+        fs_out = QAction(_tr("menu.settings.decrease_font_size"), self)
+        fs_out.setShortcut("Ctrl+[")
+        fs_out.triggered.connect(lambda: self._change_font_size(-1))
+        vm.addAction(fs_out)
+
+        fs_reset = QAction(_tr("menu.settings.reset_font_size"), self)
+        fs_reset.setShortcut("Ctrl+\\")
+        fs_reset.triggered.connect(lambda: self._set_font_size_offset(0))
+        vm.addAction(fs_reset)
+
+        self._font_size_info_action = QAction("", self)
+        self._font_size_info_action.setEnabled(False)
+        vm.addAction(self._font_size_info_action)
+        self._update_font_size_info_action()
+
+        vm.addSeparator()
+
+        self._accessibility_menu = vm.addMenu(_tr("menu.settings.accessibility", default="Accessibility"))
+        self._accessibility_group = QActionGroup(self)
+        self._accessibility_group.setExclusive(True)
+        self._accessibility_actions: dict[str, QAction] = {}
+        for preset in ("Default", "Comfort", "High Contrast", "Large Table"):
+            action = QAction(preset, self)
+            action.setCheckable(True)
+            action.setChecked(preset == self._accessibility_preset)
+            action.triggered.connect(lambda checked=False, name=preset: self._apply_accessibility_preset(name))
+            self._accessibility_group.addAction(action)
+            self._accessibility_menu.addAction(action)
+            self._accessibility_actions[preset] = action
+
+        vm.addSeparator()
+
+        self._reset_ui_settings_action = QAction(_tr("menu.settings.reset_ui_defaults"), self)
+        self._reset_ui_settings_action.triggered.connect(self._reset_ui_settings_to_defaults)
+        vm.addAction(self._reset_ui_settings_action)
+
+        # ── Settings menu ────────────────────────────────────────────────
         sm = self.menuBar().addMenu(_tr("menu.settings"))
+
         locations_action = QAction(_tr("menu.settings.locations"), self)
         locations_action.triggered.connect(self._open_locations_dialog)
         sm.addAction(locations_action)
@@ -403,6 +527,7 @@ class MainWindow(QMainWindow):
         sm.addAction(self._optimizer_search_settings_action)
 
         sm.addSeparator()
+
         self._language_menu = sm.addMenu(_tr("language.menu"))
         self._language_group = QActionGroup(self)
         self._language_group.setExclusive(True)
@@ -413,106 +538,6 @@ class MainWindow(QMainWindow):
             action.triggered.connect(lambda checked=False, lang=language: self._change_language(lang))
             self._language_group.addAction(action)
             self._language_menu.addAction(action)
-
-        sm.addSeparator()
-        self._lineage_action = QAction(_tr("menu.settings.show_lineage"), self)
-        self._lineage_action.setCheckable(True)
-        self._lineage_action.setChecked(self._show_lineage)
-        self._lineage_action.triggered.connect(self._toggle_lineage)
-        sm.addAction(self._lineage_action)
-
-        sm.addSeparator()
-        self._room_optimizer_auto_recalc_action = QAction(_tr("menu.settings.room_optimizer_auto_recalc", default="Auto Recalculate Room Optimizer"), self)
-        self._room_optimizer_auto_recalc_action.setCheckable(True)
-        self._room_optimizer_auto_recalc_action.setChecked(_saved_room_optimizer_auto_recalc())
-        self._room_optimizer_auto_recalc_action.toggled.connect(self._toggle_room_optimizer_auto_recalc)
-        sm.addAction(self._room_optimizer_auto_recalc_action)
-
-        sm.addSeparator()
-        zoom_in = QAction(_tr("menu.settings.zoom_in"), self)
-        zoom_in_keys = QKeySequence.keyBindings(QKeySequence.StandardKey.ZoomIn)
-        if not zoom_in_keys:
-            zoom_in_keys = []
-        for seq in (QKeySequence("Ctrl+="), QKeySequence("Ctrl++")):
-            if seq not in zoom_in_keys:
-                zoom_in_keys.append(seq)
-        zoom_in.setShortcuts(zoom_in_keys)
-        zoom_in.triggered.connect(lambda: self._change_zoom(+1))
-        sm.addAction(zoom_in)
-
-        zoom_out = QAction(_tr("menu.settings.zoom_out"), self)
-        zoom_out_keys = QKeySequence.keyBindings(QKeySequence.StandardKey.ZoomOut)
-        if not zoom_out_keys:
-            zoom_out_keys = []
-        if QKeySequence("Ctrl+-") not in zoom_out_keys:
-            zoom_out_keys.append(QKeySequence("Ctrl+-"))
-        zoom_out.setShortcuts(zoom_out_keys)
-        zoom_out.triggered.connect(lambda: self._change_zoom(-1))
-        sm.addAction(zoom_out)
-
-        zoom_reset = QAction(_tr("menu.settings.reset_zoom"), self)
-        zoom_reset.setShortcut("Ctrl+0")
-        zoom_reset.triggered.connect(self._reset_zoom)
-        sm.addAction(zoom_reset)
-
-        self._zoom_info_action = QAction("", self)
-        self._zoom_info_action.setEnabled(False)
-        sm.addAction(self._zoom_info_action)
-        self._update_zoom_info_action()
-
-        sm.addSeparator()
-        fs_in = QAction(_tr("menu.settings.increase_font_size"), self)
-        fs_in.setShortcut("Ctrl+]")
-        fs_in.triggered.connect(lambda: self._change_font_size(+1))
-        sm.addAction(fs_in)
-
-        fs_out = QAction(_tr("menu.settings.decrease_font_size"), self)
-        fs_out.setShortcut("Ctrl+[")
-        fs_out.triggered.connect(lambda: self._change_font_size(-1))
-        sm.addAction(fs_out)
-
-        fs_reset = QAction(_tr("menu.settings.reset_font_size"), self)
-        fs_reset.setShortcut("Ctrl+\\")
-        fs_reset.triggered.connect(lambda: self._set_font_size_offset(0))
-        sm.addAction(fs_reset)
-
-        self._font_size_info_action = QAction("", self)
-        self._font_size_info_action.setEnabled(False)
-        sm.addAction(self._font_size_info_action)
-        self._update_font_size_info_action()
-
-        sm.addSeparator()
-        self._reset_ui_settings_action = QAction(_tr("menu.settings.reset_ui_defaults"), self)
-        self._reset_ui_settings_action.triggered.connect(self._reset_ui_settings_to_defaults)
-        sm.addAction(self._reset_ui_settings_action)
-
-        sm.addSeparator()
-        self._roster_display_menu = sm.addMenu(_tr("menu.settings.roster_display", default="Roster Display"))
-        self._total_stats_action = QAction(_tr("menu.settings.show_total_stats", default="Show Total Stats"), self)
-        self._total_stats_action.setCheckable(True)
-        self._total_stats_action.setShortcut("Ctrl+T")
-        self._total_stats_action.setChecked(_saved_total_stats_display())
-        self._total_stats_action.triggered.connect(self._toggle_total_stats_display)
-        self._roster_display_menu.addAction(self._total_stats_action)
-
-        self._stat_icons_action = QAction(_tr("menu.settings.show_stat_icons", default="Stat Icons"), self)
-        self._stat_icons_action.setCheckable(True)
-        self._stat_icons_action.setChecked(_saved_stat_icon_mode())
-        self._stat_icons_action.triggered.connect(self._toggle_stat_icon_mode)
-        self._roster_display_menu.addAction(self._stat_icons_action)
-
-        self._accessibility_menu = sm.addMenu(_tr("menu.settings.accessibility", default="Accessibility"))
-        self._accessibility_group = QActionGroup(self)
-        self._accessibility_group.setExclusive(True)
-        self._accessibility_actions: dict[str, QAction] = {}
-        for preset in ("Default", "Comfort", "High Contrast", "Large Table"):
-            action = QAction(preset, self)
-            action.setCheckable(True)
-            action.setChecked(preset == self._accessibility_preset)
-            action.triggered.connect(lambda checked=False, name=preset: self._apply_accessibility_preset(name))
-            self._accessibility_group.addAction(action)
-            self._accessibility_menu.addAction(action)
-            self._accessibility_actions[preset] = action
 
         hm = self.menuBar().addMenu(_tr("menu.help", default="Help"))
         self._getting_started_action = QAction(_tr("menu.help.getting_started", default="Getting Started"), self)
@@ -739,6 +764,49 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             _tr("status.stat_icons_display", default="Roster stat icons {state}", state=_tr("common.on", default="on") if enabled else _tr("common.off", default="off"))
         )
+
+    # Row height (px) used when roster visual mode is on. Chosen to be
+    # roughly 2.25x the default compact row height so sprites and ability
+    # icons are large enough to read at a glance.
+    _VISUAL_ROW_HEIGHT = 70
+    _VISUAL_SPRITE_SIZE = 62
+    _VISUAL_ABIL_COL_WIDTH = 360
+    _VISUAL_MUTS_COL_WIDTH = 300
+    _VISUAL_NAME_COL_WIDTH = 240
+
+    def _toggle_roster_visual_mode(self, checked: bool):
+        enabled = bool(checked)
+        _set_roster_visual_mode(enabled)
+        self._apply_roster_visual_mode(enabled)
+        self.statusBar().showMessage(
+            _tr(
+                "status.roster_visual_mode",
+                default="Roster visual mode {state}",
+                state=_tr("common.on", default="on") if enabled else _tr("common.off", default="off"),
+            )
+        )
+
+    def _apply_roster_visual_mode(self, enabled: bool):
+        """Push visual-mode state into the model, row height, and columns."""
+        if not hasattr(self, "_source_model"):
+            return
+        self._source_model.set_visual_mode(enabled, sprite_size=self._VISUAL_SPRITE_SIZE)
+        if hasattr(self, "_table"):
+            vh = self._table.verticalHeader()
+            if enabled:
+                vh.setDefaultSectionSize(self._scaled(self._VISUAL_ROW_HEIGHT))
+                self._table.setIconSize(
+                    QPixmap(self._VISUAL_SPRITE_SIZE, self._VISUAL_SPRITE_SIZE).size()
+                )
+                # Widen name / abilities / mutations so icons have room.
+                self._table.setColumnWidth(COL_NAME, max(self._table.columnWidth(COL_NAME), self._VISUAL_NAME_COL_WIDTH))
+                self._table.setColumnWidth(COL_ABIL, max(self._table.columnWidth(COL_ABIL), self._VISUAL_ABIL_COL_WIDTH))
+                self._table.setColumnWidth(COL_MUTS, max(self._table.columnWidth(COL_MUTS), self._VISUAL_MUTS_COL_WIDTH))
+            else:
+                vh.setDefaultSectionSize(self._scaled(24))
+                self._table.setIconSize(QPixmap(16, 16).size())
+            self._table.viewport().update()
+        clear_cat_sprite_cache()
 
     # ── Layout ────────────────────────────────────────────────────────────
 
@@ -1358,6 +1426,13 @@ class MainWindow(QMainWindow):
         self._tag_strip_delegate = TagStripDelegate(self._table)
         self._table.setItemDelegateForColumn(COL_TAGS, self._tag_strip_delegate)
 
+        # Visual-mode delegates: these forward to the default text
+        # rendering in compact mode, and paint icons in visual mode.
+        self._abilities_visual_delegate = VisualIconDelegate("abilities", self._table)
+        self._mutations_visual_delegate = VisualIconDelegate("mutations", self._table)
+        self._table.setItemDelegateForColumn(COL_ABIL, self._abilities_visual_delegate)
+        self._table.setItemDelegateForColumn(COL_MUTS, self._mutations_visual_delegate)
+
         # Room: size to content so it adapts to room name length
         hh.setSectionResizeMode(COL_ROOM, QHeaderView.ResizeToContents)
 
@@ -1534,7 +1609,8 @@ class MainWindow(QMainWindow):
         # Highlight compatibility: dim incompatible cats when 1 is selected.
         # Fight Club isn't a breeding view, so skip the dimming there.
         focus = cats[0] if len(cats) == 1 else None
-        table_focus = None if room_key == "__fight_club__" else focus
+        is_fight_club = room_key == "__fight_club__" or getattr(self, "_fight_club_layout_active", False)
+        table_focus = None if is_fight_club else focus
         self._source_model.set_focus_cat(table_focus)
         if self._tree_view is not None and self._tree_view.isVisible() and focus is not None:
             self._tree_view.select_cat(focus)
@@ -1584,7 +1660,52 @@ class MainWindow(QMainWindow):
         toggle_mb.triggered.connect(self._toggle_must_breed_filtered_cats)
         toggle_block.triggered.connect(self._toggle_blacklist_filtered_cats)
 
+        # ── Tag submenu ──
+        menu.addSeparator()
+        tag_menu = menu.addMenu(_tr("menu.context.tag_submenu", default="Tag"))
+        self._populate_tag_context_submenu(tag_menu, cats)
+
         menu.exec(self._table.viewport().mapToGlobal(pos))
+
+    def _populate_tag_context_submenu(self, tag_menu: QMenu, cats: list):
+        """Fill the RMB 'Tag' submenu with toggle actions for each defined tag."""
+        tag_menu.setStyleSheet(
+            "QMenu { background:#1a1a32; color:#ddd; border:1px solid #2a2a4a; padding:4px; }"
+            "QMenu::item { padding:4px 16px; }"
+            "QMenu::item:selected { background:#252545; }"
+            "QMenu::separator { height:1px; background:#2a2a4a; margin:4px 8px; }"
+        )
+        if not _TAG_DEFS:
+            empty = tag_menu.addAction(_tr("menu.context.tag_no_defs", default="No tags defined…"))
+            empty.triggered.connect(self._open_tag_manager)
+            return
+
+        for td in _TAG_DEFS:
+            tid = td["id"]
+            label = td.get("name") or "\u25CF"
+            all_have = all(tid in _cat_tags(c) for c in cats)
+            pix = QPixmap(12, 12)
+            pix.fill(Qt.transparent)
+            p = QPainter(pix)
+            p.setRenderHint(QPainter.Antialiasing)
+            p.setBrush(QBrush(QColor(td.get("color", "#888"))))
+            p.setPen(Qt.NoPen)
+            p.drawEllipse(1, 1, 10, 10)
+            p.end()
+            action = tag_menu.addAction(QIcon(pix), label)
+            action.setCheckable(True)
+            action.setChecked(all_have)
+            action.triggered.connect(
+                lambda checked, tag_id=tid: self._apply_tag_to_selection(tag_id, checked)
+            )
+
+        tag_menu.addSeparator()
+        clear = tag_menu.addAction(_tr("menu.context.tag_clear", default="Clear tags"))
+        clear.setEnabled(bool(cats))
+        clear.triggered.connect(self._clear_tags_from_selection)
+        tag_menu.addSeparator()
+        manage = tag_menu.addAction(_tr("menu.context.tag_manage", default="Manage Tags\u2026"))
+        manage.triggered.connect(self._open_tag_manager)
 
     # ── Filtering ──────────────────────────────────────────────────────────
 
@@ -3772,7 +3893,12 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_table"):
             for col, width in self._base_col_widths.items():
                 self._table.setColumnWidth(col, self._scaled(width))
-            self._table.verticalHeader().setDefaultSectionSize(self._scaled(24))
+            # Row height depends on visual vs compact mode. Re-apply the
+            # mode so widths/height stay correct after a zoom change.
+            if getattr(self, "_source_model", None) is not None and self._source_model.visual_mode():
+                self._apply_roster_visual_mode(True)
+            else:
+                self._table.verticalHeader().setDefaultSectionSize(self._scaled(24))
 
         # Scale all hardcoded stylesheet font-size values across the whole window.
         # 1pt ≈ 1.33px; round to nearest integer pixel.

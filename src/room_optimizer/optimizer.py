@@ -498,7 +498,7 @@ def optimize_room_distribution(
                 prefer_low_aggression=params.prefer_low_aggression,
                 prefer_high_libido=params.prefer_high_libido,
                 planner_traits=profile.get("traits", params.planner_traits),
-                stat_priority=profile.get("stat_priority", []),
+                stat_priority=[] if params.ignore_stat_priority else profile.get("stat_priority", []),
             )
         _score_pair_cached._pair_factor_cache = pair_factor_cache
         return pair_factor_cache[key]

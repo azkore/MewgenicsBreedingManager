@@ -20,6 +20,7 @@ _SWF_DATABASE_DIR = Path(__file__).parent / "CatAssets" / "swf_database"
 # Persistent on-disk caches. These are intentionally not deleted on shutdown.
 _PART_CACHE_DIR = Path(__file__).parent / "CatAssets" / "part_cache"
 _THUMBNAIL_CACHE_DIR = Path(__file__).parent / "CatAssets" / "thumbnail_cache"
+_FACE_CACHE_DIR = Path(__file__).parent / "CatAssets" / "face_cache"
 
 _SYMBOL_CLASS_MAP: dict[str, int] = {}
 _SYMBOL_CLASS_LOADED = False
@@ -1071,4 +1072,82 @@ def render_cat_thumbnail(cat, size: int = DEFAULT_TREE_THUMBNAIL_SIZE) -> Option
     data = buf.getvalue()
     disk_path.write_bytes(data)
     _THUMBNAIL_BYTES_CACHE[cache_key] = data
+    return data
+
+
+_FACE_BYTES_CACHE: dict[tuple, bytes] = {}
+
+
+def render_cat_face_thumbnail(cat, size: int = 64) -> Optional[bytes]:
+    """Render a face-only thumbnail by cropping the upper portion of
+    the full cat thumbnail and scaling the head to fill the target size.
+
+    Returns PNG bytes or None.
+    """
+    signature = _thumbnail_signature(cat)
+    if not signature:
+        return None
+
+    cache_key = (signature, size, "face")
+    if cache_key in _FACE_BYTES_CACHE:
+        return _FACE_BYTES_CACHE[cache_key]
+
+    _FACE_CACHE_DIR.mkdir(exist_ok=True)
+    digest = hashlib.sha1(signature.encode("utf-8")).hexdigest()
+    disk_path = _FACE_CACHE_DIR / f"{digest}_{size}.png"
+    if disk_path.exists():
+        data = disk_path.read_bytes()
+        _FACE_BYTES_CACHE[cache_key] = data
+        return data
+
+    # Render at a large size so we have enough pixel data to crop from.
+    source_size = max(size * 4, 512)
+    full_png = render_cat_thumbnail(cat, size=source_size)
+    if not full_png:
+        return None
+
+    try:
+        full = Image.open(io.BytesIO(full_png)).convert("RGBA")
+    except Exception:
+        return None
+
+    # Find the actual cat content bounding box (ignoring transparent buffer).
+    content_bbox = full.getbbox()
+    if not content_bbox:
+        return None
+
+    cx0, cy0, cx1, cy1 = content_bbox
+    content_h = cy1 - cy0
+
+    # Use the full content area (no vertical crop).
+    head_bottom = cy1
+    head = full.crop((cx0, cy0, cx1, head_bottom))
+
+    # Auto-trim any remaining transparent edges.
+    bbox = head.getbbox()
+    if bbox:
+        head = head.crop(bbox)
+
+    if head.width < 1 or head.height < 1:
+        return None
+
+    # Scale to fill the target square, preserving aspect ratio.
+    scale = max(size / head.width, size / head.height)
+    new_w = int(head.width * scale)
+    new_h = int(head.height * scale)
+    head = head.resize((new_w, new_h), Image.LANCZOS)
+
+    # Center-crop to exactly size × size.
+    left = (new_w - size) // 2
+    top = (new_h - size) // 2
+    head = head.crop((left, top, left + size, top + size))
+
+    buf = io.BytesIO()
+    head.save(buf, format="PNG")
+    data = buf.getvalue()
+    try:
+        disk_path.write_bytes(data)
+    except Exception:
+        pass
+    _FACE_BYTES_CACHE[cache_key] = data
     return data

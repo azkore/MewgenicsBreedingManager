@@ -104,6 +104,11 @@ class RoomOptimizerStatPrioritiesPanel(QWidget):
     def _trait_count_for_mode(self, mode: str) -> int:
         return len((self._profiles.get(mode, {}) or {}).get("traits", []) or [])
 
+    def _trait_names_for_mode(self, mode: str) -> list[str]:
+        """Return the display names of the selected mutation traits for a mode."""
+        traits = (self._profiles.get(mode, {}) or {}).get("traits", []) or []
+        return [str(t.get("display") or t.get("key") or "?") for t in traits if isinstance(t, dict)]
+
     def _clear_card_layout(self, layout: QVBoxLayout):
         while layout.count():
             child = layout.takeAt(0)
@@ -118,9 +123,11 @@ class RoomOptimizerStatPrioritiesPanel(QWidget):
         self._clear_card_layout(list_layout)
 
         order = self._order_for_mode(mode)
-        summary_text = f"{self._trait_count_for_mode(mode)} mutation traits in this tree."
-        if order:
-            summary_text += f"  Current order: {' > '.join(order)}"
+        trait_names = self._trait_names_for_mode(mode)
+        if trait_names:
+            summary_text = ", ".join(trait_names)
+        else:
+            summary_text = "No mutations selected."
         section["summary"].setText(summary_text)
 
         for index, stat in enumerate(order):
@@ -246,6 +253,7 @@ class RoomOptimizerView(QWidget):
             "room_optimizer.toggle.prefer_low_aggression": "Prefer Low Aggression",
             "room_optimizer.toggle.prefer_high_libido": "Prefer High Libido",
             "room_optimizer.toggle.maximize_throughput": "Maximize Throughput",
+            "room_optimizer.toggle.ignore_stat_priority": "Ignore Class Stat Priorities",
             "room_optimizer.toggle.use_sa": "More Depth",
         }
         state = _tr("common.on", default="On") if btn.isChecked() else _tr("common.off", default="Off")
@@ -665,6 +673,33 @@ class RoomOptimizerView(QWidget):
         )
         self._maximize_throughput_checkbox.toggled.connect(lambda _: self._save_session_state())
         self._setup_controls_layout.addWidget(self._maximize_throughput_checkbox)
+
+        # "Ignore Class Stat Priorities" — skips the per-mode stat priority
+        # scoring bonus entirely. Useful when chasing all-7s, where no stat
+        # is more valuable than any other.
+        self._ignore_stat_priority_checkbox = QPushButton()
+        self._ignore_stat_priority_checkbox.setCheckable(True)
+        self._ignore_stat_priority_checkbox.setChecked(_saved_optimizer_flag("ignore_stat_priority", False))
+        self._ignore_stat_priority_checkbox.setToolTip(
+            _tr(
+                "room_optimizer.tooltip.ignore_stat_priority",
+                default="Disable class stat prioritization when scoring pairs. Use this when chasing all-7 stat lines.",
+            )
+        )
+        self._ignore_stat_priority_checkbox.setStyleSheet(
+            "QPushButton { background:#1a1a32; color:#aaa; border:1px solid #2a2a4a; "
+            "border-radius:4px; padding:6px 12px; font-size:11px; }"
+            "QPushButton:checked { background:#4a3a1f; color:#f6e2c1; border:1px solid #8a6f3a; }"
+            "QPushButton:hover { background:#252545; color:#ddd; }"
+        )
+        self._bind_persistent_toggle(
+            self._ignore_stat_priority_checkbox,
+            "room_optimizer.toggle.ignore_stat_priority",
+            "ignore_stat_priority",
+        )
+        self._ignore_stat_priority_checkbox.toggled.connect(lambda _: self._save_session_state())
+        self._setup_controls_layout.addWidget(self._ignore_stat_priority_checkbox)
+
         self._setup_controls_layout.addStretch(1)
 
         self._setup_info_panel = QWidget()
@@ -1093,6 +1128,7 @@ class RoomOptimizerView(QWidget):
             "prefer_low_aggression": bool(self._prefer_low_aggression_checkbox.isChecked()),
             "prefer_high_libido": bool(self._prefer_high_libido_checkbox.isChecked()),
             "maximize_throughput": bool(self._maximize_throughput_checkbox.isChecked()),
+            "ignore_stat_priority": bool(self._ignore_stat_priority_checkbox.isChecked()),
             "bottom_tab_index": int(self._bottom_tabs.currentIndex()) if hasattr(self, "_bottom_tabs") else 2,
         })
         if use_sa is not None:
@@ -1162,6 +1198,7 @@ class RoomOptimizerView(QWidget):
             self._prefer_low_aggression_checkbox.setChecked(bool(state.get("prefer_low_aggression", self._prefer_low_aggression_checkbox.isChecked())))
             self._prefer_high_libido_checkbox.setChecked(bool(state.get("prefer_high_libido", self._prefer_high_libido_checkbox.isChecked())))
             self._maximize_throughput_checkbox.setChecked(bool(state.get("maximize_throughput", self._maximize_throughput_checkbox.isChecked())))
+            self._ignore_stat_priority_checkbox.setChecked(bool(state.get("ignore_stat_priority", self._ignore_stat_priority_checkbox.isChecked())))
             self._deep_optimize_btn.setChecked(bool(state.get("use_sa", False)))
             if hasattr(self, "_bottom_tabs"):
                 tab_index = state.get("bottom_tab_index", self._bottom_tabs.currentIndex())
@@ -1205,6 +1242,7 @@ class RoomOptimizerView(QWidget):
             self._prefer_low_aggression_checkbox.setChecked(True)
             self._prefer_high_libido_checkbox.setChecked(True)
             self._maximize_throughput_checkbox.setChecked(False)
+            self._ignore_stat_priority_checkbox.setChecked(False)
             self._deep_optimize_btn.setChecked(False)
             if hasattr(self, "_bottom_tabs"):
                 self._bottom_tabs.setCurrentIndex(3)
@@ -1359,6 +1397,14 @@ class RoomOptimizerView(QWidget):
         RoomOptimizerView._set_toggle_button_label(self._prefer_high_libido_checkbox, "room_optimizer.toggle.prefer_high_libido")
         RoomOptimizerView._set_toggle_button_label(self._maximize_throughput_checkbox, "room_optimizer.toggle.maximize_throughput")
         self._maximize_throughput_checkbox.setToolTip(_tr("room_optimizer.tooltip.maximize_throughput"))
+        if hasattr(self, "_ignore_stat_priority_checkbox"):
+            RoomOptimizerView._set_toggle_button_label(self._ignore_stat_priority_checkbox, "room_optimizer.toggle.ignore_stat_priority")
+            self._ignore_stat_priority_checkbox.setToolTip(
+                _tr(
+                    "room_optimizer.tooltip.ignore_stat_priority",
+                    default="Disable class stat prioritization when scoring pairs. Use this when chasing all-7 stat lines.",
+                )
+            )
         if hasattr(self, "_shared_search_note"):
             self._shared_search_note.setText(_tr(
                 "menu.settings.optimizer_search_settings.summary",
@@ -1411,6 +1457,7 @@ class RoomOptimizerView(QWidget):
         sa_temperature = _saved_optimizer_search_temperature()
         sa_neighbors = _saved_optimizer_search_neighbors()
         maximize_throughput = bool(self._maximize_throughput_checkbox.isChecked()) if hasattr(self, "_maximize_throughput_checkbox") else False
+        ignore_stat_priority = bool(self._ignore_stat_priority_checkbox.isChecked()) if hasattr(self, "_ignore_stat_priority_checkbox") else False
         mode_family = self._mode_toggle_btn.isChecked()
 
         params = {
@@ -1421,6 +1468,7 @@ class RoomOptimizerView(QWidget):
             "prefer_low_aggression": self._prefer_low_aggression_checkbox.isChecked(),
             "prefer_high_libido": self._prefer_high_libido_checkbox.isChecked(),
             "maximize_throughput": maximize_throughput and not mode_family,
+            "ignore_stat_priority": ignore_stat_priority,
             "sa_temperature": sa_temperature,
             "sa_neighbors": sa_neighbors,
             "mode_family": mode_family,

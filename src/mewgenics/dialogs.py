@@ -804,14 +804,15 @@ class WhatsNewDialog(QDialog):
         )
 
         default_highlights = highlights or [
-            "Total Stats on the cat detail panel now includes visual mutation stat bonuses (e.g. Conjoined Body +2 CON). Previously these were silently missing from the total.",
-            "Mutation descriptions no longer show all languages glued together, are no longer cropped at the first comma (so \"+2 STR, -1 DEX\" is preserved), and both halves of a two-stat modifier now display.",
-            "Base body parts (fur/head/body sprite IDs) no longer show up as fake mutations in the detail panel.",
-            "\"Adv Ready\" column no longer shows a ✓ for retired/dead (\"Gone\") cats.",
-            "Auto-refresh after an in-game day now re-subscribes the file watcher so subsequent saves continue to trigger reloads instead of going stale after the first day.",
-            "Unhandled exceptions and Qt warnings are now captured to a rotating log at %APPDATA%/MewgenicsBreedingManager/logs/mewgenics.log, with a crash dialog pointing at the file.",
-            "Regenerated DefinedShapes.zip from 6,894 → 10,564 shapes, restoring color to most cat portraits that previously rendered black (a few remain under investigation).",
-            "Silenced \"Could not parse stylesheet\" warnings on QLabel — letter-spacing is now applied via QFont instead of unsupported Qt QSS.",
+            "Visual Mode for the alive cats roster — toggle larger rows with cat portrait sprites, ability icons, and mutation body-part icons.",
+            "Mutation icons now render the actual mutated body-part sprite (head, ears, tail, etc.) instead of a letter fallback.",
+            "Ability icons brightened so they're clearly visible on the dark icon background.",
+            "Cat portraits in visual mode show the full cat trimmed and scaled to fill the thumbnail square.",
+            "\"Ignore Class Stat Priorities\" toggle added to the Room Optimizer for chasing all-7s builds.",
+            "Right-click Tag submenu on the main roster table for quick tag toggling.",
+            "Reorganized menu bar: display/appearance settings moved to a new View menu, Settings now holds only app configuration.",
+            "Room Optimizer class stat priority cards now show selected mutation names instead of just counts.",
+            "Fight Club view no longer dims other cats when selecting — breeding compatibility overlay is disabled in that view.",
         ]
 
         root = QVBoxLayout(self)
@@ -828,7 +829,7 @@ class WhatsNewDialog(QDialog):
         body.setHtml(
             f"""
             <div style="line-height:1.5;">
-              <p>This release bundles a batch of bug fixes across the detail panel, mutation parsing, save-file watching, and crash logging.</p>
+              <p>This release adds Visual Mode for the roster, mutation body-part icons, ability icon brightening, optimizer improvements, and menu reorganization.</p>
               <ul>{bullets}</ul>
               <p><a href="https://github.com/frankieg33/MewgenicsBreedingManager/releases">View releases on GitHub</a></p>
             </div>

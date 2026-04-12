@@ -97,6 +97,10 @@ class OptimizationParams:
     sa_chains: int = 0  # 0 = auto (min(cpu_count, 4)), 1 = single-chain
     planner_traits: list[dict] = field(default_factory=list)
     mode_profiles: dict[str, dict] = field(default_factory=dict)
+    # When True, room-mode stat priority lists are ignored when scoring
+    # pairs. Useful when the user is chasing all-7s and has no reason to
+    # favor particular stats for any class.
+    ignore_stat_priority: bool = False
 
 
 @dataclass

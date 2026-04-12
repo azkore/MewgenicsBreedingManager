@@ -72,22 +72,25 @@ def _wrapped_chip_block(items, tooltip_fn=None, display_fn=None, max_per_row: in
 
 
 class ChipRow(QWidget):
-    # Icon-bearing chips render the icon stacked ABOVE the text. The icon is
-    # scaled to match the text label's width (clamped to this range) so the
-    # glyph is prominent instead of a 16px speck next to it.
-    _STACKED_ICON_MIN = 24
-    _STACKED_ICON_MAX = 48
+    # Icon-bearing chips render the icon stacked ABOVE the text, with the
+    # icon sized to match the label's width (with a sane minimum). Previously
+    # we clamped to 48px which made long labels like "BasicMelee" render
+    # with the icon noticeably narrower than the text.
+    _STACKED_ICON_MIN = 48
 
     def __init__(self, items, tooltip_fn=None, display_fn=None, icon_fn=None, defect: bool = False, icon_size: int | None = None):
         super().__init__()
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(6)
+        row.setSpacing(8)
 
         text_font = QFont()
         text_font.setPixelSize(11)
         metrics = QFontMetrics(text_font)
 
+        # Pre-compute a uniform icon size: the widest label wins, then
+        # every chip uses the same square so they all line up.
+        resolved: list[tuple[str, str]] = []  # (text, tip)
         for item in items:
             if isinstance(item, tuple):
                 text, tip = item
@@ -95,15 +98,18 @@ class ChipRow(QWidget):
             else:
                 text = display_fn(item) if display_fn else item
                 tip = tooltip_fn(item) if tooltip_fn else ""
+            resolved.append((str(text), tip))
+        uniform_size = self._STACKED_ICON_MIN
+        for text, _ in resolved:
+            uniform_size = max(uniform_size, metrics.horizontalAdvance(text))
 
-            # Text width determines how big the stacked icon should be.
-            text_width = metrics.horizontalAdvance(str(text))
-            target_size = max(self._STACKED_ICON_MIN, min(self._STACKED_ICON_MAX, text_width))
+        for idx, item in enumerate(items):
+            text, tip = resolved[idx]
 
             pixmap = None
             if icon_fn is not None:
                 try:
-                    pixmap = icon_fn(item if not isinstance(item, tuple) else item[0], target_size)
+                    pixmap = icon_fn(item if not isinstance(item, tuple) else item[0], uniform_size)
                 except Exception:
                     pixmap = None
 
@@ -121,12 +127,16 @@ class ChipRow(QWidget):
                 chip_col.setContentsMargins(0, 0, 0, 0)
                 chip_col.setSpacing(2)
                 icon_lbl = QLabel()
-                icon_lbl.setPixmap(pixmap)
-                icon_lbl.setFixedSize(target_size, target_size)
+                icon_lbl.setPixmap(pixmap.scaled(
+                    uniform_size, uniform_size,
+                    Qt.KeepAspectRatio, Qt.SmoothTransformation,
+                ))
+                icon_lbl.setFixedSize(uniform_size, uniform_size)
                 icon_lbl.setAlignment(Qt.AlignCenter)
                 icon_lbl.setStyleSheet("background:transparent;")
                 text_lbl = QLabel(text)
                 text_lbl.setAlignment(Qt.AlignCenter)
+                text_lbl.setFixedWidth(uniform_size)
                 text_lbl.setStyleSheet(
                     "background:transparent; color:#ccc; font-size:11px;"
                     if not defect else

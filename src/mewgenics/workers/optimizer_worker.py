@@ -45,6 +45,7 @@ class RoomOptimizerWorker(QThread):
         prefer_low_aggression = bool(p.get("prefer_low_aggression", True))
         prefer_high_libido = bool(p.get("prefer_high_libido", True))
         maximize_throughput = bool(p.get("maximize_throughput", False))
+        ignore_stat_priority = bool(p.get("ignore_stat_priority", False))
         sa_temperature = float(p.get("sa_temperature", 8.0) or 8.0)
         sa_neighbors = int(p.get("sa_neighbors", 120) or 120)
         mode_family = bool(p.get("mode_family", False))
@@ -84,6 +85,7 @@ class RoomOptimizerWorker(QThread):
             sa_neighbors_per_temp=max(1, sa_neighbors),
             planner_traits=planner_traits,
             mode_profiles=mode_profiles,
+            ignore_stat_priority=ignore_stat_priority,
         )
 
         optimized = optimize_room_distribution(
