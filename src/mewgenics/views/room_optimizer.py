@@ -466,6 +466,8 @@ class RoomOptimizerView(QWidget):
         self._session_state: dict = _load_planner_state_value("room_optimizer_state", {})
         self._restoring_session_state = False
         self._pending_initial_restore_run = False
+        self._pending_cache_recalc = False
+        self._pending_cache_recalc_sa = False
         self._selected_room_data: Optional[dict] = None
 
         root = QVBoxLayout(self)
@@ -979,9 +981,19 @@ class RoomOptimizerView(QWidget):
                 return
         if self._pending_initial_restore_run and alive_count >= 2:
             self._pending_initial_restore_run = False
-            self._calculate_optimal_distribution(use_sa=bool(self._session_state.get("use_sa", False)))
+            use_sa = bool(self._session_state.get("use_sa", False))
+            if self._cache is None:
+                self._pending_cache_recalc = True
+                self._pending_cache_recalc_sa = use_sa
+            else:
+                self._calculate_optimal_distribution(use_sa=use_sa)
         elif self._auto_recalculate and self._session_state.get("has_run") and alive_count >= 2:
-            self._calculate_optimal_distribution(use_sa=bool(self._session_state.get("use_sa", False)))
+            use_sa = bool(self._session_state.get("use_sa", False))
+            if self._cache is None:
+                self._pending_cache_recalc = True
+                self._pending_cache_recalc_sa = use_sa
+            else:
+                self._calculate_optimal_distribution(use_sa=use_sa)
 
     def set_available_rooms(self, rooms: list[str]):
         ordered = [room for room in ROOM_DISPLAY.keys() if room in set(rooms)]
@@ -1046,6 +1058,11 @@ class RoomOptimizerView(QWidget):
 
     def set_cache(self, cache: Optional['BreedingCache']):
         self._cache = cache
+        if cache is not None and self._pending_cache_recalc:
+            self._pending_cache_recalc = False
+            use_sa = self._pending_cache_recalc_sa
+            self._pending_cache_recalc_sa = False
+            self._calculate_optimal_distribution(use_sa=use_sa)
 
     def set_auto_recalculate(self, enabled: bool):
         self._auto_recalculate = bool(enabled)
@@ -1055,6 +1072,7 @@ class RoomOptimizerView(QWidget):
         self._room_priority_panel.set_save_path(save_path)
         self._restore_session_state()
         self._pending_initial_restore_run = bool(self._session_state.get("has_run", False))
+        self._pending_cache_recalc = False
         if refresh_existing and self._cats:
             self.set_cats(self._cats, self._excluded_keys)
             return
@@ -1452,6 +1470,7 @@ class RoomOptimizerView(QWidget):
 
     def _calculate_optimal_distribution(self, use_sa: bool = False):
         """Kick off background optimizer worker."""
+        self._pending_cache_recalc = False
         if self._optimizer_worker is not None and self._optimizer_worker.isRunning():
             return  # already running
 
