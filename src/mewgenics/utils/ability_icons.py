@@ -503,7 +503,9 @@ def _shape_pixmap(symbol_id: int, size: int) -> QPixmap | None:
     definition = _DEFINITIONS.get(symbol_id)
     if definition is None:
         return None
-    cache_key = (definition.code, str(symbol_id), int(size))
+    from PySide6.QtWidgets import QApplication
+    dpr = getattr(QApplication.instance(), "devicePixelRatio", lambda: 1.0)()
+    cache_key = (definition.code, str(symbol_id), int(size), dpr)
     cached = _RENDER_CACHE.get(cache_key)
     if cached is not None:
         return cached
@@ -518,7 +520,8 @@ def _shape_pixmap(symbol_id: int, size: int) -> QPixmap | None:
     if not contours:
         return None
 
-    pix = QPixmap(size, size)
+    phys = int(size * dpr)
+    pix = QPixmap(phys, phys)
     pix.fill(Qt.transparent)
     painter = QPainter(pix)
     painter.setRenderHint(QPainter.Antialiasing)
@@ -537,13 +540,13 @@ def _shape_pixmap(symbol_id: int, size: int) -> QPixmap | None:
         painter.end()
         return None
 
-    pad = max(1.0, size * 0.08)
+    pad = max(1.0, phys * 0.08)
     scale = min(
-        (size - 2 * pad) / target_bounds.width(),
-        (size - 2 * pad) / target_bounds.height(),
+        (phys - 2 * pad) / target_bounds.width(),
+        (phys - 2 * pad) / target_bounds.height(),
     )
-    dx = (size - target_bounds.width() * scale) * 0.5
-    dy = (size - target_bounds.height() * scale) * 0.5
+    dx = (phys - target_bounds.width() * scale) * 0.5
+    dy = (phys - target_bounds.height() * scale) * 0.5
 
     painter.translate(dx - target_bounds.left() * scale, dy - target_bounds.top() * scale)
     painter.scale(scale, scale)
@@ -554,6 +557,7 @@ def _shape_pixmap(symbol_id: int, size: int) -> QPixmap | None:
         painter.drawPath(path)
 
     painter.end()
+    pix.setDevicePixelRatio(dpr)
     _RENDER_CACHE[cache_key] = pix
     return pix
 

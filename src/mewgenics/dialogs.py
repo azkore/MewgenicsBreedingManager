@@ -483,11 +483,15 @@ class TagManagerDialog(QDialog):
         if clean:
             pix = QPixmap(clean)
             if not pix.isNull():
+                _dpr = self.devicePixelRatioF()
+                _ls = label.size()
+                _target = QSize(int(_ls.width() * _dpr), int(_ls.height() * _dpr))
                 pix = pix.scaled(
-                    label.size(),
+                    _target,
                     Qt.KeepAspectRatio,
                     Qt.SmoothTransformation,
                 )
+                pix.setDevicePixelRatio(_dpr)
                 label.setPixmap(
                     pix
                 )
@@ -804,10 +808,8 @@ class WhatsNewDialog(QDialog):
         )
 
         default_highlights = highlights or [
-            "Automatic DefinedShape extraction — cat sprite shapes are now extracted from the game's GPAK or a bundled ZIP at first launch.",
-            "Improved tooltip coverage across all views with full localization support.",
-            "Updated onboarding tutorial with cat sprite rendering and shape extraction information.",
-            "New tests for shape extraction, localization, and configuration modules.",
+            "Fixed pixelated images on HiDPI/scaled displays — cat portraits, ability icons, mutation sprites, tag dots, and thumbnails now render at native resolution.",
+            "Cancel button for the Room Optimizer — abort long-running calculations instead of waiting or force-closing the app.",
         ]
 
         root = QVBoxLayout(self)
@@ -824,7 +826,7 @@ class WhatsNewDialog(QDialog):
         body.setHtml(
             f"""
             <div style="line-height:1.5;">
-              <p>This release improves the cat sprite pipeline, tooltip coverage, onboarding, and test coverage.</p>
+              <p>This release fixes pixelated images on HiDPI displays and adds a Cancel button to the Room Optimizer.</p>
               <ul>{bullets}</ul>
               <p><a href="https://github.com/frankieg33/MewgenicsBreedingManager/releases">View releases on GitHub</a></p>
             </div>

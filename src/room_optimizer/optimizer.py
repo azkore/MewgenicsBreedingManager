@@ -21,6 +21,12 @@ from .types import (
     ScoredPair,
 )
 
+# Maximum cats in a room before falling back to greedy pair selection.
+# The bitmask DP is O(2^N * N); at N=24 this is ~400M ops (~5-10 s).
+# Beyond this threshold a fast greedy approach is used instead.
+_MAX_DP_CATS = 24
+
+
 def _cat_stats_sum(cat: Cat) -> int:
     return sum(getattr(cat, "stat_base", []) or cat.base_stats.values())
 
@@ -320,36 +326,51 @@ def _select_room_pairs(
                 quality=factors.quality,
             )
 
-    @lru_cache(maxsize=None)
-    def _best_matching(mask: int) -> tuple[int, float, float, tuple[tuple[int, int], ...]]:
-        if mask.bit_count() < 2:
-            return (0, 0.0, 0.0, ())
+    if len(cats_in_room) <= _MAX_DP_CATS:
+        # Exact bitmask DP — optimal but exponential in room size.
+        @lru_cache(maxsize=None)
+        def _best_matching(mask: int) -> tuple[int, float, float, tuple[tuple[int, int], ...]]:
+            if mask.bit_count() < 2:
+                return (0, 0.0, 0.0, ())
 
-        first_bit = mask & -mask
-        first_idx = first_bit.bit_length() - 1
-        best = _best_matching(mask ^ (1 << first_idx))
+            first_bit = mask & -mask
+            first_idx = first_bit.bit_length() - 1
+            best = _best_matching(mask ^ (1 << first_idx))
 
-        for second_idx in range(first_idx + 1, len(cats_in_room)):
-            if not (mask & (1 << second_idx)):
-                continue
-            pair = candidate_pairs.get((first_idx, second_idx))
-            if pair is None:
-                continue
+            for second_idx in range(first_idx + 1, len(cats_in_room)):
+                if not (mask & (1 << second_idx)):
+                    continue
+                pair = candidate_pairs.get((first_idx, second_idx))
+                if pair is None:
+                    continue
 
-            remainder = _best_matching(mask ^ (1 << first_idx) ^ (1 << second_idx))
-            candidate = (
-                remainder[0] + 1,
-                remainder[1] + pair.quality,
-                remainder[2] + pair.risk,
-                ((first_idx, second_idx),) + remainder[3],
-            )
-            if _matching_result_key(candidate) > _matching_result_key(best):
-                best = candidate
+                remainder = _best_matching(mask ^ (1 << first_idx) ^ (1 << second_idx))
+                candidate = (
+                    remainder[0] + 1,
+                    remainder[1] + pair.quality,
+                    remainder[2] + pair.risk,
+                    ((first_idx, second_idx),) + remainder[3],
+                )
+                if _matching_result_key(candidate) > _matching_result_key(best):
+                    best = candidate
 
-        return best
+            return best
 
-    _, _, _, pair_indexes = _best_matching((1 << len(cats_in_room)) - 1)
-    selected_pairs = [candidate_pairs[indexes] for indexes in pair_indexes]
+        _, _, _, pair_indexes = _best_matching((1 << len(cats_in_room)) - 1)
+        selected_pairs = [candidate_pairs[indexes] for indexes in pair_indexes]
+    else:
+        # Greedy fallback for large rooms — O(P log P) instead of O(2^N).
+        sorted_candidates = sorted(
+            candidate_pairs.items(),
+            key=lambda item: (-item[1].quality, item[1].risk),
+        )
+        used_indices: set[int] = set()
+        selected_pairs = []
+        for (i, j), sp in sorted_candidates:
+            if i not in used_indices and j not in used_indices:
+                selected_pairs.append(sp)
+                used_indices.add(i)
+                used_indices.add(j)
     selected_pairs.sort(
         key=lambda pair: (
             -pair.quality,
@@ -375,10 +396,14 @@ def _run_sa_refinement(
     best_ey_room: RoomConfig | None,
     original_state: dict[int, str],
     score_pair_cached,
+    cancel_check=None,
 ) -> dict[str, list[Cat]]:
     """Refine room assignments with simulated annealing."""
+    _cancelled = cancel_check or (lambda: False)
     all_cat_ids = list(cats_by_id.keys())
     for i in range(len(all_cat_ids)):
+        if i % 20 == 0 and _cancelled():
+            return room_assignments
         for j in range(i + 1, len(all_cat_ids)):
             a = cats_by_id[all_cat_ids[i]]
             b = cats_by_id[all_cat_ids[j]]
@@ -403,6 +428,9 @@ def _run_sa_refinement(
     sa_lovers = {k: frozenset(v) for k, v in lover_key_map.items()}
     sa_family = {k: v for k, v in family_group_ids.items()} if family_group_ids else {}
 
+    if _cancelled():
+        return room_assignments
+
     best_state = run_parallel_sa(
         initial_state=sa_state,
         original_state={cid: original_state.get(cid, "") for cid in sa_state},
@@ -425,6 +453,7 @@ def _run_sa_refinement(
         sa_cooling_rate=params.sa_cooling_rate,
         sa_neighbors_per_temp=params.sa_neighbors_per_temp,
         n_chains=params.sa_chains,
+        cancel_check=cancel_check,
     )
 
     refined_assignments = {room.key: [] for room in room_configs}
@@ -441,9 +470,16 @@ def optimize_room_distribution(
     *,
     cache=None,
     excluded_keys: set[int] | None = None,
+    cancel_check=None,
 ) -> OptimizationResult:
-    """Optimize room assignments using greedy placement plus optional SA refinement."""
+    """Optimize room assignments using greedy placement plus optional SA refinement.
+
+    *cancel_check* is an optional callable returning True when the caller
+    wants to abort early.  The function checks it periodically and returns
+    the best result so far.
+    """
     excluded_keys = excluded_keys or set()
+    _cancelled = cancel_check or (lambda: False)
     filtered_cats = _filter_cats(cats, excluded_keys, params.min_stats)
 
     if not filtered_cats:
@@ -498,7 +534,7 @@ def optimize_room_distribution(
                 prefer_low_aggression=params.prefer_low_aggression,
                 prefer_high_libido=params.prefer_high_libido,
                 planner_traits=profile.get("traits", params.planner_traits),
-                stat_priority=profile.get("stat_priority", []),
+                stat_priority=[] if params.ignore_stat_priority else profile.get("stat_priority", []),
             )
         _score_pair_cached._pair_factor_cache = pair_factor_cache
         return pair_factor_cache[key]
@@ -685,7 +721,9 @@ def optimize_room_distribution(
             reverse=True,
         )
 
-        for pair in pairs_with_scores:
+        for pair_idx, pair in enumerate(pairs_with_scores):
+            if pair_idx % 50 == 0 and _cancelled():
+                break
             a, b = pair["cat_a"], pair["cat_b"]
             if a.db_key in assigned_cats or b.db_key in assigned_cats:
                 continue
@@ -810,7 +848,7 @@ def optimize_room_distribution(
             room_assignments[fallback_rooms[i % len(fallback_rooms)]].append(cat)
             assigned_cats.add(cat.db_key)
 
-    if params.use_sa:
+    if params.use_sa and not _cancelled():
         room_assignments = _run_sa_refinement(
             room_assignments=room_assignments,
             room_configs=room_configs,
@@ -824,6 +862,7 @@ def optimize_room_distribution(
             best_ey_room=best_ey_room,
             original_state=original_state,
             score_pair_cached=_score_pair_cached,
+            cancel_check=cancel_check,
         )
 
     room_results: list[RoomAssignment] = []

@@ -13,8 +13,8 @@ from PySide6.QtWidgets import (
     QMessageBox, QProgressBar, QMenu,
 )
 from PySide6.QtCore import (
-    Qt, QModelIndex, QItemSelection, QItemSelectionModel,
-    QFileSystemWatcher, QTimer,
+    Qt, QEvent, QModelIndex, QItemSelection, QItemSelectionModel,
+    QFileSystemWatcher, QTimer, QSize,
 )
 from PySide6.QtGui import (
     QColor, QBrush, QAction, QActionGroup, QFont, QKeySequence,
@@ -50,6 +50,7 @@ from mewgenics.utils.config import (
     _saved_accessibility_preset, _set_accessibility_preset,
     _saved_total_stats_display, _set_total_stats_display,
     _saved_stat_icon_mode, _set_stat_icon_mode,
+    _saved_roster_visual_mode, _set_roster_visual_mode,
     _gpak_search_start_dir,
     _candidate_gpak_paths,
 )
@@ -62,6 +63,7 @@ from mewgenics.utils.localization import (
 )
 from mewgenics.utils.tags import (
     _TAG_DEFS, _TAG_ICON_CACHE, _TAG_PIX_CACHE, _cat_tags,
+    _make_tag_icon,
 )
 from mewgenics.utils.thresholds import (
     _load_threshold_preferences, _save_threshold_preferences,
@@ -95,7 +97,10 @@ from mewgenics.models.breeding_cache import (
     BreedingCache, BreedingCacheWorker,
     _breeding_cache_fingerprint, _breeding_save_signature,
 )
-from mewgenics.models.cat_table_model import TagStripDelegate, CatTableModel
+from mewgenics.models.cat_table_model import (
+    TagStripDelegate, CatTableModel, VisualIconDelegate,
+    clear_cat_sprite_cache, clear_mutation_part_cache,
+)
 from mewgenics.models.room_filter_model import RoomFilterModel
 from mewgenics.workers.save_loader import SaveLoadWorker
 from mewgenics.workers.room_refresh import QuickRoomRefreshWorker
@@ -231,6 +236,14 @@ class MainWindow(QMainWindow):
         self._furniture_data: dict[str, FurnitureDefinition] = dict(_FURNITURE_DATA)
         self._room_btns: dict = {}
         self._active_btn = None
+        # Navigation history for mouse back/forward buttons. Each entry is
+        # a dict describing the view (+ table filter + selection). `_back_stack`
+        # holds snapshots taken BEFORE a navigation action; `_forward_stack`
+        # is rebuilt when the user navigates anywhere new. `_nav_suppress`
+        # blocks recursive pushes while we restore a state.
+        self._nav_back_stack: list[dict] = []
+        self._nav_forward_stack: list[dict] = []
+        self._nav_suppress: bool = False
         self._show_lineage: bool = False
         self._pair_detail_override: bool = False
         self._pedigree_coi_memos: dict[tuple[int, int], float] = {}
@@ -285,10 +298,17 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
         self._build_menu()
+        # Route mouse back/forward button presses through our navigation
+        # history. Installed at app level so it catches clicks on any
+        # child widget regardless of focus.
+        QApplication.instance().installEventFilter(self)
         self._source_model.set_show_total_stats(_saved_total_stats_display())
         self._source_model.set_show_stat_icons(_saved_stat_icon_mode())
         self._apply_accessibility_style(self._accessibility_preset)
         self._apply_zoom()
+        # Restore roster visual-mode choice. Must happen after the table
+        # has been built and delegates installed.
+        self._apply_roster_visual_mode(_saved_roster_visual_mode())
 
         # Progress bar for breeding cache computation
         self._cache_progress = QProgressBar()
@@ -374,7 +394,125 @@ class MainWindow(QMainWindow):
         exit_action.triggered.connect(self.close)
         fm.addAction(exit_action)
 
+        # ── View menu ─────────────────────────────────────────────────────
+        vm = self.menuBar().addMenu(_tr("menu.view", default="View"))
+
+        self._lineage_action = QAction(_tr("menu.settings.show_lineage"), self)
+        self._lineage_action.setCheckable(True)
+        self._lineage_action.setChecked(self._show_lineage)
+        self._lineage_action.triggered.connect(self._toggle_lineage)
+        vm.addAction(self._lineage_action)
+
+        self._room_optimizer_auto_recalc_action = QAction(_tr("menu.settings.room_optimizer_auto_recalc", default="Auto Recalculate Room Optimizer"), self)
+        self._room_optimizer_auto_recalc_action.setCheckable(True)
+        self._room_optimizer_auto_recalc_action.setChecked(_saved_room_optimizer_auto_recalc())
+        self._room_optimizer_auto_recalc_action.toggled.connect(self._toggle_room_optimizer_auto_recalc)
+        vm.addAction(self._room_optimizer_auto_recalc_action)
+
+        vm.addSeparator()
+
+        self._roster_display_menu = vm.addMenu(_tr("menu.settings.roster_display", default="Roster Display"))
+        self._total_stats_action = QAction(_tr("menu.settings.show_total_stats", default="Show Total Stats"), self)
+        self._total_stats_action.setCheckable(True)
+        self._total_stats_action.setShortcut("Ctrl+T")
+        self._total_stats_action.setChecked(_saved_total_stats_display())
+        self._total_stats_action.triggered.connect(self._toggle_total_stats_display)
+        self._roster_display_menu.addAction(self._total_stats_action)
+
+        self._stat_icons_action = QAction(_tr("menu.settings.show_stat_icons", default="Stat Icons"), self)
+        self._stat_icons_action.setCheckable(True)
+        self._stat_icons_action.setChecked(_saved_stat_icon_mode())
+        self._stat_icons_action.triggered.connect(self._toggle_stat_icon_mode)
+        self._roster_display_menu.addAction(self._stat_icons_action)
+
+        self._visual_mode_action = QAction(
+            _tr("menu.settings.roster_visual_mode", default="Visual Mode (larger rows, sprites & icons)"),
+            self,
+        )
+        self._visual_mode_action.setCheckable(True)
+        self._visual_mode_action.setChecked(_saved_roster_visual_mode())
+        self._visual_mode_action.triggered.connect(self._toggle_roster_visual_mode)
+        self._roster_display_menu.addAction(self._visual_mode_action)
+
+        vm.addSeparator()
+
+        zoom_in = QAction(_tr("menu.settings.zoom_in"), self)
+        zoom_in_keys = QKeySequence.keyBindings(QKeySequence.StandardKey.ZoomIn)
+        if not zoom_in_keys:
+            zoom_in_keys = []
+        for seq in (QKeySequence("Ctrl+="), QKeySequence("Ctrl++")):
+            if seq not in zoom_in_keys:
+                zoom_in_keys.append(seq)
+        zoom_in.setShortcuts(zoom_in_keys)
+        zoom_in.triggered.connect(lambda: self._change_zoom(+1))
+        vm.addAction(zoom_in)
+
+        zoom_out = QAction(_tr("menu.settings.zoom_out"), self)
+        zoom_out_keys = QKeySequence.keyBindings(QKeySequence.StandardKey.ZoomOut)
+        if not zoom_out_keys:
+            zoom_out_keys = []
+        if QKeySequence("Ctrl+-") not in zoom_out_keys:
+            zoom_out_keys.append(QKeySequence("Ctrl+-"))
+        zoom_out.setShortcuts(zoom_out_keys)
+        zoom_out.triggered.connect(lambda: self._change_zoom(-1))
+        vm.addAction(zoom_out)
+
+        zoom_reset = QAction(_tr("menu.settings.reset_zoom"), self)
+        zoom_reset.setShortcut("Ctrl+0")
+        zoom_reset.triggered.connect(self._reset_zoom)
+        vm.addAction(zoom_reset)
+
+        self._zoom_info_action = QAction("", self)
+        self._zoom_info_action.setEnabled(False)
+        vm.addAction(self._zoom_info_action)
+        self._update_zoom_info_action()
+
+        vm.addSeparator()
+
+        fs_in = QAction(_tr("menu.settings.increase_font_size"), self)
+        fs_in.setShortcut("Ctrl+]")
+        fs_in.triggered.connect(lambda: self._change_font_size(+1))
+        vm.addAction(fs_in)
+
+        fs_out = QAction(_tr("menu.settings.decrease_font_size"), self)
+        fs_out.setShortcut("Ctrl+[")
+        fs_out.triggered.connect(lambda: self._change_font_size(-1))
+        vm.addAction(fs_out)
+
+        fs_reset = QAction(_tr("menu.settings.reset_font_size"), self)
+        fs_reset.setShortcut("Ctrl+\\")
+        fs_reset.triggered.connect(lambda: self._set_font_size_offset(0))
+        vm.addAction(fs_reset)
+
+        self._font_size_info_action = QAction("", self)
+        self._font_size_info_action.setEnabled(False)
+        vm.addAction(self._font_size_info_action)
+        self._update_font_size_info_action()
+
+        vm.addSeparator()
+
+        self._accessibility_menu = vm.addMenu(_tr("menu.settings.accessibility", default="Accessibility"))
+        self._accessibility_group = QActionGroup(self)
+        self._accessibility_group.setExclusive(True)
+        self._accessibility_actions: dict[str, QAction] = {}
+        for preset in ("Default", "Comfort", "High Contrast", "Large Table"):
+            action = QAction(preset, self)
+            action.setCheckable(True)
+            action.setChecked(preset == self._accessibility_preset)
+            action.triggered.connect(lambda checked=False, name=preset: self._apply_accessibility_preset(name))
+            self._accessibility_group.addAction(action)
+            self._accessibility_menu.addAction(action)
+            self._accessibility_actions[preset] = action
+
+        vm.addSeparator()
+
+        self._reset_ui_settings_action = QAction(_tr("menu.settings.reset_ui_defaults"), self)
+        self._reset_ui_settings_action.triggered.connect(self._reset_ui_settings_to_defaults)
+        vm.addAction(self._reset_ui_settings_action)
+
+        # ── Settings menu ────────────────────────────────────────────────
         sm = self.menuBar().addMenu(_tr("menu.settings"))
+
         locations_action = QAction(_tr("menu.settings.locations"), self)
         locations_action.triggered.connect(self._open_locations_dialog)
         sm.addAction(locations_action)
@@ -391,6 +529,7 @@ class MainWindow(QMainWindow):
         sm.addAction(self._optimizer_search_settings_action)
 
         sm.addSeparator()
+
         self._language_menu = sm.addMenu(_tr("language.menu"))
         self._language_group = QActionGroup(self)
         self._language_group.setExclusive(True)
@@ -401,106 +540,6 @@ class MainWindow(QMainWindow):
             action.triggered.connect(lambda checked=False, lang=language: self._change_language(lang))
             self._language_group.addAction(action)
             self._language_menu.addAction(action)
-
-        sm.addSeparator()
-        self._lineage_action = QAction(_tr("menu.settings.show_lineage"), self)
-        self._lineage_action.setCheckable(True)
-        self._lineage_action.setChecked(self._show_lineage)
-        self._lineage_action.triggered.connect(self._toggle_lineage)
-        sm.addAction(self._lineage_action)
-
-        sm.addSeparator()
-        self._room_optimizer_auto_recalc_action = QAction(_tr("menu.settings.room_optimizer_auto_recalc", default="Auto Recalculate Room Optimizer"), self)
-        self._room_optimizer_auto_recalc_action.setCheckable(True)
-        self._room_optimizer_auto_recalc_action.setChecked(_saved_room_optimizer_auto_recalc())
-        self._room_optimizer_auto_recalc_action.toggled.connect(self._toggle_room_optimizer_auto_recalc)
-        sm.addAction(self._room_optimizer_auto_recalc_action)
-
-        sm.addSeparator()
-        zoom_in = QAction(_tr("menu.settings.zoom_in"), self)
-        zoom_in_keys = QKeySequence.keyBindings(QKeySequence.StandardKey.ZoomIn)
-        if not zoom_in_keys:
-            zoom_in_keys = []
-        for seq in (QKeySequence("Ctrl+="), QKeySequence("Ctrl++")):
-            if seq not in zoom_in_keys:
-                zoom_in_keys.append(seq)
-        zoom_in.setShortcuts(zoom_in_keys)
-        zoom_in.triggered.connect(lambda: self._change_zoom(+1))
-        sm.addAction(zoom_in)
-
-        zoom_out = QAction(_tr("menu.settings.zoom_out"), self)
-        zoom_out_keys = QKeySequence.keyBindings(QKeySequence.StandardKey.ZoomOut)
-        if not zoom_out_keys:
-            zoom_out_keys = []
-        if QKeySequence("Ctrl+-") not in zoom_out_keys:
-            zoom_out_keys.append(QKeySequence("Ctrl+-"))
-        zoom_out.setShortcuts(zoom_out_keys)
-        zoom_out.triggered.connect(lambda: self._change_zoom(-1))
-        sm.addAction(zoom_out)
-
-        zoom_reset = QAction(_tr("menu.settings.reset_zoom"), self)
-        zoom_reset.setShortcut("Ctrl+0")
-        zoom_reset.triggered.connect(self._reset_zoom)
-        sm.addAction(zoom_reset)
-
-        self._zoom_info_action = QAction("", self)
-        self._zoom_info_action.setEnabled(False)
-        sm.addAction(self._zoom_info_action)
-        self._update_zoom_info_action()
-
-        sm.addSeparator()
-        fs_in = QAction(_tr("menu.settings.increase_font_size"), self)
-        fs_in.setShortcut("Ctrl+]")
-        fs_in.triggered.connect(lambda: self._change_font_size(+1))
-        sm.addAction(fs_in)
-
-        fs_out = QAction(_tr("menu.settings.decrease_font_size"), self)
-        fs_out.setShortcut("Ctrl+[")
-        fs_out.triggered.connect(lambda: self._change_font_size(-1))
-        sm.addAction(fs_out)
-
-        fs_reset = QAction(_tr("menu.settings.reset_font_size"), self)
-        fs_reset.setShortcut("Ctrl+\\")
-        fs_reset.triggered.connect(lambda: self._set_font_size_offset(0))
-        sm.addAction(fs_reset)
-
-        self._font_size_info_action = QAction("", self)
-        self._font_size_info_action.setEnabled(False)
-        sm.addAction(self._font_size_info_action)
-        self._update_font_size_info_action()
-
-        sm.addSeparator()
-        self._reset_ui_settings_action = QAction(_tr("menu.settings.reset_ui_defaults"), self)
-        self._reset_ui_settings_action.triggered.connect(self._reset_ui_settings_to_defaults)
-        sm.addAction(self._reset_ui_settings_action)
-
-        sm.addSeparator()
-        self._roster_display_menu = sm.addMenu(_tr("menu.settings.roster_display", default="Roster Display"))
-        self._total_stats_action = QAction(_tr("menu.settings.show_total_stats", default="Show Total Stats"), self)
-        self._total_stats_action.setCheckable(True)
-        self._total_stats_action.setShortcut("Ctrl+T")
-        self._total_stats_action.setChecked(_saved_total_stats_display())
-        self._total_stats_action.triggered.connect(self._toggle_total_stats_display)
-        self._roster_display_menu.addAction(self._total_stats_action)
-
-        self._stat_icons_action = QAction(_tr("menu.settings.show_stat_icons", default="Stat Icons"), self)
-        self._stat_icons_action.setCheckable(True)
-        self._stat_icons_action.setChecked(_saved_stat_icon_mode())
-        self._stat_icons_action.triggered.connect(self._toggle_stat_icon_mode)
-        self._roster_display_menu.addAction(self._stat_icons_action)
-
-        self._accessibility_menu = sm.addMenu(_tr("menu.settings.accessibility", default="Accessibility"))
-        self._accessibility_group = QActionGroup(self)
-        self._accessibility_group.setExclusive(True)
-        self._accessibility_actions: dict[str, QAction] = {}
-        for preset in ("Default", "Comfort", "High Contrast", "Large Table"):
-            action = QAction(preset, self)
-            action.setCheckable(True)
-            action.setChecked(preset == self._accessibility_preset)
-            action.triggered.connect(lambda checked=False, name=preset: self._apply_accessibility_preset(name))
-            self._accessibility_group.addAction(action)
-            self._accessibility_menu.addAction(action)
-            self._accessibility_actions[preset] = action
 
         hm = self.menuBar().addMenu(_tr("menu.help", default="Help"))
         self._getting_started_action = QAction(_tr("menu.help.getting_started", default="Getting Started"), self)
@@ -728,6 +767,53 @@ class MainWindow(QMainWindow):
             _tr("status.stat_icons_display", default="Roster stat icons {state}", state=_tr("common.on", default="on") if enabled else _tr("common.off", default="off"))
         )
 
+    # Row height (px) used when roster visual mode is on. Chosen to be
+    # roughly 2.25x the default compact row height so sprites and ability
+    # icons are large enough to read at a glance.
+    _VISUAL_ROW_HEIGHT = 70
+    _VISUAL_SPRITE_SIZE = 62
+    _VISUAL_ABIL_COL_WIDTH = 360
+    _VISUAL_MUTS_COL_WIDTH = 300
+    _VISUAL_NAME_COL_WIDTH = 240
+
+    def _toggle_roster_visual_mode(self, checked: bool):
+        enabled = bool(checked)
+        _set_roster_visual_mode(enabled)
+        self._apply_roster_visual_mode(enabled)
+        self.statusBar().showMessage(
+            _tr(
+                "status.roster_visual_mode",
+                default="Roster visual mode {state}",
+                state=_tr("common.on", default="on") if enabled else _tr("common.off", default="off"),
+            )
+        )
+
+    def _apply_roster_visual_mode(self, enabled: bool):
+        """Push visual-mode state into the model, row height, and columns."""
+        if not hasattr(self, "_source_model"):
+            return
+        self._source_model.set_visual_mode(enabled, sprite_size=self._VISUAL_SPRITE_SIZE)
+        if hasattr(self, "_table"):
+            vh = self._table.verticalHeader()
+            if enabled:
+                vh.setDefaultSectionSize(self._scaled(self._VISUAL_ROW_HEIGHT))
+                self._table.setIconSize(QSize(self._VISUAL_SPRITE_SIZE, self._VISUAL_SPRITE_SIZE))
+                # Widen name / abilities / mutations so icons have room.
+                self._table.setColumnWidth(COL_NAME, max(self._table.columnWidth(COL_NAME), self._VISUAL_NAME_COL_WIDTH))
+                self._table.setColumnWidth(COL_ABIL, max(self._table.columnWidth(COL_ABIL), self._VISUAL_ABIL_COL_WIDTH))
+                self._table.setColumnWidth(COL_MUTS, max(self._table.columnWidth(COL_MUTS), self._VISUAL_MUTS_COL_WIDTH))
+            else:
+                vh.setDefaultSectionSize(self._scaled(24))
+                self._table.setIconSize(QSize(16, 16))
+                # Restore column widths to their base defaults.
+                if hasattr(self, "_base_col_widths"):
+                    for col in (COL_NAME, COL_ABIL, COL_MUTS):
+                        if col in self._base_col_widths:
+                            self._table.setColumnWidth(col, self._base_col_widths[col])
+            self._table.viewport().update()
+        clear_cat_sprite_cache()
+        clear_mutation_part_cache()
+
     # ── Layout ────────────────────────────────────────────────────────────
 
     def _build_ui(self):
@@ -794,8 +880,13 @@ class MainWindow(QMainWindow):
 
         def sl(text):
             l = QLabel(text)
+            # letter-spacing is not supported by Qt QSS — apply via QFont
+            # to avoid "Could not parse stylesheet" warnings.
             l.setStyleSheet("color:#444; font-size:10px; font-weight:bold;"
-                            " letter-spacing:1px; padding:8px 4px 4px 4px;")
+                            " padding:8px 4px 4px 4px;")
+            f = l.font()
+            f.setLetterSpacing(QFont.AbsoluteSpacing, 1.0)
+            l.setFont(f)
             return l
 
         self._filters_section_label = sl(_tr("sidebar.section.filters"))
@@ -913,10 +1004,26 @@ class MainWindow(QMainWindow):
         return w
 
     def _rebuild_room_buttons(self, cats: list[Cat]):
+        # Capture the active room key BEFORE destroying buttons so we can
+        # repoint `_active_btn` at the replacement for the same room. Without
+        # this rescue, `_active_btn` keeps pointing at a deleted C++ widget,
+        # and the next `_filter()` call raises RuntimeError on setChecked()
+        # mid-handler — leaving the clicked room button highlighted but the
+        # actual filter unchanged. See the "menu tab won't switch after an
+        # in-game day" regression.
+        active_room_key = self._active_room_key()
         while self._rooms_vb.count():
             item = self._rooms_vb.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
+        # Drop stale entries — rooms that no longer exist (e.g., last cat
+        # moved out of Attic) would otherwise leak deleted-widget references
+        # in `_room_btns` forever.
+        if active_room_key is not None and active_room_key in self._room_btns:
+            # Null out first so `_active_btn` doesn't briefly point at a
+            # dangling entry while we rebuild.
+            self._active_btn = None
+        self._room_btns.clear()
         _ROOM_ORDER = {
             "Attic": 0,
             "Floor2_Large": 1, "Floor2_Small": 2,
@@ -933,6 +1040,11 @@ class MainWindow(QMainWindow):
             btn.clicked.connect(lambda _, r=room, b=btn: self._filter(r, b))
             self._rooms_vb.addWidget(btn)
             self._room_btns[room] = btn
+        # Repoint `_active_btn` at the rebuilt button for the previously
+        # active room (if that room still exists after the refresh).
+        if active_room_key is not None and active_room_key in self._room_btns:
+            self._active_btn = self._room_btns[active_room_key]
+            self._active_btn.setChecked(True)
 
     def _refresh_filter_button_counts(self):
         total = len(self._cats)
@@ -941,7 +1053,9 @@ class MainWindow(QMainWindow):
         donation = sum(1 for c in self._cats if c.status != "Gone" and _is_donation_candidate(c))
         fight_club = sum(
             1 for c in self._cats
-            if c.status != "Gone" and c.db_key in self._accessible_cat_keys
+            if c.status != "Gone"
+            and not c.has_adventured
+            and c.db_key in self._accessible_cat_keys
         )
         adv = sum(1 for c in self._cats if c.status == "Adventure")
         gone = sum(1 for c in self._cats if c.status == "Gone")
@@ -1129,9 +1243,12 @@ class MainWindow(QMainWindow):
         self._mode_badge_lbl.setVisible(False)
         self._mode_badge_lbl.setStyleSheet(
             "QLabel { color:#ffe8a3; background:#5a4516; border:1px solid #9f7b2c;"
-            " border-radius:10px; padding:2px 8px; font-size:10px; font-weight:bold;"
-            " letter-spacing:0.8px; }"
+            " border-radius:10px; padding:2px 8px; font-size:10px; font-weight:bold; }"
         )
+        # letter-spacing isn't a Qt QSS property — apply via QFont instead.
+        _badge_font = self._mode_badge_lbl.font()
+        _badge_font.setLetterSpacing(QFont.AbsoluteSpacing, 0.8)
+        self._mode_badge_lbl.setFont(_badge_font)
         self._count_lbl = QLabel("")
         self._count_lbl.setStyleSheet("color:#555; font-size:12px; padding-left:8px;")
         self._summary_lbl = QLabel("")
@@ -1315,6 +1432,13 @@ class MainWindow(QMainWindow):
         self._tag_strip_delegate = TagStripDelegate(self._table)
         self._table.setItemDelegateForColumn(COL_TAGS, self._tag_strip_delegate)
 
+        # Visual-mode delegates: these forward to the default text
+        # rendering in compact mode, and paint icons in visual mode.
+        self._abilities_visual_delegate = VisualIconDelegate("abilities", self._table)
+        self._mutations_visual_delegate = VisualIconDelegate("mutations", self._table)
+        self._table.setItemDelegateForColumn(COL_ABIL, self._abilities_visual_delegate)
+        self._table.setItemDelegateForColumn(COL_MUTS, self._mutations_visual_delegate)
+
         # Room: size to content so it adapts to room name length
         hh.setSectionResizeMode(COL_ROOM, QHeaderView.ResizeToContents)
 
@@ -1488,9 +1612,12 @@ class MainWindow(QMainWindow):
             panel_h = 200 if len(cats) == 1 else 300
             self._detail_splitter.setSizes([max(10, total - panel_h), panel_h])
 
-        # Highlight compatibility: dim incompatible cats when 1 is selected
+        # Highlight compatibility: dim incompatible cats when 1 is selected.
+        # Fight Club isn't a breeding view, so skip the dimming there.
         focus = cats[0] if len(cats) == 1 else None
-        self._source_model.set_focus_cat(focus)
+        is_fight_club = room_key == "__fight_club__" or getattr(self, "_fight_club_layout_active", False)
+        table_focus = None if is_fight_club else focus
+        self._source_model.set_focus_cat(table_focus)
         if self._tree_view is not None and self._tree_view.isVisible() and focus is not None:
             self._tree_view.select_cat(focus)
         if self._safe_breeding_view is not None and self._safe_breeding_view.isVisible() and focus is not None:
@@ -1539,11 +1666,50 @@ class MainWindow(QMainWindow):
         toggle_mb.triggered.connect(self._toggle_must_breed_filtered_cats)
         toggle_block.triggered.connect(self._toggle_blacklist_filtered_cats)
 
+        # ── Tag submenu ──
+        menu.addSeparator()
+        tag_menu = menu.addMenu(_tr("menu.context.tag_submenu", default="Tag"))
+        self._populate_tag_context_submenu(tag_menu, cats)
+
         menu.exec(self._table.viewport().mapToGlobal(pos))
+
+    def _populate_tag_context_submenu(self, tag_menu: QMenu, cats: list):
+        """Fill the RMB 'Tag' submenu with toggle actions for each defined tag."""
+        tag_menu.setStyleSheet(
+            "QMenu { background:#1a1a32; color:#ddd; border:1px solid #2a2a4a; padding:4px; }"
+            "QMenu::item { padding:4px 16px; }"
+            "QMenu::item:selected { background:#252545; }"
+            "QMenu::separator { height:1px; background:#2a2a4a; margin:4px 8px; }"
+        )
+        if not _TAG_DEFS:
+            empty = tag_menu.addAction(_tr("menu.context.tag_no_defs", default="No tags defined…"))
+            empty.triggered.connect(self._open_tag_manager)
+            return
+
+        for td in _TAG_DEFS:
+            tid = td["id"]
+            label = td.get("name") or "\u25CF"
+            all_have = all(tid in _cat_tags(c) for c in cats)
+            icon = _make_tag_icon([tid], dot_size=12)
+            action = tag_menu.addAction(icon, label)
+            action.setCheckable(True)
+            action.setChecked(all_have)
+            action.triggered.connect(
+                lambda checked, tag_id=tid: self._apply_tag_to_selection(tag_id, checked)
+            )
+
+        tag_menu.addSeparator()
+        clear = tag_menu.addAction(_tr("menu.context.tag_clear", default="Clear tags"))
+        clear.setEnabled(bool(cats))
+        clear.triggered.connect(self._clear_tags_from_selection)
+        tag_menu.addSeparator()
+        manage = tag_menu.addAction(_tr("menu.context.tag_manage", default="Manage Tags\u2026"))
+        manage.triggered.connect(self._open_tag_manager)
 
     # ── Filtering ──────────────────────────────────────────────────────────
 
     def _filter(self, room_key, btn: QPushButton):
+        self._push_nav_history()
         if not getattr(self, "_save_view_disabled", False):
             _save_current_view("table")
         self._show_table_view()
@@ -2277,14 +2443,145 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_btn_furniture_view"):
             self._btn_furniture_view.setChecked(True)
 
+    # ---- Navigation history (mouse back / forward buttons) -------------
+
+    def _current_view_kind(self) -> str:
+        """Return which major view is currently visible."""
+        checks = [
+            ("tree", getattr(self, "_tree_view", None)),
+            ("safe_breeding", getattr(self, "_safe_breeding_view", None)),
+            ("breeding_partners", getattr(self, "_breeding_partners_view", None)),
+            ("room_optimizer", getattr(self, "_room_optimizer_view", None)),
+            ("perfect_planner", getattr(self, "_perfect_planner_view", None)),
+            ("calibration", getattr(self, "_calibration_view", None)),
+            ("mutation_planner", getattr(self, "_mutation_planner_view", None)),
+            ("furniture", getattr(self, "_furniture_view", None)),
+        ]
+        for kind, widget in checks:
+            if widget is not None and widget.isVisible():
+                return kind
+        return "table"
+
+    def _capture_nav_state(self) -> dict:
+        """Snapshot the current view so it can be restored by a back click."""
+        view = self._current_view_kind()
+        state: dict = {"view": view}
+        if view == "table":
+            state["room_key"] = getattr(self._proxy_model, "_room", None)
+            selected = []
+            selection_model = self._table.selectionModel() if hasattr(self, "_table") else None
+            if selection_model is not None:
+                for idx in selection_model.selectedRows():
+                    src_idx = self._proxy_model.mapToSource(idx)
+                    if not src_idx.isValid():
+                        continue
+                    cat = self._source_model.cat_at(src_idx.row())
+                    if cat is not None:
+                        selected.append(cat.db_key)
+            state["selected"] = selected
+        return state
+
+    def _push_nav_history(self) -> None:
+        """Called BEFORE a navigation action. Snapshots current state onto the
+        back stack (unless suppressed or it would duplicate the top) and
+        clears the forward stack so new history supersedes the redo trail.
+        """
+        if self._nav_suppress:
+            return
+        # Bail out while the UI is still being constructed — the table,
+        # proxy model, and sidebar buttons may not exist yet.
+        if not hasattr(self, "_proxy_model") or not hasattr(self, "_table"):
+            return
+        state = self._capture_nav_state()
+        if self._nav_back_stack and self._nav_back_stack[-1] == state:
+            return
+        self._nav_back_stack.append(state)
+        # Cap unbounded growth from long sessions.
+        if len(self._nav_back_stack) > 100:
+            self._nav_back_stack.pop(0)
+        self._nav_forward_stack.clear()
+
+    def _apply_nav_state(self, state: dict) -> None:
+        """Restore a snapshot produced by _capture_nav_state. Suppresses any
+        further history pushes triggered by the restore calls themselves.
+        """
+        self._nav_suppress = True
+        try:
+            view = state.get("view", "table")
+            if view == "table":
+                room_key = state.get("room_key")
+                btn = self._room_btns.get(room_key)
+                if btn is not None:
+                    self._filter(room_key, btn)
+                else:
+                    # Unknown room (e.g. a room that disappeared) — fall back
+                    # to the Alive filter so the user still lands somewhere.
+                    self._filter(None, self._btn_all)
+                selected = state.get("selected") or []
+                if selected:
+                    self._select_cats_by_db_keys(selected)
+            elif view == "tree":
+                self._show_tree_view()
+            elif view == "safe_breeding":
+                self._show_safe_breeding_view()
+            elif view == "breeding_partners":
+                self._show_breeding_partners_view()
+            elif view == "room_optimizer":
+                self._show_room_optimizer_view()
+            elif view == "perfect_planner":
+                self._show_perfect_planner_view()
+            elif view == "calibration":
+                self._show_calibration_view()
+            elif view == "mutation_planner":
+                self._show_mutation_planner_view()
+            elif view == "furniture":
+                self._show_furniture_view()
+        finally:
+            self._nav_suppress = False
+
+    def _navigate_back(self) -> None:
+        if not self._nav_back_stack:
+            return
+        current = self._capture_nav_state()
+        target = self._nav_back_stack.pop()
+        self._nav_forward_stack.append(current)
+        self._apply_nav_state(target)
+
+    def _navigate_forward(self) -> None:
+        if not self._nav_forward_stack:
+            return
+        current = self._capture_nav_state()
+        target = self._nav_forward_stack.pop()
+        self._nav_back_stack.append(current)
+        self._apply_nav_state(target)
+
+    def eventFilter(self, obj, event):
+        # Mouse XButton1 (back) / XButton2 (forward) come through here via
+        # an app-level filter installed in _build_ui. We swallow them so no
+        # other widget tries to interpret them.
+        if event.type() == QEvent.MouseButtonPress:
+            btn = event.button()
+            if btn == Qt.BackButton:
+                self._navigate_back()
+                return True
+            if btn == Qt.ForwardButton:
+                self._navigate_forward()
+                return True
+        return super().eventFilter(obj, event)
+
     def _navigate_to_cat(self, db_key: int):
         """Switch to Alive Cats view and select the given cat by db_key."""
-        self._filter(None, self._btn_all)
-        if self._select_cats_by_db_keys([db_key]):
-            return
-        # Not found in Alive filter — try All Cats
-        self._filter("__all__", self._btn_everyone)
-        self._select_cats_by_db_keys([db_key])
+        self._push_nav_history()
+        self._nav_suppress = True
+        try:
+            self._filter(None, self._btn_all)
+            if self._select_cats_by_db_keys([db_key]):
+                return
+            # Not found in Alive filter — try All Cats
+            self._filter("__all__", self._btn_everyone)
+            self._select_cats_by_db_keys([db_key])
+        finally:
+            self._nav_suppress = False
 
     def _find_visible_cat_row(self, db_key: int) -> Optional[int]:
         for row in range(self._proxy_model.rowCount()):
@@ -2341,7 +2638,9 @@ class MainWindow(QMainWindow):
 
     def _navigate_to_cat_pair(self, db_key_a: int, db_key_b: int):
         """Switch to Alive Cats view and select both cats in the pair."""
+        self._push_nav_history()
         self._pair_detail_override = True
+        self._nav_suppress = True
         try:
             self._clear_pair_navigation_filters()
             self._filter(None, self._btn_all)
@@ -2356,6 +2655,7 @@ class MainWindow(QMainWindow):
                 self._detail.show_cats(pair_cats)
         finally:
             self._pair_detail_override = False
+            self._nav_suppress = False
 
     def _clear_pair_navigation_filters(self):
         """Clear filters that can hide one cat from a pair jump."""
@@ -2451,7 +2751,8 @@ class MainWindow(QMainWindow):
                 finally:
                     self._total_stats_action.blockSignals(False)
 
-            for col in (COL_GEN, COL_BL, COL_MB, COL_LIB, COL_INBRD, COL_SEXUALITY, COL_GEN_DEPTH, COL_SRC):
+            for col in (COL_GEN, COL_BL, COL_MB, COL_LIB, COL_INBRD, COL_SEXUALITY,
+                        COL_GEN_DEPTH, COL_SRC, COL_REL):
                 if col < col_count:
                     self._table.setColumnHidden(col, True)
             for col in (COL_TAGS, COL_NAME, COL_ROOM, COL_STAT, COL_SUM, COL_AGG, COL_ADV,
@@ -2927,6 +3228,8 @@ class MainWindow(QMainWindow):
             self._safe_breeding_view.set_cache(cache)
         if self._perfect_planner_view is not None:
             self._perfect_planner_view.set_cache(cache)
+        if self._room_optimizer_view is not None:
+            self._room_optimizer_view.set_cache(cache)
         self._cache_progress.setFormat(_tr("loading.cache.pair_risks"))
 
     def _on_cache_ready(self, cache: BreedingCache):
@@ -3344,11 +3647,32 @@ class MainWindow(QMainWindow):
     def _on_file_changed(self, path: str):
         if path != self._current_save:
             return
+        # Qt's QFileSystemWatcher stops watching a file after it's deleted
+        # or replaced — Mewgenics writes saves atomically by writing to a
+        # temp file then renaming over the original, which fires exactly
+        # one fileChanged event before the watcher drops the subscription.
+        # Re-add the path so subsequent in-game days still trigger refreshes.
+        if path not in self._watcher.files():
+            # Defer slightly: Qt sometimes fires fileChanged before the new
+            # inode is fully materialised on NTFS, so addPath() fails silently.
+            QTimer.singleShot(100, lambda p=path: self._rewatch_save(p))
         # If cats are already loaded and no full reload is running, try the fast path.
         if self._cats and self._save_load_worker is None:
             self._start_quick_room_refresh()
         else:
             self._reload()
+
+    def _rewatch_save(self, path: str):
+        """Re-subscribe the file watcher to *path* after the game rewrites it."""
+        if path != self._current_save:
+            return
+        if not os.path.isfile(path):
+            # File not materialised yet — try again shortly.
+            QTimer.singleShot(100, lambda p=path: self._rewatch_save(p))
+            return
+        if path in self._watcher.files():
+            return
+        self._watcher.addPath(path)
 
     def _start_quick_room_refresh(self):
         if self._quick_refresh_worker is not None:
@@ -3389,6 +3713,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(_tr("status.rooms_refreshed", default="Room locations updated."))
 
     def _open_tree_browser(self):
+        self._push_nav_history()
         _save_current_view("tree")
         self._show_tree_view()
         rows = list({
@@ -3406,6 +3731,7 @@ class MainWindow(QMainWindow):
         self._open_tree_browser()
 
     def _open_safe_breeding_view(self, quality: Optional[bool] = None):
+        self._push_nav_history()
         if quality is not None:
             self._safe_breeding_quality_mode = bool(quality)
         _save_current_view("safe_breeding")
@@ -3425,6 +3751,7 @@ class MainWindow(QMainWindow):
         self._open_safe_breeding_view(quality=quality)
 
     def _open_breeding_partners_view(self):
+        self._push_nav_history()
         _save_current_view("breeding_partners")
         self._show_breeding_partners_view()
 
@@ -3435,22 +3762,27 @@ class MainWindow(QMainWindow):
         self._open_perfect_planner_view()
 
     def _open_room_optimizer(self):
+        self._push_nav_history()
         _save_current_view("room_optimizer")
         self._show_room_optimizer_view()
 
     def _open_perfect_planner_view(self):
+        self._push_nav_history()
         _save_current_view("perfect_planner")
         self._show_perfect_planner_view()
 
     def _open_calibration_view(self):
+        self._push_nav_history()
         _save_current_view("calibration")
         self._show_calibration_view()
 
     def _open_mutation_planner_view(self):
+        self._push_nav_history()
         _save_current_view("mutation_planner")
         self._show_mutation_planner_view()
 
     def _open_furniture_view(self):
+        self._push_nav_history()
         _save_current_view("furniture")
         self._show_furniture_view()
 
@@ -3562,7 +3894,12 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_table"):
             for col, width in self._base_col_widths.items():
                 self._table.setColumnWidth(col, self._scaled(width))
-            self._table.verticalHeader().setDefaultSectionSize(self._scaled(24))
+            # Row height depends on visual vs compact mode. Re-apply the
+            # mode so widths/height stay correct after a zoom change.
+            if getattr(self, "_source_model", None) is not None and self._source_model.visual_mode():
+                self._apply_roster_visual_mode(True)
+            else:
+                self._table.verticalHeader().setDefaultSectionSize(self._scaled(24))
 
         # Scale all hardcoded stylesheet font-size values across the whole window.
         # 1pt ≈ 1.33px; round to nearest integer pixel.

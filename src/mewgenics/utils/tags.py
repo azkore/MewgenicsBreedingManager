@@ -5,7 +5,7 @@ import shutil
 from typing import Optional
 from pathlib import Path
 
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QApplication, QWidget
 from PySide6.QtCore import Qt, QPointF, QRectF
 from PySide6.QtGui import QColor, QBrush, QPainter, QPixmap, QIcon, QPen, QPainterPath
 
@@ -380,7 +380,8 @@ def _trim_transparent_pixmap(pix: QPixmap) -> QPixmap:
 
 
 def _load_game_icon_image(tag_value: str, size: int) -> Optional[QPixmap]:
-    key = (_normalize_icon_key(tag_value), int(size))
+    dpr = getattr(QApplication.instance(), "devicePixelRatio", lambda: 1.0)()
+    key = (_normalize_icon_key(tag_value), int(size), dpr)
     cached = _GAME_ICON_PIX_CACHE.get(key)
     if cached is not None:
         return cached
@@ -395,17 +396,19 @@ def _load_game_icon_image(tag_value: str, size: int) -> Optional[QPixmap]:
                 continue
             pix = _trim_transparent_pixmap(pix)
             _GAME_ICON_IMAGE_CACHE[cache_key] = pix
-        target = max(1, int(size))
+        phys = max(1, int(size * dpr))
         scaled = pix
-        if pix.width() != target or pix.height() != target:
-            scaled = pix.scaled(target, target, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        if pix.width() != phys or pix.height() != phys:
+            scaled = pix.scaled(phys, phys, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        scaled.setDevicePixelRatio(dpr)
         _GAME_ICON_PIX_CACHE[key] = scaled
         return scaled
     return None
 
 
 def _game_icon_pixmap(tag_value: str, size: int) -> Optional[QPixmap]:
-    key = (_normalize_icon_key(tag_value), int(size))
+    dpr = getattr(QApplication.instance(), "devicePixelRatio", lambda: 1.0)()
+    key = (_normalize_icon_key(tag_value), int(size), dpr)
     cached = _GAME_ICON_PIX_CACHE.get(key)
     if cached is not None:
         return cached
@@ -428,9 +431,10 @@ def _game_icon_pixmap(tag_value: str, size: int) -> Optional[QPixmap]:
     if crop.isNull():
         return None
     crop = _trim_transparent_pixmap(crop)
-    target = max(1, int(size))
-    if crop.width() != target or crop.height() != target:
-        crop = crop.scaled(target, target, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+    phys = max(1, int(size * dpr))
+    if crop.width() != phys or crop.height() != phys:
+        crop = crop.scaled(phys, phys, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+    crop.setDevicePixelRatio(dpr)
     _GAME_ICON_PIX_CACHE[key] = crop
     return crop
 
@@ -595,17 +599,19 @@ def _cat_tag_pixmap(cat, dot_size: int = 12, spacing: int = 4) -> Optional[QPixm
     entries = _cat_tag_entries(cat)
     if not entries:
         return None
+    dpr = getattr(QApplication.instance(), "devicePixelRatio", lambda: 1.0)()
     cache_key = tuple(
         (entry.get("kind"), entry.get("id"), entry.get("color"), entry.get("image_path", ""))
         for entry in entries
-    ) + (int(dot_size), int(spacing))
+    ) + (int(dot_size), int(spacing), dpr)
     cached = _CAT_TAG_PIX_CACHE.get(cache_key)
     if cached is not None:
         return cached
 
     width = len(entries) * (dot_size + spacing) - spacing + 4
     height = dot_size + 4
-    pix = QPixmap(width, height)
+    pix = QPixmap(int(width * dpr), int(height * dpr))
+    pix.setDevicePixelRatio(dpr)
     pix.fill(Qt.transparent)
     painter = QPainter(pix)
     painter.setRenderHint(QPainter.Antialiasing)
@@ -647,18 +653,22 @@ def _draw_tag_mark(painter: QPainter, td: dict, rect: QRectF, size: int):
             pix = QPixmap(str(path))
             if not pix.isNull():
                 pix = _trim_transparent_pixmap(pix)
-                target = max(1, min(int(rect.width()), int(rect.height())))
+                dpr = getattr(QApplication.instance(), "devicePixelRatio", lambda: 1.0)()
+                target = max(1, int(min(int(rect.width()), int(rect.height())) * dpr))
                 scaled = pix
                 if pix.width() != target or pix.height() != target:
                     scaled = pix.scaled(target, target, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                scaled.setDevicePixelRatio(dpr)
                 painter.save()
                 painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
                 clip = QPainterPath()
                 radius = max(2.0, min(rect.width(), rect.height()) * 0.33)
                 clip.addRoundedRect(rect, radius, radius)
                 painter.setClipPath(clip)
-                draw_x = rect.left() + max(0.0, (rect.width() - scaled.width()) * 0.5)
-                draw_y = rect.top() + max(0.0, (rect.height() - scaled.height()) * 0.5)
+                sw = scaled.width() / dpr
+                sh = scaled.height() / dpr
+                draw_x = rect.left() + max(0.0, (rect.width() - sw) * 0.5)
+                draw_y = rect.top() + max(0.0, (rect.height() - sh) * 0.5)
                 painter.drawPixmap(QPointF(draw_x, draw_y), scaled)
                 painter.restore()
                 return
@@ -677,17 +687,21 @@ def _draw_game_tag_mark(painter: QPainter, td: dict, rect: QRectF, size: int):
             pix = QPixmap(str(path))
             if not pix.isNull():
                 pix = _trim_transparent_pixmap(pix)
-                target = max(1, min(int(rect.width()), int(rect.height())))
+                dpr = getattr(QApplication.instance(), "devicePixelRatio", lambda: 1.0)()
+                target = max(1, int(min(int(rect.width()), int(rect.height())) * dpr))
                 scaled = pix
                 if pix.width() != target or pix.height() != target:
                     scaled = pix.scaled(target, target, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                scaled.setDevicePixelRatio(dpr)
                 painter.save()
                 painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
                 clip = QPainterPath()
                 clip.addRect(rect)
                 painter.setClipPath(clip)
-                draw_x = rect.left() + max(0.0, (rect.width() - scaled.width()) * 0.5)
-                draw_y = rect.top() + max(0.0, (rect.height() - scaled.height()) * 0.5)
+                sw = scaled.width() / dpr
+                sh = scaled.height() / dpr
+                draw_x = rect.left() + max(0.0, (rect.width() - sw) * 0.5)
+                draw_y = rect.top() + max(0.0, (rect.height() - sh) * 0.5)
                 painter.drawPixmap(QPointF(draw_x, draw_y), scaled)
                 painter.restore()
                 return
@@ -774,15 +788,17 @@ def _make_tag_icon(tag_ids: list[str], dot_size: int = 12, spacing: int = 4) -> 
     valid_defs = _tag_defs_for_ids(tag_ids)
     if not valid_defs:
         return QIcon()
+    dpr = getattr(QApplication.instance(), "devicePixelRatio", lambda: 1.0)()
     cache_key = tuple(
         (td.get("id"), td.get("color"), td.get("image_path", ""))
         for td in valid_defs
-    ) + (int(dot_size), int(spacing))
+    ) + (int(dot_size), int(spacing), dpr)
     if cache_key in _TAG_ICON_CACHE:
         return _TAG_ICON_CACHE[cache_key]
     width = len(valid_defs) * (dot_size + spacing) - spacing + 2
     height = dot_size + 2
-    pix = QPixmap(width, height)
+    pix = QPixmap(int(width * dpr), int(height * dpr))
+    pix.setDevicePixelRatio(dpr)
     pix.fill(Qt.transparent)
     painter = QPainter(pix)
     painter.setRenderHint(QPainter.Antialiasing)
@@ -802,15 +818,17 @@ def _make_tag_pixmap(tag_ids: list[str], dot_size: int = 10, spacing: int = 3) -
     valid_defs = _tag_defs_for_ids(tag_ids)
     if not valid_defs:
         return None
+    dpr = getattr(QApplication.instance(), "devicePixelRatio", lambda: 1.0)()
     cache_key = tuple(
         (td.get("id"), td.get("color"), td.get("image_path", ""))
         for td in valid_defs
-    ) + (int(dot_size), int(spacing))
+    ) + (int(dot_size), int(spacing), dpr)
     if cache_key in _TAG_PIX_CACHE:
         return _TAG_PIX_CACHE[cache_key]
     width = len(valid_defs) * (dot_size + spacing) - spacing + 4
     height = dot_size + 4
-    pix = QPixmap(width, height)
+    pix = QPixmap(int(width * dpr), int(height * dpr))
+    pix.setDevicePixelRatio(dpr)
     pix.fill(Qt.transparent)
     painter = QPainter(pix)
     painter.setRenderHint(QPainter.Antialiasing)
@@ -824,11 +842,14 @@ def _make_tag_pixmap(tag_ids: list[str], dot_size: int = 10, spacing: int = 3) -
 
 def _make_pin_icon(active: bool = True, size: int = 16) -> QIcon:
     """Create a compact pushpin icon for pin states."""
-    cache_key = (bool(active), int(size))
+    dpr = getattr(QApplication.instance(), "devicePixelRatio", lambda: 1.0)()
+    cache_key = (bool(active), int(size), dpr)
     cached = _PIN_ICON_CACHE.get(cache_key)
     if cached is not None:
         return cached
-    pix = QPixmap(size, size)
+    phys = int(size * dpr)
+    pix = QPixmap(phys, phys)
+    pix.setDevicePixelRatio(dpr)
     pix.fill(Qt.transparent)
     painter = QPainter(pix)
     painter.setRenderHint(QPainter.Antialiasing)

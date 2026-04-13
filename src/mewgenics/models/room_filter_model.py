@@ -122,6 +122,8 @@ class RoomFilterModel(QSortFilterProxyModel):
             accessible_keys = getattr(self, "_accessible_cat_keys", set())
             if cat.status == "Gone" or cat.db_key not in accessible_keys:
                 return False
+            if cat.has_adventured:
+                return False
             if self._abilities_filter and self._abilities_filter not in self._column_text(source_row, COL_ABIL):
                 return False
             if self._mutations_filter and self._mutations_filter not in self._column_text(source_row, COL_MUTS):

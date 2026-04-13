@@ -136,6 +136,185 @@ def _source_summary(cat: Cat) -> tuple[str, str]:
     return display, tooltip
 
 
+# ── Cat sprite helper (visual roster mode) ───────────────────────────────────
+
+try:
+    import swf_cat_renderer as _swf_cat_renderer
+    _SWF_CAT_RENDERER_AVAILABLE = True
+except Exception:
+    _swf_cat_renderer = None
+    _SWF_CAT_RENDERER_AVAILABLE = False
+
+
+_CAT_SPRITE_PIXMAP_CACHE: dict[tuple[int, int], QPixmap] = {}
+
+
+def _cat_sprite_pixmap(cat: Cat, size: int) -> Optional[QPixmap]:
+    """Return a cached QPixmap of the cat's face on a white rounded-rect
+    background, or None.  Uses the face-crop renderer when available."""
+    if not _SWF_CAT_RENDERER_AVAILABLE or cat is None:
+        return None
+    size = int(max(16, size))
+    db_key = getattr(cat, "db_key", None)
+    if db_key is None or db_key == 0:
+        # Use uid as a stable, non-reusable key instead of id() which can
+        # be recycled after GC.
+        db_key = getattr(cat, "uid", None) or id(cat)
+    dpr = getattr(QApplication.instance(), "devicePixelRatio", lambda: 1.0)()
+    key = (int(db_key), size, dpr)
+    cached = _CAT_SPRITE_PIXMAP_CACHE.get(key)
+    if cached is not None:
+        return cached
+
+    # Prefer face-only crop; fall back to full thumbnail.
+    phys = int(size * dpr)
+    png = None
+    render_face = getattr(_swf_cat_renderer, "render_cat_face_thumbnail", None)
+    if render_face is not None:
+        try:
+            png = render_face(cat, size=phys)
+        except Exception:
+            pass
+    if not png:
+        try:
+            png = _swf_cat_renderer.render_cat_thumbnail(cat, size=phys)
+        except Exception:
+            pass
+    if not png:
+        return None
+    raw = QPixmap()
+    if not raw.loadFromData(png, "PNG"):
+        return None
+    # Composite onto a white rounded-rect background.  Pad inward so the
+    # face fills most of the area.
+    pad = max(2, phys // 16)
+    inner = phys - 2 * pad
+    pix = QPixmap(phys, phys)
+    pix.fill(Qt.transparent)
+    p = QPainter(pix)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.setBrush(QBrush(QColor(255, 255, 255)))
+    p.setPen(QColor(200, 200, 210))
+    p.drawRoundedRect(0, 0, phys - 1, phys - 1, 4, 4)
+    scaled = raw.scaled(inner, inner, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+    p.drawPixmap(
+        pad + (inner - scaled.width()) // 2,
+        pad + (inner - scaled.height()) // 2,
+        scaled,
+    )
+    p.end()
+    pix.setDevicePixelRatio(dpr)
+    _CAT_SPRITE_PIXMAP_CACHE[key] = pix
+    return pix
+
+
+def clear_cat_sprite_cache():
+    _CAT_SPRITE_PIXMAP_CACHE.clear()
+
+
+# ── Mutation body-part sprite icons ──────────────────────────────────────────
+
+_MUTATION_PART_PIXMAP_CACHE: dict[tuple, QPixmap] = {}
+
+
+def _mutation_part_pixmap(slot_key: str, part_id: int, size: int) -> Optional[QPixmap]:
+    """Render a cat's mutated body-part sprite at *size* px and return as QPixmap.
+
+    The renderer returns a large canvas (570×580) with the part centred.
+    We auto-trim transparent padding, tint to a neutral light colour so the
+    raw green/pink SWF colours become a clean silhouette, then scale to fit.
+    """
+    if not _SWF_CAT_RENDERER_AVAILABLE:
+        return None
+    dpr = getattr(QApplication.instance(), "devicePixelRatio", lambda: 1.0)()
+    size = int(max(16, size))
+    cache_key = (slot_key, int(part_id), size, dpr)
+    cached = _MUTATION_PART_PIXMAP_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+    render_part = getattr(_swf_cat_renderer, "render_cat_part", None)
+    if render_part is None:
+        return None
+    try:
+        png = render_part(slot_key, int(part_id))
+    except Exception:
+        return None
+    if not png:
+        return None
+
+    from PIL import Image
+    import numpy as np
+    import io as _io
+    try:
+        img = Image.open(_io.BytesIO(png)).convert("RGBA")
+        bbox = img.getbbox()
+        if bbox:
+            img = img.crop(bbox)
+
+        # Tint to a neutral light colour so raw green/pink sprites become
+        # a clean silhouette icon.  Preserves alpha and luminance variation.
+        arr = np.array(img, dtype=np.float32)
+        a = arr[:, :, 3]
+        lum = (arr[:, :, 0] + arr[:, :, 1] + arr[:, :, 2]) / 3.0
+        # Map luminance to 180–240 range for a light, readable silhouette.
+        bright = 180.0 + (lum / 255.0) * 60.0
+        arr[:, :, 0] = bright
+        arr[:, :, 1] = bright
+        arr[:, :, 2] = np.minimum(bright + 10, 255)  # slight cool tint
+        arr[:, :, 3] = a
+        img = Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8), "RGBA")
+
+        # Add a small margin so the part doesn't touch the edges.
+        margin = max(2, int(max(img.width, img.height) * 0.05))
+        padded = Image.new("RGBA",
+                           (img.width + 2 * margin, img.height + 2 * margin),
+                           (0, 0, 0, 0))
+        padded.alpha_composite(img, (margin, margin))
+        buf = _io.BytesIO()
+        padded.save(buf, format="PNG")
+        trimmed_png = buf.getvalue()
+    except Exception:
+        trimmed_png = png
+
+    raw = QPixmap()
+    if not raw.loadFromData(trimmed_png, "PNG"):
+        return None
+    phys = int(size * dpr)
+    scaled = raw.scaled(phys, phys, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+    scaled.setDevicePixelRatio(dpr)
+    _MUTATION_PART_PIXMAP_CACHE[cache_key] = scaled
+    return scaled
+
+
+def clear_mutation_part_cache():
+    _MUTATION_PART_PIXMAP_CACHE.clear()
+    _BRIGHTEN_CACHE.clear()
+
+
+_BRIGHTEN_CACHE: dict[int, QPixmap] = {}
+
+
+def _brighten_pixmap(pix: QPixmap) -> QPixmap:
+    """Return a brightened copy of *pix* so dark SWF icons are visible on
+    the near-black icon background.  Uses QPainter composition for speed."""
+    key = pix.cacheKey()
+    cached = _BRIGHTEN_CACHE.get(key)
+    if cached is not None:
+        return cached
+    # Screen-blend a white overlay twice to lift dark pixels aggressively.
+    result = QPixmap(pix.size())
+    result.setDevicePixelRatio(pix.devicePixelRatio())
+    result.fill(Qt.transparent)
+    p = QPainter(result)
+    p.drawPixmap(0, 0, pix)
+    p.setCompositionMode(QPainter.CompositionMode_Screen)
+    p.drawPixmap(0, 0, pix)  # first screen pass
+    p.drawPixmap(0, 0, pix)  # second screen pass — brightens darks further
+    p.end()
+    _BRIGHTEN_CACHE[key] = result
+    return result
+
+
 # ── Delegate ──────────────────────────────────────────────────────────────────
 
 class TagStripDelegate(QStyledItemDelegate):
@@ -161,7 +340,9 @@ class TagStripDelegate(QStyledItemDelegate):
         if isinstance(pixmap, QIcon):
             pixmap = pixmap.pixmap(r.size())
         if hasattr(pixmap, "size") and pixmap.size().isValid():
-            draw_y = r.center().y() - pixmap.height() // 2
+            _dpr = pixmap.devicePixelRatio() or 1.0
+            logical_h = int(pixmap.height() / _dpr)
+            draw_y = r.center().y() - logical_h // 2
             draw_x = r.left() + self._PAD_LEFT
             painter.drawPixmap(draw_x, draw_y, pixmap)
         painter.restore()
@@ -169,6 +350,197 @@ class TagStripDelegate(QStyledItemDelegate):
 
 # Backwards compatibility for any code still importing the old name.
 NameTagDelegate = TagStripDelegate
+
+
+class VisualIconDelegate(QStyledItemDelegate):
+    """Paints ability/mutation icons horizontally when the model's visual
+    mode is enabled. When visual mode is off, falls back to the default
+    text rendering so compact mode is unaffected."""
+
+    _ICON_PAD = 4
+    _ICON_SPACING = 6
+
+    def __init__(self, kind: str, parent=None):
+        super().__init__(parent)
+        # "abilities" or "mutations" — determines which data we pull.
+        self._kind = kind
+
+    def _visual_enabled(self, index) -> bool:
+        model = index.model()
+        source = getattr(model, "sourceModel", None)
+        if callable(source):
+            src_model = source()
+            if src_model is not None and hasattr(src_model, "visual_mode"):
+                return src_model.visual_mode()
+        if hasattr(model, "visual_mode"):
+            return model.visual_mode()
+        return False
+
+    def _cat_for_index(self, index) -> Optional[Cat]:
+        model = index.model()
+        src_index = index
+        source = getattr(model, "mapToSource", None)
+        if callable(source):
+            src_index = source(index)
+        src_model = getattr(model, "sourceModel", None)
+        if callable(src_model):
+            src_model = src_model()
+        else:
+            src_model = model
+        if src_model is None or not src_index.isValid():
+            return None
+        cat_at = getattr(src_model, "cat_at", None)
+        if cat_at is None:
+            return None
+        return cat_at(src_index.row())
+
+    def _icon_items(self, cat: Cat) -> list[tuple[str, str, bool]]:
+        """Return (icon_key, label, is_defect) tuples for the icons to paint.
+
+        For abilities: icon_key is the ability/passive name for SWF lookup.
+        For mutations: icon_key is ``"part:<slot_key>:<part_id>"`` so the
+        paint method can render the actual body-part sprite."""
+        if cat is None:
+            return []
+        items: list[tuple[str, str, bool]] = []
+        if self._kind == "abilities":
+            for name in getattr(cat, "abilities", []) or []:
+                items.append((str(name), str(name), False))
+            for name in getattr(cat, "passive_abilities", []) or []:
+                items.append((str(name), _mutation_display_name(name), False))
+            for name in getattr(cat, "disorders", []) or []:
+                items.append((str(name), _mutation_display_name(name), True))
+        elif self._kind == "mutations":
+            # Use visual_mutation_entries so we can render the body-part
+            # sprite as the icon (keyed by slot_key + mutation_id).
+            entries = getattr(cat, "visual_mutation_entries", None) or []
+            # Build a lookup: display_name -> first (slot_key, mutation_id)
+            seen_names: set[str] = set()
+            for entry in entries:
+                name = str(entry.get("name", ""))
+                if name in seen_names:
+                    continue
+                seen_names.add(name)
+                slot_key = str(entry.get("slot_key", ""))
+                mutation_id = int(entry.get("mutation_id", 0))
+                is_defect = bool(entry.get("is_defect", False))
+                label = _mutation_display_name(name)
+                icon_key = f"part:{slot_key}:{mutation_id}"
+                items.append((icon_key, label, is_defect))
+            # Fallback: if visual_mutation_entries is missing, use flat lists.
+            if not entries:
+                for name in getattr(cat, "mutations", []) or []:
+                    items.append((str(name), _mutation_display_name(name), False))
+                for name in getattr(cat, "defects", []) or []:
+                    items.append((str(name), str(name), True))
+        return items
+
+    def paint(self, painter, option, index):
+        if not self._visual_enabled(index):
+            super().paint(painter, option, index)
+            return
+
+        # Draw the normal cell chrome (background, selection) first.
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        style = opt.widget.style() if opt.widget else QApplication.style()
+        opt.text = ""
+        opt.icon = QIcon()
+        style.drawControl(QStyle.CE_ItemViewItem, opt, painter, opt.widget)
+
+        cat = self._cat_for_index(index)
+        items = self._icon_items(cat)
+        if not items:
+            return
+
+        from mewgenics.utils.ability_icons import (
+            get_ability_icon_pixmap, get_passive_icon_pixmap,
+        )
+
+        r = option.rect
+        row_h = r.height()
+        # Reserve a label line under each icon (~12 px) and small padding.
+        label_h = 12
+        icon_size = max(16, row_h - label_h - 2 * self._ICON_PAD)
+        y_top = r.top() + self._ICON_PAD
+        x = r.left() + self._ICON_PAD
+
+        painter.save()
+        label_font = QFont(opt.font)
+        label_font.setPixelSize(10)
+        painter.setFont(label_font)
+        fm = painter.fontMetrics()
+
+        for icon_key, label, is_defect in items:
+            if x + icon_size > r.right():
+                break
+            pix = None
+            if icon_key.startswith("part:"):
+                # Mutation body-part sprite.
+                parts = icon_key.split(":", 2)
+                if len(parts) == 3:
+                    try:
+                        pix = _mutation_part_pixmap(parts[1], int(parts[2]), icon_size)
+                    except Exception:
+                        pix = None
+            elif self._kind == "abilities":
+                try:
+                    pix = get_ability_icon_pixmap(icon_key, icon_size)
+                except Exception:
+                    pix = None
+                if pix is None or pix.isNull():
+                    try:
+                        pix = get_passive_icon_pixmap(icon_key, icon_size)
+                    except Exception:
+                        pix = None
+            else:  # mutations / defects fallback (no part info)
+                try:
+                    pix = get_passive_icon_pixmap(icon_key, icon_size)
+                except Exception:
+                    pix = None
+
+            # Dark rounded-rect background behind each icon.
+            painter.setRenderHint(QPainter.Antialiasing)
+            painter.setBrush(QBrush(QColor(18, 18, 30)))
+            painter.setPen(QColor(40, 40, 60))
+            painter.drawRoundedRect(int(x), int(y_top), int(icon_size), int(icon_size), 4, 4)
+
+            if pix is not None and not pix.isNull():
+                # Brighten ability SWF icons so they're visible on the dark bg.
+                # Mutation part icons are already tinted light in their renderer.
+                if self._kind == "abilities" and not icon_key.startswith("part:"):
+                    pix = _brighten_pixmap(pix)
+                painter.drawPixmap(x, y_top, icon_size, icon_size, pix)
+            else:
+                # Fallback: first letter of the label.
+                painter.setPen(QColor(80, 80, 100))
+                painter.drawText(
+                    int(x), int(y_top),
+                    int(icon_size), int(icon_size),
+                    Qt.AlignCenter,
+                    (label[:1] or "?").upper(),
+                )
+
+            # Label line
+            label_color = QColor(224, 160, 160) if is_defect else QColor(204, 204, 220)
+            painter.setPen(label_color)
+            text = fm.elidedText(label, Qt.ElideRight, icon_size + self._ICON_SPACING)
+            painter.drawText(
+                int(x - 2),
+                int(y_top + icon_size + 1),
+                int(icon_size + 4),
+                int(label_h),
+                Qt.AlignHCenter | Qt.AlignTop,
+                text,
+            )
+
+            x += icon_size + self._ICON_SPACING
+        painter.restore()
+
+    def sizeHint(self, option, index):
+        # Row height is controlled by the table's vertical header in
+        # visual mode, so just defer to the default here.
+        return super().sizeHint(option, index)
 
 
 # ── Table model ───────────────────────────────────────────────────────────────
@@ -190,6 +562,8 @@ class CatTableModel(QAbstractTableModel):
         self._breeding_cache = None  # Optional[BreedingCache]
         self._show_total_stats: bool = False
         self._show_stat_icons: bool = False
+        self._visual_mode: bool = False
+        self._visual_sprite_size: int = 48
         self._accessible_cat_keys: set[int] = set()
 
     def set_breeding_cache(self, cache):
@@ -250,6 +624,28 @@ class CatTableModel(QAbstractTableModel):
         self._show_stat_icons = bool(show)
         if self._cats:
             self.headerDataChanged.emit(Qt.Horizontal, STAT_COLS[0], STAT_COLS[-1])
+
+    def set_visual_mode(self, enabled: bool, sprite_size: int = 48):
+        """Toggle 'visual' roster mode. In visual mode the name column
+        gets a cat sprite decoration and the abilities/mutations columns
+        are painted with icons via their delegates."""
+        enabled = bool(enabled)
+        if self._visual_mode == enabled and int(sprite_size) == self._visual_sprite_size:
+            return
+        self._visual_mode = enabled
+        self._visual_sprite_size = max(16, int(sprite_size))
+        if self._cats:
+            self.dataChanged.emit(
+                self.index(0, 0),
+                self.index(len(self._cats) - 1, len(COLUMNS) - 1),
+                [Qt.DisplayRole, Qt.DecorationRole, Qt.SizeHintRole],
+            )
+
+    def visual_mode(self) -> bool:
+        return self._visual_mode
+
+    def visual_sprite_size(self) -> int:
+        return self._visual_sprite_size
 
     def load(self, cats: list[Cat], accessible_cats: Optional[set[int]] = None):
         self.beginResetModel()
@@ -393,7 +789,19 @@ class CatTableModel(QAbstractTableModel):
         is_exceptional = _is_exceptional_breeder(cat)
         donation_reason = _donation_candidate_reason(cat)
         is_donation = donation_reason is not None
-        can_adventure = cat.db_key in self._accessible_cat_keys
+        # Adv Ready: the cat must be alive, in the house (or currently on
+        # an adventure), AND flagged as accessible by the game's own
+        # pedigree table. "Gone" covers dead/aged-out cats — those must
+        # never show ✓ even if a stale entry lingers in the hash table.
+        # Retired cats (cats that have already gone on at least one
+        # adventure — detected via non-zero stat_mod level-up bonuses)
+        # also remain in the accessible hash but cannot be sent out
+        # again, so they must be filtered out here.
+        can_adventure = (
+            cat.status != "Gone"
+            and not cat.has_adventured
+            and cat.db_key in self._accessible_cat_keys
+        )
 
         def _badge_background() -> Optional[QColor]:
             if is_exceptional:
@@ -487,6 +895,10 @@ class CatTableModel(QAbstractTableModel):
         elif role == Qt.DecorationRole:
             if col == COL_TAGS:
                 return _cat_tag_pixmap(cat, dot_size=16, spacing=4)
+            if self._visual_mode and col == COL_NAME:
+                pix = _cat_sprite_pixmap(cat, self._visual_sprite_size)
+                if pix is not None and not pix.isNull():
+                    return pix
 
         elif role == Qt.BackgroundRole:
             compat = self._compat_for(cat)

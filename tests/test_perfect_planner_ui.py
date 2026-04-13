@@ -405,7 +405,7 @@ def test_room_optimizer_setup_controls_stack_and_help_panel(qt_app, planner_conf
     setup_text = view._setup_info_browser.toPlainText()
     assert "Optimizer options" in setup_text
     assert "Description" in setup_text
-    assert "Import Mutation Planner" in setup_text
+    assert "Import Breeding Planner" in setup_text
     assert "Run the optimizer once" in setup_text
 
 
@@ -2091,18 +2091,23 @@ def test_mutation_planner_trait_descriptions_hide_raw_keys(qt_app, planner_confi
     qt_app.processEvents()
 
 
-def test_ability_tip_strips_translated_spillover(monkeypatch):
+def test_ability_tip_preserves_legitimate_commas(monkeypatch):
+    # Previously `_trait_description_preview` cropped at the first comma as
+    # a workaround for `_load_gpak_text_strings` returning multi-language
+    # glob. The parser now picks the English column, so legitimate commas
+    # inside a single-language description must survive to the tooltip
+    # (e.g. GON fallback strings like "+2 STR, -1 DEX").
     key = "eyemutation"
-    monkeypatch.setitem(mm._ABILITY_LOOKUP, key, "Gain a random stat up at the end of each turn.")
+    monkeypatch.setitem(mm._ABILITY_LOOKUP, key, "Eye Mutation lookup")
     monkeypatch.setitem(
         mm._ABILITY_DESC,
         key,
-        "Gain a random stat up at the end of each turn.,Obtiene un aumento de un atributo al azar al final de cada turno.",
+        "+2 STR, -1 DEX",
     )
 
     tip = mm._ability_tip("Eye Mutation")
-    assert "Obtiene" not in tip
-    assert tip.startswith("Gain a random stat up at the end of each turn.")
+    assert "+2 STR" in tip
+    assert "-1 DEX" in tip
 
 
 def test_trait_selector_summary_only_shows_stat_hints():

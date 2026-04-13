@@ -2,13 +2,13 @@
 from typing import Optional
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QScrollArea,
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QScrollArea,
     QGridLayout, QPushButton, QSpinBox, QSizePolicy,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
     QDialog, QToolButton, QMenu,
 )
 from PySide6.QtCore import Qt, Signal, QTimer, QItemSelectionModel
-from PySide6.QtGui import QColor, QBrush, QFont, QPixmap
+from PySide6.QtGui import QColor, QBrush, QFont, QFontMetrics, QPixmap
 
 from save_parser import (
     Cat, STAT_NAMES,
@@ -72,11 +72,25 @@ def _wrapped_chip_block(items, tooltip_fn=None, display_fn=None, max_per_row: in
 
 
 class ChipRow(QWidget):
-    def __init__(self, items, tooltip_fn=None, display_fn=None, icon_fn=None, defect: bool = False, icon_size: int = 16):
+    # Icon-bearing chips render the icon stacked ABOVE the text, with the
+    # icon sized to match the label's width (with a sane minimum). Previously
+    # we clamped to 48px which made long labels like "BasicMelee" render
+    # with the icon noticeably narrower than the text.
+    _STACKED_ICON_MIN = 48
+
+    def __init__(self, items, tooltip_fn=None, display_fn=None, icon_fn=None, defect: bool = False, icon_size: int | None = None):
         super().__init__()
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(5)
+        row.setSpacing(8)
+
+        text_font = QFont()
+        text_font.setPixelSize(11)
+        metrics = QFontMetrics(text_font)
+
+        # Pre-compute a uniform icon size: the widest label wins, then
+        # every chip uses the same square so they all line up.
+        resolved: list[tuple[str, str]] = []  # (text, tip)
         for item in items:
             if isinstance(item, tuple):
                 text, tip = item
@@ -84,45 +98,60 @@ class ChipRow(QWidget):
             else:
                 text = display_fn(item) if display_fn else item
                 tip = tooltip_fn(item) if tooltip_fn else ""
+            resolved.append((str(text), tip))
+        uniform_size = self._STACKED_ICON_MIN
+        for text, _ in resolved:
+            uniform_size = max(uniform_size, metrics.horizontalAdvance(text))
+
+        for idx, item in enumerate(items):
+            text, tip = resolved[idx]
+
             pixmap = None
             if icon_fn is not None:
                 try:
-                    pixmap = icon_fn(item if not isinstance(item, tuple) else item[0], icon_size)
+                    pixmap = icon_fn(item if not isinstance(item, tuple) else item[0], uniform_size)
                 except Exception:
                     pixmap = None
+
             if pixmap is not None and not pixmap.isNull():
                 chip = QFrame()
                 chip.setObjectName("abilityChip")
                 chip.setStyleSheet(
                     "QFrame#abilityChip { background:#252545; color:#ccc; border-radius:6px;"
-                    " padding:2px 7px; font-size:11px; }"
+                    " padding:4px 7px; font-size:11px; }"
                     if not defect else
                     "QFrame#abilityChip { background:#3a1a1a; color:#e0a0a0; border-radius:6px;"
-                    " padding:2px 7px; font-size:11px; }"
+                    " padding:4px 7px; font-size:11px; }"
                 )
-                chip_row = QHBoxLayout(chip)
-                chip_row.setContentsMargins(0, 0, 0, 0)
-                chip_row.setSpacing(4)
+                chip_col = QVBoxLayout(chip)
+                chip_col.setContentsMargins(0, 0, 0, 0)
+                chip_col.setSpacing(2)
                 icon_lbl = QLabel()
-                icon_lbl.setPixmap(pixmap)
-                icon_lbl.setFixedSize(icon_size, icon_size)
+                _dpr = getattr(QApplication.instance(), "devicePixelRatio", lambda: 1.0)()
+                _phys = int(uniform_size * _dpr)
+                _scaled = pixmap.scaled(_phys, _phys, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                _scaled.setDevicePixelRatio(_dpr)
+                icon_lbl.setPixmap(_scaled)
+                icon_lbl.setFixedSize(uniform_size, uniform_size)
+                icon_lbl.setAlignment(Qt.AlignCenter)
                 icon_lbl.setStyleSheet("background:transparent;")
                 text_lbl = QLabel(text)
+                text_lbl.setAlignment(Qt.AlignCenter)
+                text_lbl.setFixedWidth(uniform_size)
                 text_lbl.setStyleSheet(
                     "background:transparent; color:#ccc; font-size:11px;"
                     if not defect else
                     "background:transparent; color:#e0a0a0; font-size:11px;"
                 )
-                chip_row.addWidget(icon_lbl)
-                chip_row.addWidget(text_lbl)
-                chip_row.addStretch()
+                chip_col.addWidget(icon_lbl, 0, Qt.AlignHCenter)
+                chip_col.addWidget(text_lbl, 0, Qt.AlignHCenter)
                 if tip:
                     chip.setToolTip(tip)
                     icon_lbl.setToolTip(tip)
                     text_lbl.setToolTip(tip)
-                row.addWidget(chip)
+                row.addWidget(chip, 0, Qt.AlignTop)
             else:
-                row.addWidget(_defect_chip(text, tip) if defect else _chip(text, tip))
+                row.addWidget(_defect_chip(text, tip) if defect else _chip(text, tip), 0, Qt.AlignTop)
         row.addStretch()
 
 
@@ -1164,9 +1193,13 @@ class LineageDialog(QDialog):
         # ── Generation label ─────────────────────────────────────────────
         def gen_row_label(text):
             lbl = QLabel(text)
+            # letter-spacing is not a Qt QSS property — apply via QFont.
             lbl.setStyleSheet(
-                "color:#333; font-size:9px; font-weight:bold; letter-spacing:1px;"
+                "color:#333; font-size:9px; font-weight:bold;"
                 " min-width:90px;")
+            f = lbl.font()
+            f.setLetterSpacing(QFont.AbsoluteSpacing, 1.0)
+            lbl.setFont(f)
             lbl.setAlignment(Qt.AlignVCenter | Qt.AlignRight)
             return lbl
 

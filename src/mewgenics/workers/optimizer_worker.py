@@ -45,6 +45,7 @@ class RoomOptimizerWorker(QThread):
         prefer_low_aggression = bool(p.get("prefer_low_aggression", True))
         prefer_high_libido = bool(p.get("prefer_high_libido", True))
         maximize_throughput = bool(p.get("maximize_throughput", False))
+        ignore_stat_priority = bool(p.get("ignore_stat_priority", False))
         sa_temperature = float(p.get("sa_temperature", 8.0) or 8.0)
         sa_neighbors = int(p.get("sa_neighbors", 120) or 120)
         mode_family = bool(p.get("mode_family", False))
@@ -84,6 +85,7 @@ class RoomOptimizerWorker(QThread):
             sa_neighbors_per_temp=max(1, sa_neighbors),
             planner_traits=planner_traits,
             mode_profiles=mode_profiles,
+            ignore_stat_priority=ignore_stat_priority,
         )
 
         optimized = optimize_room_distribution(
@@ -92,7 +94,12 @@ class RoomOptimizerWorker(QThread):
             params,
             cache=cache,
             excluded_keys=excluded_keys,
+            cancel_check=self.isInterruptionRequested,
         )
+
+        if self.isInterruptionRequested():
+            self.finished.emit({"cancelled": True})
+            return
 
         hater_key_map = {cat.db_key: {o.db_key for o in getattr(cat, "haters", [])} for cat in alive_cats}
         lover_key_map = {cat.db_key: {o.db_key for o in getattr(cat, "lovers", [])} for cat in alive_cats}
@@ -104,6 +111,9 @@ class RoomOptimizerWorker(QThread):
 
         locator_data: list[dict] = []
         room_rows: list[dict] = []
+        # Shared kinship memo so risk_percent calls across pairs reuse
+        # intermediate kinship results instead of recomputing from scratch.
+        kinship_memo: dict[tuple[int, int], float] = {}
         for room_idx, assignment in enumerate(optimized.rooms):
             room = assignment.room
             assigned_room_label = room.display_name
@@ -130,32 +140,40 @@ class RoomOptimizerWorker(QThread):
 
             room_pairs = []
             cats_in_room = assignment.cats
-            for ri, a in enumerate(cats_in_room):
-                for b in cats_in_room[ri + 1:]:
-                    ok, _ = can_breed(a, b)
-                    if not ok:
-                        continue
-                    projection = pair_projection(a, b, room.base_stim)
-                    trait_probs = _trait_inheritance_probabilities(a, b, room.base_stim)
-                    mutations = [
-                        (display, prob)
-                        for display, category, prob, _ in trait_probs
-                        if category == "mutation"
-                    ]
-                    room_pairs.append({
-                        "cat_a": f"{a.name} ({a.gender_display})",
-                        "cat_b": f"{b.name} ({b.gender_display})",
-                        "cat_a_db_key": a.db_key,
-                        "cat_b_db_key": b.db_key,
-                        "is_lovers": is_mutual_lover_pair(a, b, lover_key_map),
-                        "cat_a_has_lover": a.db_key in has_mutual_lover,
-                        "cat_b_has_lover": b.db_key in has_mutual_lover,
-                        "risk": risk_percent(a, b),
-                        "avg_stats": (_cat_base_sum(a) + _cat_base_sum(b)) / 2,
-                        "stat_ranges": projection.stat_ranges,
-                        "sum_range": projection.sum_range,
-                        "mutations": mutations,
-                    })
+            # Only enumerate breeding pairs for rooms that use profiles
+            # (Best Pairs / Melee / Ranged / Magic).  Fallback rooms hold
+            # overflow cats and don't need pair-level data for display.
+            if room.room_type.uses_profile:
+                for ri, a in enumerate(cats_in_room):
+                    for b in cats_in_room[ri + 1:]:
+                        ok, _ = can_breed(a, b)
+                        if not ok:
+                            continue
+                        projection = pair_projection(a, b, room.base_stim)
+                        trait_probs = _trait_inheritance_probabilities(a, b, room.base_stim)
+                        mutations = [
+                            (display, prob)
+                            for display, category, prob, _ in trait_probs
+                            if category == "mutation"
+                        ]
+                        if cache is not None and getattr(cache, 'ready', False):
+                            pair_risk = cache.get_risk(a, b)
+                        else:
+                            pair_risk = risk_percent(a, b, kinship_memo)
+                        room_pairs.append({
+                            "cat_a": f"{a.name} ({a.gender_display})",
+                            "cat_b": f"{b.name} ({b.gender_display})",
+                            "cat_a_db_key": a.db_key,
+                            "cat_b_db_key": b.db_key,
+                            "is_lovers": is_mutual_lover_pair(a, b, lover_key_map),
+                            "cat_a_has_lover": a.db_key in has_mutual_lover,
+                            "cat_b_has_lover": b.db_key in has_mutual_lover,
+                            "risk": pair_risk,
+                            "avg_stats": (_cat_base_sum(a) + _cat_base_sum(b)) / 2,
+                            "stat_ranges": projection.stat_ranges,
+                            "sum_range": projection.sum_range,
+                            "mutations": mutations,
+                        })
 
             room_pairs.sort(key=lambda p: (-p["avg_stats"], p["risk"]))
             best_pairs_count = len(assignment.pairs)

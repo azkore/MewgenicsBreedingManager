@@ -9,8 +9,9 @@ from PySide6.QtGui import QColor, QPalette
 
 from mewgenics.utils.paths import APP_VERSION
 from mewgenics.utils.config import _saved_default_save, find_save_files
-from mewgenics.utils.game_data import _GPAK_PATH, get_gpak_path
+from mewgenics.utils.game_data import _GPAK_PATH
 from mewgenics.utils.shape_extractor import ensure_defined_shapes
+from mewgenics.utils.logging_setup import setup_logging, install_excepthooks
 from mewgenics.dialogs import SaveSelectorDialog
 from mewgenics.main_window import MainWindow, _ensure_gpak_path_interactive
 
@@ -18,18 +19,19 @@ logger = logging.getLogger("mewgenics")
 
 
 def main():
-    # Configure logging
-    log_level_name = os.environ.get("MEWGENICS_LOG_LEVEL", "INFO").strip().upper()
-    log_level = getattr(logging, log_level_name, logging.INFO)
-    logging.basicConfig(
-        level=log_level,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        handlers=[logging.StreamHandler()],
-    )
-    logger.info("Mewgenics Breeding Manager %s starting", APP_VERSION)
+    # Configure rotating file logging and install global exception hooks.
+    # Must happen before we touch Qt so crashes during QApplication setup
+    # are still captured.
+    setup_logging()
 
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
+
+    # Install crash hooks now that QApplication exists — the main-thread
+    # hook needs it to show the crash dialog. The getter returns the
+    # MainWindow once it has been created, or None before that.
+    _main_window_ref: dict[str, object] = {"win": None}
+    install_excepthooks(dialog_parent_getter=lambda: _main_window_ref.get("win"))
 
     pal = QPalette()
     pal.setColor(QPalette.Window,          QColor(13,  13,  28))
@@ -58,8 +60,8 @@ def main():
         )
         _ensure_gpak_path_interactive()
 
-    # Extract DefinedShape PNGs from catparts.swf if the cache is empty.
-    ensure_defined_shapes(get_gpak_path())
+    # Extract DefinedShape PNGs from the bundled ZIP if the cache is empty.
+    ensure_defined_shapes()
 
     # Open directly only when a valid default save exists; otherwise always show the save selector.
     default_save = _saved_default_save()
@@ -74,5 +76,6 @@ def main():
             return 0
 
     win = MainWindow(initial_save=initial_save, use_saved_default=False)
+    _main_window_ref["win"] = win
     win.show()
     return app.exec()
