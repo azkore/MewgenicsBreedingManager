@@ -808,8 +808,9 @@ class WhatsNewDialog(QDialog):
         )
 
         default_highlights = highlights or [
-            "Fixed pixelated images on HiDPI/scaled displays — cat portraits, ability icons, mutation sprites, tag dots, and thumbnails now render at native resolution.",
-            "Cancel button for the Room Optimizer — abort long-running calculations instead of waiting or force-closing the app.",
+            "Fixed Room Optimizer hanging or taking 30+ minutes for large rosters (58-96+ cats) — bitmask DP capped at 24 cats with greedy fallback, fallback rooms skip unnecessary pair computation, and shared kinship memo eliminates redundant pedigree traversals (issues #63, #64).",
+            "Optimizer auto-calculation now waits for the breeding cache before starting, avoiding expensive uncached risk computations on every tab restore.",
+            "Fixed Mutation Planner trait selections reverting when switching tabs (issue #62).",
         ]
 
         root = QVBoxLayout(self)
@@ -826,7 +827,7 @@ class WhatsNewDialog(QDialog):
         body.setHtml(
             f"""
             <div style="line-height:1.5;">
-              <p>This release fixes pixelated images on HiDPI displays and adds a Cancel button to the Room Optimizer.</p>
+              <p>This release fixes Room Optimizer performance for large rosters and prevents Mutation Planner traits from reverting on tab switch.</p>
               <ul>{bullets}</ul>
               <p><a href="https://github.com/frankieg33/MewgenicsBreedingManager/releases">View releases on GitHub</a></p>
             </div>
