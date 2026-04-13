@@ -21,6 +21,12 @@ from .types import (
     ScoredPair,
 )
 
+# Maximum cats in a room before falling back to greedy pair selection.
+# The bitmask DP is O(2^N * N); at N=24 this is ~400M ops (~5-10 s).
+# Beyond this threshold a fast greedy approach is used instead.
+_MAX_DP_CATS = 24
+
+
 def _cat_stats_sum(cat: Cat) -> int:
     return sum(getattr(cat, "stat_base", []) or cat.base_stats.values())
 
@@ -320,36 +326,51 @@ def _select_room_pairs(
                 quality=factors.quality,
             )
 
-    @lru_cache(maxsize=None)
-    def _best_matching(mask: int) -> tuple[int, float, float, tuple[tuple[int, int], ...]]:
-        if mask.bit_count() < 2:
-            return (0, 0.0, 0.0, ())
+    if len(cats_in_room) <= _MAX_DP_CATS:
+        # Exact bitmask DP — optimal but exponential in room size.
+        @lru_cache(maxsize=None)
+        def _best_matching(mask: int) -> tuple[int, float, float, tuple[tuple[int, int], ...]]:
+            if mask.bit_count() < 2:
+                return (0, 0.0, 0.0, ())
 
-        first_bit = mask & -mask
-        first_idx = first_bit.bit_length() - 1
-        best = _best_matching(mask ^ (1 << first_idx))
+            first_bit = mask & -mask
+            first_idx = first_bit.bit_length() - 1
+            best = _best_matching(mask ^ (1 << first_idx))
 
-        for second_idx in range(first_idx + 1, len(cats_in_room)):
-            if not (mask & (1 << second_idx)):
-                continue
-            pair = candidate_pairs.get((first_idx, second_idx))
-            if pair is None:
-                continue
+            for second_idx in range(first_idx + 1, len(cats_in_room)):
+                if not (mask & (1 << second_idx)):
+                    continue
+                pair = candidate_pairs.get((first_idx, second_idx))
+                if pair is None:
+                    continue
 
-            remainder = _best_matching(mask ^ (1 << first_idx) ^ (1 << second_idx))
-            candidate = (
-                remainder[0] + 1,
-                remainder[1] + pair.quality,
-                remainder[2] + pair.risk,
-                ((first_idx, second_idx),) + remainder[3],
-            )
-            if _matching_result_key(candidate) > _matching_result_key(best):
-                best = candidate
+                remainder = _best_matching(mask ^ (1 << first_idx) ^ (1 << second_idx))
+                candidate = (
+                    remainder[0] + 1,
+                    remainder[1] + pair.quality,
+                    remainder[2] + pair.risk,
+                    ((first_idx, second_idx),) + remainder[3],
+                )
+                if _matching_result_key(candidate) > _matching_result_key(best):
+                    best = candidate
 
-        return best
+            return best
 
-    _, _, _, pair_indexes = _best_matching((1 << len(cats_in_room)) - 1)
-    selected_pairs = [candidate_pairs[indexes] for indexes in pair_indexes]
+        _, _, _, pair_indexes = _best_matching((1 << len(cats_in_room)) - 1)
+        selected_pairs = [candidate_pairs[indexes] for indexes in pair_indexes]
+    else:
+        # Greedy fallback for large rooms — O(P log P) instead of O(2^N).
+        sorted_candidates = sorted(
+            candidate_pairs.items(),
+            key=lambda item: (-item[1].quality, item[1].risk),
+        )
+        used_indices: set[int] = set()
+        selected_pairs = []
+        for (i, j), sp in sorted_candidates:
+            if i not in used_indices and j not in used_indices:
+                selected_pairs.append(sp)
+                used_indices.add(i)
+                used_indices.add(j)
     selected_pairs.sort(
         key=lambda pair: (
             -pair.quality,

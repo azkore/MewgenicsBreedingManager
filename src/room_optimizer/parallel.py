@@ -15,6 +15,12 @@ from functools import lru_cache
 from typing import Optional
 
 
+# Maximum cats in a room before falling back to greedy pair selection.
+# Must match the value in optimizer.py — duplicated here because this module
+# is designed to run in ProcessPoolExecutor workers without importing optimizer.
+_MAX_DP_CATS = 24
+
+
 # ---------------------------------------------------------------------------
 # Pure-function reimplementation of room pair selection (bitmask DP)
 # ---------------------------------------------------------------------------
@@ -92,29 +98,46 @@ def _select_room_pairs_pure(
     if not candidate_pairs:
         return (0.0, 0)
 
-    # Bitmask DP for best non-overlapping matching
-    @lru_cache(maxsize=None)
-    def _best(mask: int) -> tuple[int, float, float, tuple[tuple[int, int], ...]]:
-        if mask.bit_count() < 2:
-            return (0, 0.0, 0.0, ())
-        first_bit = mask & -mask
-        first_idx = first_bit.bit_length() - 1
-        best = _best(mask ^ (1 << first_idx))
-        for second_idx in range(first_idx + 1, n):
-            if not (mask & (1 << second_idx)):
-                continue
-            cp = candidate_pairs.get((first_idx, second_idx))
-            if cp is None:
-                continue
-            q, r = cp
-            remainder = _best(mask ^ (1 << first_idx) ^ (1 << second_idx))
-            cand = (remainder[0] + 1, remainder[1] + q, remainder[2] + r,
-                    ((first_idx, second_idx),) + remainder[3])
-            if (cand[0], cand[1], -cand[2]) > (best[0], best[1], -best[2]):
-                best = cand
-        return best
+    if n <= _MAX_DP_CATS:
+        # Exact bitmask DP — optimal but exponential in room size.
+        @lru_cache(maxsize=None)
+        def _best(mask: int) -> tuple[int, float, float, tuple[tuple[int, int], ...]]:
+            if mask.bit_count() < 2:
+                return (0, 0.0, 0.0, ())
+            first_bit = mask & -mask
+            first_idx = first_bit.bit_length() - 1
+            best = _best(mask ^ (1 << first_idx))
+            for second_idx in range(first_idx + 1, n):
+                if not (mask & (1 << second_idx)):
+                    continue
+                cp = candidate_pairs.get((first_idx, second_idx))
+                if cp is None:
+                    continue
+                q, r = cp
+                remainder = _best(mask ^ (1 << first_idx) ^ (1 << second_idx))
+                cand = (remainder[0] + 1, remainder[1] + q, remainder[2] + r,
+                        ((first_idx, second_idx),) + remainder[3])
+                if (cand[0], cand[1], -cand[2]) > (best[0], best[1], -best[2]):
+                    best = cand
+            return best
 
-    count, total_q, _, _ = _best((1 << n) - 1)
+        count, total_q, _, _ = _best((1 << n) - 1)
+    else:
+        # Greedy fallback for large rooms — O(P log P) instead of O(2^N).
+        sorted_candidates = sorted(
+            candidate_pairs.items(),
+            key=lambda item: (-item[1][0], item[1][1]),  # -quality, +risk
+        )
+        used_indices: set[int] = set()
+        total_q = 0.0
+        count = 0
+        for (i, j), (q, r) in sorted_candidates:
+            if i not in used_indices and j not in used_indices:
+                total_q += q
+                count += 1
+                used_indices.add(i)
+                used_indices.add(j)
+
     return (total_q, count)
 
 

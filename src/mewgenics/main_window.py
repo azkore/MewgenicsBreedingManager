@@ -3228,6 +3228,8 @@ class MainWindow(QMainWindow):
             self._safe_breeding_view.set_cache(cache)
         if self._perfect_planner_view is not None:
             self._perfect_planner_view.set_cache(cache)
+        if self._room_optimizer_view is not None:
+            self._room_optimizer_view.set_cache(cache)
         self._cache_progress.setFormat(_tr("loading.cache.pair_risks"))
 
     def _on_cache_ready(self, cache: BreedingCache):

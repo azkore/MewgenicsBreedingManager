@@ -374,3 +374,98 @@ def test_throughput_mode_skips_singletons_that_do_not_add_pairs(monkeypatch):
 
     assert small_room.cats == []
     assert sorted(cat.db_key for cat in fallback_room.cats) == [3, 4]
+
+
+# ---------------------------------------------------------------------------
+# Regression tests for DP cap / greedy fallback (issues #63, #64)
+# ---------------------------------------------------------------------------
+
+def test_large_room_greedy_fallback_completes_quickly():
+    """With 30 cats in one breeding room (> _MAX_DP_CATS), the optimizer must
+    complete in bounded time using the greedy fallback instead of the
+    exponential bitmask DP."""
+    import time
+
+    cats = []
+    for i in range(30):
+        gender = "male" if i % 2 == 0 else "female"
+        cats.append(_make_cat(i + 1, gender=gender, sexuality="bi", stat_seed=5 + (i % 3)))
+
+    room_configs = [
+        RoomConfig("Floor1_Large", RoomType.BREEDING, None, 50.0),  # unlimited capacity
+    ]
+    start = time.monotonic()
+    result = optimize_room_distribution(
+        cats,
+        room_configs,
+        OptimizationParams(max_risk=100.0, avoid_lovers=False),
+        cache=None,
+        excluded_keys=set(),
+    )
+    elapsed = time.monotonic() - start
+
+    assert elapsed < 30.0, f"Optimizer took {elapsed:.1f}s — greedy fallback should be fast"
+    assert result.stats.total_pairs >= 1
+    # Verify pairs are non-overlapping
+    used_ids = set()
+    for assignment in result.rooms:
+        for pair in assignment.pairs:
+            assert pair.cat_a.db_key not in used_ids, "Overlapping pair detected"
+            assert pair.cat_b.db_key not in used_ids, "Overlapping pair detected"
+            used_ids.add(pair.cat_a.db_key)
+            used_ids.add(pair.cat_b.db_key)
+
+
+def test_no_fallback_room_does_not_hang():
+    """When all rooms are breeding rooms (no fallback), overflow cats end up
+    in the last breeding room.  The DP cap must prevent this from hanging."""
+    import time
+
+    cats = []
+    for i in range(40):
+        gender = "male" if i % 2 == 0 else "female"
+        cats.append(_make_cat(i + 1, gender=gender, sexuality="bi", stat_seed=5))
+
+    # All rooms are breeding rooms with cap 6 — only 12 cats fit, 28 overflow
+    room_configs = [
+        RoomConfig("Floor1_Large", RoomType.BREEDING, 6, 50.0),
+        RoomConfig("Floor1_Small", RoomType.BREEDING, 6, 50.0),
+    ]
+    start = time.monotonic()
+    result = optimize_room_distribution(
+        cats,
+        room_configs,
+        OptimizationParams(max_risk=100.0, avoid_lovers=False),
+        cache=None,
+        excluded_keys=set(),
+    )
+    elapsed = time.monotonic() - start
+
+    assert elapsed < 30.0, f"Optimizer took {elapsed:.1f}s with no fallback room"
+    assert result.stats.assigned_cats == 40
+
+
+def test_greedy_fallback_produces_reasonable_pairs():
+    """The greedy approach should find at least as many pairs as a naive
+    first-fit, even when it can't use the exact DP."""
+    cats = []
+    for i in range(28):
+        gender = "male" if i % 2 == 0 else "female"
+        cats.append(_make_cat(i + 1, gender=gender, sexuality="bi", stat_seed=6))
+
+    room_configs = [
+        RoomConfig("Floor1_Large", RoomType.BREEDING, None, 50.0),
+    ]
+    result = optimize_room_distribution(
+        cats,
+        room_configs,
+        OptimizationParams(max_risk=100.0, avoid_lovers=False),
+        cache=None,
+        excluded_keys=set(),
+    )
+
+    # 14 males + 14 females with bi sexuality → at least 14 pairs possible
+    # (greedy should find most of them)
+    assert result.stats.total_pairs >= 10, (
+        f"Expected at least 10 pairs from 28 bi cats, got {result.stats.total_pairs}"
+    )
