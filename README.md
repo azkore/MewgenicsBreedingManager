@@ -2,7 +2,7 @@
 
 A high-performance, Python-based tool for optimizing breeding operations in Mewgenics. It extracts data directly from your save files and helps you compare pairings, optimize room layouts, and plan long-term lines to maximize strong offspring while minimizing inbreeding risk.
 
-Current release: `v5.4.5`
+Current release: `v5.4.6`
 
 If you'd like to support the project, you can [here](https://ko-fi.com/frankieg33).
 
@@ -67,9 +67,11 @@ On Linux, use `build.sh`.
 
 ## Release Notes
 
-### v5.4.5
+### v5.4.6
 
-- Added a Cancel button to the Room Optimizer so long-running calculations can be aborted instead of waiting or force-closing the app (issue #64). Cancellation threads through the greedy solver, SA pre-warming, and parallel SA runner
+- Fixed pixelated images on HiDPI/scaled displays — all icons, sprites, and thumbnails now render at native resolution
+- Added a Cancel button to the Room Optimizer so long-running calculations can be aborted (issue #64)
+- Added `face_cache` to `.gitignore` alongside other runtime caches
 
 ### v5.4.2
 

@@ -808,8 +808,8 @@ class WhatsNewDialog(QDialog):
         )
 
         default_highlights = highlights or [
+            "Fixed pixelated images on HiDPI/scaled displays — cat portraits, ability icons, mutation sprites, tag dots, and thumbnails now render at native resolution.",
             "Cancel button for the Room Optimizer — abort long-running calculations instead of waiting or force-closing the app.",
-            "Cancellation threads through the greedy solver, SA pre-warming, and parallel SA runner for responsive abort.",
         ]
 
         root = QVBoxLayout(self)
@@ -826,7 +826,7 @@ class WhatsNewDialog(QDialog):
         body.setHtml(
             f"""
             <div style="line-height:1.5;">
-              <p>This release adds a Cancel button to the Room Optimizer so you can abort long-running calculations.</p>
+              <p>This release fixes pixelated images on HiDPI displays and adds a Cancel button to the Room Optimizer.</p>
               <ul>{bullets}</ul>
               <p><a href="https://github.com/frankieg33/MewgenicsBreedingManager/releases">View releases on GitHub</a></p>
             </div>
