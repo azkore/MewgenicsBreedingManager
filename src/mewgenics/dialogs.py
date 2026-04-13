@@ -804,17 +804,8 @@ class WhatsNewDialog(QDialog):
         )
 
         default_highlights = highlights or [
-            "Visual Mode for the alive cats roster — toggle larger rows with cat portrait sprites, ability icons, and mutation body-part icons.",
-            "Mutation icons now render the actual mutated body-part sprite (head, ears, tail, etc.) as a clean silhouette instead of a letter fallback.",
-            "Ability icons brightened so they're clearly visible on the dark icon background.",
-            "Cat portraits in visual mode show the full cat trimmed and scaled to fill the thumbnail square.",
-            "\"Ignore Class Stat Priorities\" toggle added to the Room Optimizer for chasing all-7s builds.",
-            "Right-click Tag submenu on the main roster table for quick tag toggling.",
-            "Reorganized menu bar: display/appearance settings moved to a new View menu, Settings now holds only app configuration.",
-            "Room Optimizer class stat priority cards now show selected mutation names instead of just counts.",
-            "Fight Club view no longer dims other cats when selecting — breeding compatibility overlay is disabled in that view.",
-            "Column widths now restore properly when toggling visual mode off.",
-            "Fixed sprite and icon cache management to prevent stale entries across save reloads.",
+            "Cancel button for the Room Optimizer — abort long-running calculations instead of waiting or force-closing the app.",
+            "Cancellation threads through the greedy solver, SA pre-warming, and parallel SA runner for responsive abort.",
         ]
 
         root = QVBoxLayout(self)
@@ -831,7 +822,7 @@ class WhatsNewDialog(QDialog):
         body.setHtml(
             f"""
             <div style="line-height:1.5;">
-              <p>This release adds Visual Mode for the roster, mutation body-part icons, ability icon brightening, optimizer improvements, menu reorganization, and cache/UI stability fixes.</p>
+              <p>This release adds a Cancel button to the Room Optimizer so you can abort long-running calculations.</p>
               <ul>{bullets}</ul>
               <p><a href="https://github.com/frankieg33/MewgenicsBreedingManager/releases">View releases on GitHub</a></p>
             </div>
