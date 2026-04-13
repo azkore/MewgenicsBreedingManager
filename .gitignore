@@ -44,6 +44,8 @@ pytest-cache-files-*/
 .pytest_cache/
 
 # Cat visual renderer caches (generated at runtime, do not commit)
+src/CatAssets/face_cache/*
+!src/CatAssets/face_cache/.gitkeep
 src/CatAssets/part_cache/*
 !src/CatAssets/part_cache/.gitkeep
 src/CatAssets/thumbnail_cache/*
