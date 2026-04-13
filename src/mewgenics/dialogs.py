@@ -483,11 +483,15 @@ class TagManagerDialog(QDialog):
         if clean:
             pix = QPixmap(clean)
             if not pix.isNull():
+                _dpr = self.devicePixelRatioF()
+                _ls = label.size()
+                _target = QSize(int(_ls.width() * _dpr), int(_ls.height() * _dpr))
                 pix = pix.scaled(
-                    label.size(),
+                    _target,
                     Qt.KeepAspectRatio,
                     Qt.SmoothTransformation,
                 )
+                pix.setDevicePixelRatio(_dpr)
                 label.setPixmap(
                     pix
                 )

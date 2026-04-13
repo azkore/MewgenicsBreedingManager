@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Optional
 
 from PySide6.QtWidgets import (
-    QAbstractItemView, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
+    QAbstractItemView, QApplication, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
     QPushButton, QScrollArea, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget,
 )
@@ -411,10 +411,11 @@ class FamilyTreeBrowserView(QWidget):
                         cv.setContentsMargins(4, 4, 4, 0)
                         cv.setSpacing(2)
                         img_lbl = QLabel()
-                        img_lbl.setPixmap(pix.scaled(
-                            _THUMB_SIZE, _THUMB_SIZE,
-                            Qt.KeepAspectRatio, Qt.SmoothTransformation,
-                        ))
+                        _dpr = getattr(QApplication.instance(), "devicePixelRatio", lambda: 1.0)()
+                        _phys = int(_THUMB_SIZE * _dpr)
+                        _scaled = pix.scaled(_phys, _phys, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                        _scaled.setDevicePixelRatio(_dpr)
+                        img_lbl.setPixmap(_scaled)
                         img_lbl.setAlignment(Qt.AlignCenter)
                         img_lbl.setStyleSheet("border:none; background:transparent;")
                         btn.setStyleSheet(

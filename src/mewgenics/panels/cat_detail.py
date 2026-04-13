@@ -2,7 +2,7 @@
 from typing import Optional
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QScrollArea,
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QScrollArea,
     QGridLayout, QPushButton, QSpinBox, QSizePolicy,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
     QDialog, QToolButton, QMenu,
@@ -127,10 +127,11 @@ class ChipRow(QWidget):
                 chip_col.setContentsMargins(0, 0, 0, 0)
                 chip_col.setSpacing(2)
                 icon_lbl = QLabel()
-                icon_lbl.setPixmap(pixmap.scaled(
-                    uniform_size, uniform_size,
-                    Qt.KeepAspectRatio, Qt.SmoothTransformation,
-                ))
+                _dpr = getattr(QApplication.instance(), "devicePixelRatio", lambda: 1.0)()
+                _phys = int(uniform_size * _dpr)
+                _scaled = pixmap.scaled(_phys, _phys, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                _scaled.setDevicePixelRatio(_dpr)
+                icon_lbl.setPixmap(_scaled)
                 icon_lbl.setFixedSize(uniform_size, uniform_size)
                 icon_lbl.setAlignment(Qt.AlignCenter)
                 icon_lbl.setStyleSheet("background:transparent;")

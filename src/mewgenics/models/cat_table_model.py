@@ -160,22 +160,24 @@ def _cat_sprite_pixmap(cat: Cat, size: int) -> Optional[QPixmap]:
         # Use uid as a stable, non-reusable key instead of id() which can
         # be recycled after GC.
         db_key = getattr(cat, "uid", None) or id(cat)
-    key = (int(db_key), size)
+    dpr = getattr(QApplication.instance(), "devicePixelRatio", lambda: 1.0)()
+    key = (int(db_key), size, dpr)
     cached = _CAT_SPRITE_PIXMAP_CACHE.get(key)
     if cached is not None:
         return cached
 
     # Prefer face-only crop; fall back to full thumbnail.
+    phys = int(size * dpr)
     png = None
     render_face = getattr(_swf_cat_renderer, "render_cat_face_thumbnail", None)
     if render_face is not None:
         try:
-            png = render_face(cat, size=size)
+            png = render_face(cat, size=phys)
         except Exception:
             pass
     if not png:
         try:
-            png = _swf_cat_renderer.render_cat_thumbnail(cat, size=size)
+            png = _swf_cat_renderer.render_cat_thumbnail(cat, size=phys)
         except Exception:
             pass
     if not png:
@@ -185,15 +187,15 @@ def _cat_sprite_pixmap(cat: Cat, size: int) -> Optional[QPixmap]:
         return None
     # Composite onto a white rounded-rect background.  Pad inward so the
     # face fills most of the area.
-    pad = max(2, size // 16)
-    inner = size - 2 * pad
-    pix = QPixmap(size, size)
+    pad = max(2, phys // 16)
+    inner = phys - 2 * pad
+    pix = QPixmap(phys, phys)
     pix.fill(Qt.transparent)
     p = QPainter(pix)
     p.setRenderHint(QPainter.Antialiasing)
     p.setBrush(QBrush(QColor(255, 255, 255)))
     p.setPen(QColor(200, 200, 210))
-    p.drawRoundedRect(0, 0, size - 1, size - 1, 4, 4)
+    p.drawRoundedRect(0, 0, phys - 1, phys - 1, 4, 4)
     scaled = raw.scaled(inner, inner, Qt.KeepAspectRatio, Qt.SmoothTransformation)
     p.drawPixmap(
         pad + (inner - scaled.width()) // 2,
@@ -201,6 +203,7 @@ def _cat_sprite_pixmap(cat: Cat, size: int) -> Optional[QPixmap]:
         scaled,
     )
     p.end()
+    pix.setDevicePixelRatio(dpr)
     _CAT_SPRITE_PIXMAP_CACHE[key] = pix
     return pix
 
@@ -211,7 +214,7 @@ def clear_cat_sprite_cache():
 
 # ── Mutation body-part sprite icons ──────────────────────────────────────────
 
-_MUTATION_PART_PIXMAP_CACHE: dict[tuple[str, int, int], QPixmap] = {}
+_MUTATION_PART_PIXMAP_CACHE: dict[tuple, QPixmap] = {}
 
 
 def _mutation_part_pixmap(slot_key: str, part_id: int, size: int) -> Optional[QPixmap]:
@@ -223,8 +226,9 @@ def _mutation_part_pixmap(slot_key: str, part_id: int, size: int) -> Optional[QP
     """
     if not _SWF_CAT_RENDERER_AVAILABLE:
         return None
+    dpr = getattr(QApplication.instance(), "devicePixelRatio", lambda: 1.0)()
     size = int(max(16, size))
-    cache_key = (slot_key, int(part_id), size)
+    cache_key = (slot_key, int(part_id), size, dpr)
     cached = _MUTATION_PART_PIXMAP_CACHE.get(cache_key)
     if cached is not None:
         return cached
@@ -275,7 +279,9 @@ def _mutation_part_pixmap(slot_key: str, part_id: int, size: int) -> Optional[QP
     raw = QPixmap()
     if not raw.loadFromData(trimmed_png, "PNG"):
         return None
-    scaled = raw.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+    phys = int(size * dpr)
+    scaled = raw.scaled(phys, phys, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+    scaled.setDevicePixelRatio(dpr)
     _MUTATION_PART_PIXMAP_CACHE[cache_key] = scaled
     return scaled
 
@@ -297,6 +303,7 @@ def _brighten_pixmap(pix: QPixmap) -> QPixmap:
         return cached
     # Screen-blend a white overlay twice to lift dark pixels aggressively.
     result = QPixmap(pix.size())
+    result.setDevicePixelRatio(pix.devicePixelRatio())
     result.fill(Qt.transparent)
     p = QPainter(result)
     p.drawPixmap(0, 0, pix)
@@ -333,7 +340,9 @@ class TagStripDelegate(QStyledItemDelegate):
         if isinstance(pixmap, QIcon):
             pixmap = pixmap.pixmap(r.size())
         if hasattr(pixmap, "size") and pixmap.size().isValid():
-            draw_y = r.center().y() - pixmap.height() // 2
+            _dpr = pixmap.devicePixelRatio() or 1.0
+            logical_h = int(pixmap.height() / _dpr)
+            draw_y = r.center().y() - logical_h // 2
             draw_x = r.left() + self._PAD_LEFT
             painter.drawPixmap(draw_x, draw_y, pixmap)
         painter.restore()
