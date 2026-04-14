@@ -3,6 +3,7 @@ name: Build
 on:
   push:
     branches: [ main, master ]
+    tags: [ 'v*' ]
   pull_request:
     branches: [ main, master ]
 
@@ -51,3 +52,35 @@ jobs:
       with:
         name: MewgenicsManager-${{ matrix.artifact_suffix }}
         path: dist/MewgenicsManager-*.zip
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+    - name: Download Windows artifact
+      uses: actions/download-artifact@v5
+      with:
+        name: MewgenicsManager-windows
+        path: release-assets/windows
+
+    - name: Download Linux artifact
+      uses: actions/download-artifact@v5
+      with:
+        name: MewgenicsManager-linux
+        path: release-assets/linux
+
+    - name: Publish GitHub Release
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+      run: |
+        TAG="${{ github.ref_name }}"
+        REPO="${{ github.repository }}"
+        if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+          gh release upload "$TAG" release-assets/windows/*.zip release-assets/linux/*.zip --clobber --repo "$REPO"
+        else
+          gh release create "$TAG" release-assets/windows/*.zip release-assets/linux/*.zip --generate-notes --repo "$REPO"
+        fi
