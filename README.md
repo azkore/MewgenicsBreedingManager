@@ -67,6 +67,14 @@ On Linux, use `build.sh`.
 
 ## Release Notes
 
+### v5.6.2
+
+- Tier-2 ability support — upgraded passive abilities parsed from save, shown with "+" suffix and green-tinted chips (cherry-picked from byronaltice fork)
+- GPAK ability descriptions preferred over hardcoded lookup; multi-language text extraction with BOM-aware decoding
+- Generic mutation disambiguation — mutations with identical names now append their stat description
+- Tooltip detail deduplication when detail already appears in display name
+- Eager view loading — all views build at startup and receive cat data immediately, eliminating tab-switch freezes
+
 ### v5.6.0
 
 - Game-accurate compatibility formula (`0.15 × CHA × libido × lover_mult × sexuality_mult`) displayed as a color-coded chip with per-attempt success % in the pair detail panel

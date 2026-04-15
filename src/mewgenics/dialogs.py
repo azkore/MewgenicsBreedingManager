@@ -808,11 +808,10 @@ class WhatsNewDialog(QDialog):
         )
 
         default_highlights = highlights or [
-            "Game-accurate compatibility formula — breeding success now uses the wiki's 0.15 × CHA × libido × lover × sexuality formula, shown as a color-coded chip in the pair detail panel.",
-            "Ability and disorder inheritance chances — stimulation-based ability inheritance probabilities and 15% per-parent disorder inheritance displayed inline.",
-            "Compatibility integrated into optimizer — pairs below 5% compatibility are filtered early (faster), and quality scores scale with compatibility.",
-            "Manual Scoring: disorder selectors, Show All/Checked/Unchecked filters, cross-cat mutation disambiguation, and fixed checkbox persistence bugs.",
-            "? gender cats bypass sexuality scoring; soft warnings replace hard blocks for edge-case sexuality pairings.",
+            "Tier-2 ability support — upgraded passive abilities are parsed from the save and shown with a \"+\" suffix and green-tinted chips in the table and detail panel.",
+            "Improved localization — GPAK descriptions preferred over hardcoded ability lookup, multi-language text extraction, and BOM-aware decoding for GPAK strings.",
+            "Generic mutation disambiguation — mutations with identical names now append their stat description to distinguish them.",
+            "Eager view loading — all views build at startup and receive cat data immediately, eliminating tab-switch freezes.",
         ]
 
         root = QVBoxLayout(self)
@@ -829,7 +828,7 @@ class WhatsNewDialog(QDialog):
         body.setHtml(
             f"""
             <div style="line-height:1.5;">
-              <p>Game-accurate breeding compatibility, ability/disorder inheritance, and optimizer integration — plus Manual Scoring QOL fixes.</p>
+              <p>Tier-2 ability parsing, localization improvements, mutation disambiguation, and eager view loading for instant tab switching.</p>
               <ul>{bullets}</ul>
               <p><a href="https://github.com/frankieg33/MewgenicsBreedingManager/releases">View releases on GitHub</a></p>
             </div>
