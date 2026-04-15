@@ -335,6 +335,8 @@ class AutoScoringView(QWidget):
         self._mutation_list = QListWidget()
         self._trait_tabs.addTab(self._ability_list, "Abilities")
         self._trait_tabs.addTab(self._mutation_list, "Mutations")
+        self._ability_list.itemDoubleClicked.connect(self._on_trait_double_clicked)
+        self._mutation_list.itemDoubleClicked.connect(self._on_trait_double_clicked)
         vb.addWidget(self._trait_tabs, 1)
 
         # Score breakdown
@@ -529,9 +531,7 @@ class AutoScoringView(QWidget):
                     sub_val = sum(result.subtotals.get(k, 0.0) for k in keys)
                     item = QTableWidgetItem()
 
-                    if show_values and show_scores:
-                        item.setText(f"{sub_val:+.1f}" if sub_val != 0 else "")
-                    elif show_values:
+                    if show_values:
                         item.setText(f"{sub_val:+.1f}" if sub_val != 0 else "")
                     elif show_scores:
                         item.setData(Qt.DisplayRole, round(sub_val, 1) if sub_val != 0 else "")
@@ -623,8 +623,6 @@ class AutoScoringView(QWidget):
         else:
             item.setForeground(QColor("#888"))
         list_widget.addItem(item)
-        # Double-click to cycle rating
-        list_widget.itemDoubleClicked.connect(self._on_trait_double_clicked)
 
     def _on_trait_double_clicked(self, item: QListWidgetItem):
         name = item.data(Qt.UserRole)
