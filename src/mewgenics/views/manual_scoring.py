@@ -18,6 +18,7 @@ from mewgenics.utils.config import _load_ui_state, _save_ui_state
 from mewgenics.utils.cat_analysis import _cat_base_sum
 from mewgenics.utils.calibration import _trait_label_from_value
 from mewgenics.utils.abilities import _ability_tip, _mutation_display_name
+from mewgenics.utils.trait_ratings import TraitRatings
 
 
 # ---------------------------------------------------------------------------
@@ -538,6 +539,7 @@ class ManualScoringView(QWidget):
         self._config: dict = dict(_DEFAULT_CONFIG)
         self._session_state: dict = _load_ui_state(self._UI_STATE_KEY)
         self._suppress_recompute = False
+        self._trait_ratings: Optional[TraitRatings] = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -579,6 +581,20 @@ class ManualScoringView(QWidget):
         self._subtitle = QLabel("")
         self._subtitle.setStyleSheet("color:#667; font-size:11px;")
         vb.addWidget(self._subtitle)
+
+        # --- Profile ---
+        profile_row = QHBoxLayout()
+        profile_row.setSpacing(6)
+        profile_lbl = QLabel("Profile:")
+        profile_lbl.setMinimumWidth(60)
+        profile_row.addWidget(profile_lbl)
+        self._profile_combo = QComboBox()
+        for i in range(1, 6):
+            self._profile_combo.addItem(f"Profile {i}", i)
+        self._profile_combo.currentIndexChanged.connect(self._on_profile_changed)
+        profile_row.addWidget(self._profile_combo, 1)
+        profile_row.addStretch()
+        vb.addLayout(profile_row)
 
         # --- Stats ---
         vb.addWidget(self._section_label("Stats"))
@@ -928,9 +944,82 @@ class ManualScoringView(QWidget):
         self._config = self._read_config()
         self._recompute()
 
+    # ---- Shared trait ratings ------------------------------------------------
+
+    def set_trait_ratings(self, tr: TraitRatings):
+        """Receive shared TraitRatings instance from MainWindow."""
+        self._trait_ratings = tr
+        # Sync profile combo
+        self._suppress_recompute = True
+        idx = self._profile_combo.findData(tr.active_profile)
+        if idx >= 0:
+            self._profile_combo.setCurrentIndex(idx)
+        self._suppress_recompute = False
+        # Restore state from active profile
+        manual_weights = tr.get_manual_weights()
+        if manual_weights:
+            self._restore_from_manual_weights(manual_weights)
+
+    def _on_profile_changed(self):
+        if self._suppress_recompute or self._trait_ratings is None:
+            return
+        slot = self._profile_combo.currentData()
+        if slot is None:
+            return
+        # Save current manual weights before switching
+        self._trait_ratings.set_manual_weights(self._read_config())
+        self._trait_ratings.switch_profile(slot)
+        self._trait_ratings.save()
+        # Load new profile's manual weights
+        manual_weights = self._trait_ratings.get_manual_weights()
+        if manual_weights:
+            self._restore_from_manual_weights(manual_weights)
+        self._recompute()
+
+    def _restore_from_manual_weights(self, s: dict):
+        """Restore widget state from a manual_weights dict."""
+        self._suppress_recompute = True
+        self._spin_stat.setValue(s.get("stat_weight", _DEFAULT_CONFIG["stat_weight"]))
+        self._desired_selector.set_state(
+            use_individual=s.get("desired_use_individual", False),
+            default_weight=s.get("desired_default_weight", 1),
+            per_weights=s.get("desired_mutation_weights", {}),
+        )
+        self._undesired_selector.set_state(
+            use_individual=s.get("undesired_use_individual", False),
+            default_weight=s.get("undesired_default_weight", -5),
+            per_weights=s.get("undesired_mutation_weights", {}),
+        )
+        self._desired_disorder_selector.set_state(
+            use_individual=s.get("desired_disorder_use_individual", False),
+            default_weight=s.get("desired_disorder_default_weight", 1),
+            per_weights=s.get("desired_disorder_weights", {}),
+        )
+        self._undesired_disorder_selector.set_state(
+            use_individual=s.get("undesired_disorder_use_individual", False),
+            default_weight=s.get("undesired_disorder_default_weight", -5),
+            per_weights=s.get("undesired_disorder_weights", {}),
+        )
+        for k, spin in self._spin_inbredness.items():
+            spin.setValue(s.get("inbredness_weights", _DEFAULT_CONFIG["inbredness_weights"]).get(k, 0))
+        for k, spin in self._spin_libido.items():
+            spin.setValue(s.get("libido_weights", _DEFAULT_CONFIG["libido_weights"]).get(k, 0))
+        for k, spin in self._spin_aggression.items():
+            spin.setValue(s.get("aggression_weights", _DEFAULT_CONFIG["aggression_weights"]).get(k, 0))
+        self._spin_passive.setValue(s.get("passive_weight", _DEFAULT_CONFIG["passive_weight"]))
+        self._spin_spell.setValue(s.get("extra_spell_weight", _DEFAULT_CONFIG["extra_spell_weight"]))
+        for k, spin in self._spin_sexuality.items():
+            spin.setValue(s.get("sexuality_weights", _DEFAULT_CONFIG["sexuality_weights"]).get(k, 0))
+        self._suppress_recompute = False
+        self._config = self._read_config()
+
     # ---- Session state persistence ----------------------------------------
 
     def save_session_state(self):
+        if self._trait_ratings is not None:
+            self._trait_ratings.set_manual_weights(self._read_config())
+            self._trait_ratings.save()
+        # Always save UI state (threshold, room filter, splitter, sort) to app config
         state = self._read_config()
         state["threshold"] = self._spin_threshold.value()
         state["room_filter"] = self._room_combo.currentData() or ""
