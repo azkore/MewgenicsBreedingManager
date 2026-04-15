@@ -133,6 +133,11 @@ def _calibration_path(save_path: str) -> str:
     return save_path + ".calibration.json"
 
 
+def _scoring_path(save_path: str) -> str:
+    """Return JSON path for shared scoring state (ratings + profiles)."""
+    return save_path + ".scoring.json"
+
+
 def _planner_state_path(save_path: str) -> str:
     return save_path + ".planner_state.json"
 
