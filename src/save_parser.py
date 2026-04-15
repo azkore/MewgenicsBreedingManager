@@ -1943,28 +1943,81 @@ def _coi_from_contribs(
 _KINSHIP_CYCLE = object()  # sentinel for cycle detection
 
 
-def _kinship(a: Optional['Cat'], b: Optional['Cat'],
+def _kinship(start_a: Optional['Cat'], start_b: Optional['Cat'],
              memo: dict[tuple[int, int], float]) -> float:
     """
     Memoised kinship coefficient between two cats.
+    Converted to iterative stack-based evaluation to avoid RecursionError.
     """
-    if a is None or b is None:
+    if start_a is None or start_b is None:
         return 0.0
-    ia, ib = id(a), id(b)
-    key = (ia, ib) if ia <= ib else (ib, ia)
-    cached = memo.get(key)
-    if cached is not None:
-        return 0.0 if cached is _KINSHIP_CYCLE else cached
-    memo[key] = _KINSHIP_CYCLE  # mark in-progress to detect cycles
-    if a is b:
-        result = (1.0 + _kinship(a.parent_a, a.parent_b, memo)) / 2.0
-    else:
-        if a.generation > b.generation:
-            result = (_kinship(a.parent_a, b, memo) + _kinship(a.parent_b, b, memo)) / 2.0
+
+    stack = [(start_a, start_b, False)]
+
+    while stack:
+        a, b, processed = stack.pop()
+        
+        ia, ib = id(a), id(b)
+        key = (ia, ib) if ia <= ib else (ib, ia)
+
+        if processed:
+            # Both sides evaluated. Compute local value
+            if a is b:
+                ka = 0.0
+                if a.parent_a and a.parent_b:
+                    pak = (id(a.parent_a), id(a.parent_b)) if id(a.parent_a) <= id(a.parent_b) else (id(a.parent_b), id(a.parent_a))
+                    v = memo.get(pak)
+                    if v is not None and v is not _KINSHIP_CYCLE: ka = v
+                memo[key] = (1.0 + ka) / 2.0
+            elif a.generation > b.generation:
+                k1, k2 = 0.0, 0.0
+                if a.parent_a:
+                    k1k = (id(a.parent_a), id(b)) if id(a.parent_a) <= id(b) else (id(b), id(a.parent_a))
+                    v = memo.get(k1k)
+                    if v is not None and v is not _KINSHIP_CYCLE: k1 = v
+                if a.parent_b:
+                    k2k = (id(a.parent_b), id(b)) if id(a.parent_b) <= id(b) else (id(b), id(a.parent_b))
+                    v = memo.get(k2k)
+                    if v is not None and v is not _KINSHIP_CYCLE: k2 = v
+                memo[key] = (k1 + k2) / 2.0
+            else:
+                k1, k2 = 0.0, 0.0
+                if b.parent_a:
+                    k1k = (id(a), id(b.parent_a)) if id(a) <= id(b.parent_a) else (id(b.parent_a), id(a))
+                    v = memo.get(k1k)
+                    if v is not None and v is not _KINSHIP_CYCLE: k1 = v
+                if b.parent_b:
+                    k2k = (id(a), id(b.parent_b)) if id(a) <= id(b.parent_b) else (id(b.parent_b), id(a))
+                    v = memo.get(k2k)
+                    if v is not None and v is not _KINSHIP_CYCLE: k2 = v
+                memo[key] = (k1 + k2) / 2.0
+            continue
+
+        cached = memo.get(key)
+        if cached is not None:
+            continue
+
+        memo[key] = _KINSHIP_CYCLE
+        stack.append((a, b, True))
+
+        if a is b:
+            if a.parent_a and a.parent_b:
+                stack.append((a.parent_a, a.parent_b, False))
+        elif a.generation > b.generation:
+            if a.parent_a:
+                stack.append((a.parent_a, b, False))
+            if a.parent_b:
+                stack.append((a.parent_b, b, False))
         else:
-            result = (_kinship(a, b.parent_a, memo) + _kinship(a, b.parent_b, memo)) / 2.0
-    memo[key] = result
-    return result
+            if b.parent_a:
+                stack.append((a, b.parent_a, False))
+            if b.parent_b:
+                stack.append((a, b.parent_b, False))
+
+    ska, skb = id(start_a), id(start_b)
+    skey = (ska, skb) if ska <= skb else (skb, ska)
+    v = memo.get(skey)
+    return 0.0 if v is None or v is _KINSHIP_CYCLE else v
 
 
 def kinship_coi(a: Optional['Cat'], b: Optional['Cat'],
@@ -2396,31 +2449,37 @@ def parse_save(path: str) -> SaveData:
             if parent is not None and cat not in parent.children:
                 parent.children.append(cat)
 
-    # Compute generation depth (iterative; handles cycles)
+    # Compute generation depth (O(V) using explicit stack DFS)
     for c in cats:
-        c.generation = 0 if (c.parent_a is None and c.parent_b is None) else -1
+        c.generation = -1
 
-    for _ in range(len(cats) + 1):
-        changed = False
-        for c in cats:
-            pa_g = c.parent_a.generation if c.parent_a is not None else -1
-            pb_g = c.parent_b.generation if c.parent_b is not None else -1
+    def _calc_gen(start_cat):
+        if start_cat.generation >= 0:
+            return
+        
+        stack = [(start_cat, False)]
+        while stack:
+            c, children_processed = stack.pop()
+            
+            if children_processed:
+                pa_g = c.parent_a.generation if c.parent_a is not None else -1
+                pb_g = c.parent_b.generation if c.parent_b is not None else -1
+                
+                # If both parents are missing/broken in the graph, it's a stray (gen 0).
+                if c.parent_a is None and c.parent_b is None:
+                    c.generation = 0
+                else:
+                    g = max(pa_g, pb_g) + 1
+                    c.generation = g if (pa_g >= 0 or pb_g >= 0) else 0
+                continue
+                
+            stack.append((c, True))
+            for p in (c.parent_a, c.parent_b):
+                if p is not None and p.generation < 0:
+                    stack.append((p, False))
 
-            if pa_g >= 0 or pb_g >= 0:
-                g = max(pa_g, pb_g) + 1
-                if c.generation != g:
-                    c.generation = g
-                    changed = True
-
-        if not changed:
-            break
-
-    # Cats whose generation couldn't be resolved (both parents missing/broken)
-    # default to generation 0 (stray). This is intentional — the iterative
-    # algorithm above converges for valid pedigrees; stragglers are strays.
     for c in cats:
-        if c.generation < 0:
-            c.generation = 0
+        _calc_gen(c)
 
     return SaveData(
         cats=cats,

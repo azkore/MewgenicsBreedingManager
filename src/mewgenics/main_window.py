@@ -1016,14 +1016,23 @@ class MainWindow(QMainWindow):
             item = self._rooms_vb.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
-        # Drop stale entries — rooms that no longer exist (e.g., last cat
-        # moved out of Attic) would otherwise leak deleted-widget references
-        # in `_room_btns` forever.
+        # Drop stale room entries — rooms that no longer exist (e.g., last
+        # cat moved out of Attic) would otherwise leak deleted-widget
+        # references in `_room_btns` forever.  Preserve permanent filter
+        # entries (None, "__all__", "__exceptional__", …) so that
+        # _active_room_key(), _current_room_key(), and nav restore keep
+        # working after a rebuild.
         if active_room_key is not None and active_room_key in self._room_btns:
             # Null out first so `_active_btn` doesn't briefly point at a
             # dangling entry while we rebuild.
             self._active_btn = None
-        self._room_btns.clear()
+        _PERMANENT_KEYS = {
+            None, "__all__", "__exceptional__", "__donation__",
+            "__fight_club__", "__adventure__", "__gone__",
+        }
+        stale = [k for k in self._room_btns if k not in _PERMANENT_KEYS]
+        for k in stale:
+            del self._room_btns[k]
         _ROOM_ORDER = {
             "Attic": 0,
             "Floor2_Large": 1, "Floor2_Small": 2,
@@ -3693,8 +3702,12 @@ class MainWindow(QMainWindow):
             entry = patch.get(cat.db_key)
             if entry is not None:
                 cat.room, cat.status = entry
-        # Lightweight repaint — no model rebuild, no ancestry recompute
+        # Lightweight repaint — no model rebuild, no ancestry recompute.
+        # layoutChanged updates cell data but doesn't re-run filterAcceptsRow
+        # in QSortFilterProxyModel, so cats that moved rooms would remain
+        # visible under the old room filter.  invalidate() re-filters + re-sorts.
         self._source_model.layoutChanged.emit()
+        self._proxy_model.invalidate()
         self._rebuild_room_buttons(self._cats)
         self._refresh_filter_button_counts()
         if self._furniture_view is not None:

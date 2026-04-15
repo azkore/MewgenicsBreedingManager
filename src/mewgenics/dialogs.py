@@ -808,9 +808,10 @@ class WhatsNewDialog(QDialog):
         )
 
         default_highlights = highlights or [
-            "Fixed Configure Rooms layout (capacity, room type, stimulation) bleeding between save files — room priority config now lives only in the per-save sidecar instead of being mirrored globally (issue #68).",
-            "Room Optimizer can now route kittens (age < 2) into fallback rooms instead of wasting breeding-room capacity on cats that can't breed yet. Eternal-youth cats are still placed in the best breeding room (issue #70).",
-            "Room Optimizer can now avoid placing cats with desired mutations into high-Evolution rooms, and cats with desired disorders into high-Health rooms (which would otherwise override or cure those traits). Opt in via the new Avoid Trait Loss toggle (issue #71).",
+            "Lowered optimizer bitmask DP threshold from 24 to 22 cats per room — rooms above this size use a fast greedy fallback to prevent exponential freeze on dense rooms.",
+            "Rewrote kinship calculation from recursive to iterative, eliminating RecursionError crashes on deeply inbred lineages.",
+            "Replaced O(V\u00b7Depth) generation depth computation with O(V) memoized DFS for faster save parsing on large colonies.",
+            "Fixed room filter buttons (Alive, All Cats, Exceptional, etc.) disappearing after room rebuilds, and quick room refresh not updating the room filter immediately.",
         ]
 
         root = QVBoxLayout(self)
@@ -827,7 +828,7 @@ class WhatsNewDialog(QDialog):
         body.setHtml(
             f"""
             <div style="line-height:1.5;">
-              <p>This release fixes Configure Rooms settings bleeding between save files and adds two opt-in Room Optimizer improvements: kitten routing to fallback rooms and trait-loss avoidance for desired mutations/disorders.</p>
+              <p>Performance and edge-case fixes: optimizer threshold tuning, iterative kinship to avoid recursion crashes, faster generation depth computation, and UI filter bug fixes.</p>
               <ul>{bullets}</ul>
               <p><a href="https://github.com/frankieg33/MewgenicsBreedingManager/releases">View releases on GitHub</a></p>
             </div>

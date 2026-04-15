@@ -24,7 +24,7 @@ from .types import (
 # Maximum cats in a room before falling back to greedy pair selection.
 # The bitmask DP is O(2^N * N); at N=24 this is ~400M ops (~5-10 s).
 # Beyond this threshold a fast greedy approach is used instead.
-_MAX_DP_CATS = 24
+_MAX_DP_CATS = 22
 
 
 def _cat_stats_sum(cat: Cat) -> int:

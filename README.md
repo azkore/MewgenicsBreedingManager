@@ -2,7 +2,7 @@
 
 A high-performance, Python-based tool for optimizing breeding operations in Mewgenics. It extracts data directly from your save files and helps you compare pairings, optimize room layouts, and plan long-term lines to maximize strong offspring while minimizing inbreeding risk.
 
-Current release: `v5.4.8`
+Current release: `v5.4.9`
 
 If you'd like to support the project, you can [here](https://ko-fi.com/frankieg33).
 
@@ -66,6 +66,15 @@ On Linux, use `build.sh`.
 - Original idea and reference from frankieg33
 
 ## Release Notes
+
+### v5.4.9
+
+- Lowered optimizer bitmask DP threshold from 24 to 22 cats per room — rooms above this size use an O(P log P) greedy fallback to prevent exponential freeze on dense rooms
+- Rewrote `_kinship()` from recursive to iterative stack-based evaluation, eliminating `RecursionError` on deeply inbred lineages (Python's 1000-frame recursion limit)
+- Replaced O(V * Depth) Bellman-Ford generation depth computation with O(V) memoized DFS in `parse_save()`
+- Fixed room button rebuild clearing permanent filter entries (Alive, All Cats, Exceptional, etc.) — stale room entries are now selectively removed while permanent keys are preserved
+- Fixed quick room refresh not re-filtering the proxy model after room reassignment — `invalidate()` now runs after `layoutChanged` so cats moving rooms update the room filter immediately
+- Fixed broken test imports that still referenced the old monolithic `mewgenics_manager` module
 
 ### v5.4.8
 

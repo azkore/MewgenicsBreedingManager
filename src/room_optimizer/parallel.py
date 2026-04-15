@@ -15,12 +15,6 @@ from functools import lru_cache
 from typing import Optional
 
 
-# Maximum cats in a room before falling back to greedy pair selection.
-# Must match the value in optimizer.py — duplicated here because this module
-# is designed to run in ProcessPoolExecutor workers without importing optimizer.
-_MAX_DP_CATS = 24
-
-
 # ---------------------------------------------------------------------------
 # Pure-function reimplementation of room pair selection (bitmask DP)
 # ---------------------------------------------------------------------------
@@ -97,6 +91,11 @@ def _select_room_pairs_pure(
 
     if not candidate_pairs:
         return (0.0, 0)
+
+    # Maximum cats in a room before falling back to greedy pair selection.
+    # Must match the value in optimizer.py — duplicated here because this
+    # module runs in ProcessPoolExecutor workers without importing optimizer.
+    _MAX_DP_CATS = 22
 
     if n <= _MAX_DP_CATS:
         # Exact bitmask DP — optimal but exponential in room size.

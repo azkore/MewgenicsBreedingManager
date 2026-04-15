@@ -137,3 +137,32 @@ class TestRebuildRescuesActiveRoom:
 
         assert window._active_btn is top_level_btn
         assert window._active_btn.isChecked()
+
+    def test_permanent_filter_entries_preserved_across_rebuild(self, qt_app):
+        """Permanent filter entries (Alive, All Cats, Exceptional, etc.)
+        must survive room rebuilds so _active_room_key(),
+        _current_room_key(), and nav restore keep working.
+        """
+        window = _bare_window(qt_app)
+        # Simulate the permanent filter buttons set up in _build_sidebar.
+        btn_all = QPushButton("Alive"); btn_all.setCheckable(True)
+        btn_everyone = QPushButton("All Cats"); btn_everyone.setCheckable(True)
+        window._room_btns[None] = btn_all
+        window._room_btns["__all__"] = btn_everyone
+        window._active_btn = btn_all
+
+        mm.MainWindow._rebuild_room_buttons(
+            window,
+            [_make_cat(1, "Attic"), _make_cat(2, "Floor1_Large")],
+        )
+
+        # Permanent entries must still be present.
+        assert None in window._room_btns
+        assert "__all__" in window._room_btns
+        assert window._room_btns[None] is btn_all
+        assert window._room_btns["__all__"] is btn_everyone
+        # Room entries must also be present.
+        assert "Attic" in window._room_btns
+        assert "Floor1_Large" in window._room_btns
+        # Active btn was a permanent button — must be untouched.
+        assert window._active_btn is btn_all

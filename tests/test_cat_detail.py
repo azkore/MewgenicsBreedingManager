@@ -7,8 +7,9 @@ _src_dir = os.path.join(_proj_root, "src")
 sys.path.insert(0, _src_dir)
 sys.path.insert(0, _proj_root)
 
-import mewgenics_manager
-from mewgenics_manager import _source_summary, _trait_inheritance_probabilities
+import mewgenics.models.cat_table_model as cat_table_model
+from mewgenics.models.cat_table_model import _source_summary
+from mewgenics.utils.abilities import _trait_inheritance_probabilities
 
 
 def _make_cat(*, name="Cat", abilities=None, passive_abilities=None, mutations=None):
@@ -43,7 +44,7 @@ def test_trait_inheritance_probabilities_returns_all_categories():
 
 def test_source_summary_marks_repaired_pedigree(monkeypatch):
     monkeypatch.setattr(
-        mewgenics_manager,
+        cat_table_model,
         "_tr",
         lambda key, default=None, **kwargs: default or key,
     )
