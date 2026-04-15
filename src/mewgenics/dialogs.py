@@ -808,10 +808,9 @@ class WhatsNewDialog(QDialog):
         )
 
         default_highlights = highlights or [
-            "Lowered optimizer bitmask DP threshold from 24 to 22 cats per room — rooms above this size use a fast greedy fallback to prevent exponential freeze on dense rooms.",
-            "Rewrote kinship calculation from recursive to iterative, eliminating RecursionError crashes on deeply inbred lineages.",
-            "Replaced O(V\u00b7Depth) generation depth computation with O(V) memoized DFS for faster save parsing on large colonies.",
-            "Fixed room filter buttons (Alive, All Cats, Exceptional, etc.) disappearing after room rebuilds, and quick room refresh not updating the room filter immediately.",
+            "New Manual Scoring view — assign point weights to stats, mutations, inbredness, libido, aggression, passives, spells, and sexuality to sort and triage cats by total score.",
+            "View switching is now instant when cat data hasn't changed — hidden views pick up changes lazily when shown.",
+            "Background data paths (blacklist, calibration, tag filter) only update the visible view; hidden views refresh on demand.",
         ]
 
         root = QVBoxLayout(self)
@@ -828,7 +827,7 @@ class WhatsNewDialog(QDialog):
         body.setHtml(
             f"""
             <div style="line-height:1.5;">
-              <p>Performance and edge-case fixes: optimizer threshold tuning, iterative kinship to avoid recursion crashes, faster generation depth computation, and UI filter bug fixes.</p>
+              <p>New Manual Scoring view for cat triage, plus instant view switching and lazy data propagation for a snappier UI.</p>
               <ul>{bullets}</ul>
               <p><a href="https://github.com/frankieg33/MewgenicsBreedingManager/releases">View releases on GitHub</a></p>
             </div>

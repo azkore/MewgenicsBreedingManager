@@ -124,6 +124,7 @@ from mewgenics.views.perfect_planner import PerfectCatPlannerView
 from mewgenics.views.calibration import CalibrationView
 from mewgenics.views.mutation_planner import MutationDisorderPlannerView
 from mewgenics.views.furniture import FurnitureView
+from mewgenics.views.manual_scoring import ManualScoringView
 
 
 class MainWindow(QMainWindow):
@@ -255,6 +256,9 @@ class MainWindow(QMainWindow):
         self._calibration_view: Optional[CalibrationView] = None
         self._mutation_planner_view: Optional['MutationDisorderPlannerView'] = None
         self._furniture_view: Optional[FurnitureView] = None
+        self._manual_scoring_view: Optional[ManualScoringView] = None
+        self._cats_generation: int = 0
+        self._view_generation: dict[str, int] = {}
         self._breeding_cache: Optional[BreedingCache] = None
         self._cache_worker: Optional[BreedingCacheWorker] = None
         self._save_load_worker: Optional[SaveLoadWorker] = None
@@ -953,6 +957,9 @@ class MainWindow(QMainWindow):
         self._btn_furniture_view = _sidebar_btn(_tr("sidebar.button.furniture", default="Furniture"))
         self._btn_furniture_view.clicked.connect(self._open_furniture_view)
         vb.addWidget(self._btn_furniture_view)
+        self._btn_manual_scoring = _sidebar_btn(_tr("sidebar.button.manual_scoring", default="Manual Scoring"))
+        self._btn_manual_scoring.clicked.connect(self._open_manual_scoring_view)
+        vb.addWidget(self._btn_manual_scoring)
         self._btn_calibration = _sidebar_btn(_tr("sidebar.button.calibration"))
         self._btn_calibration.clicked.connect(self._open_calibration_view)
         vb.addWidget(self._btn_calibration)
@@ -1565,6 +1572,9 @@ class MainWindow(QMainWindow):
         self._furniture_view = FurnitureView(self)
         self._furniture_view.hide()
         vb.addWidget(self._furniture_view, 1)
+        self._manual_scoring_view = ManualScoringView(self)
+        self._manual_scoring_view.hide()
+        vb.addWidget(self._manual_scoring_view, 1)
         # Wire planner to optimizer so traits can be imported
         self._room_optimizer_view.set_planner_view(self._mutation_planner_view)
         self._perfect_planner_view.set_mutation_planner_view(self._mutation_planner_view)
@@ -2069,6 +2079,21 @@ class MainWindow(QMainWindow):
         self._update_count()
         self.statusBar().showMessage(f"Cleared Must Breed for {changed} cats in the current donation-candidates view")
 
+    # ── View data generation tracking ─────────────────────────────────
+
+    def _bump_cats_generation(self):
+        """Increment the generation counter whenever cat data changes."""
+        self._cats_generation += 1
+
+    def _set_view_cats_if_needed(self, view_key: str, view, cats):
+        """Push cats to *view* only when data has changed since the last push."""
+        if self._view_generation.get(view_key) == self._cats_generation:
+            return  # already up-to-date
+        view.set_cats(cats)
+        self._view_generation[view_key] = self._cats_generation
+
+    # ── View switching ─────────────────────────────────────────────────
+
     def _show_table_view(self):
         if hasattr(self, "_tree_view") and self._tree_view is not None:
             self._tree_view.hide()
@@ -2086,6 +2111,8 @@ class MainWindow(QMainWindow):
             self._mutation_planner_view.hide()
         if hasattr(self, "_furniture_view") and self._furniture_view is not None:
             self._furniture_view.hide()
+        if hasattr(self, "_manual_scoring_view") and self._manual_scoring_view is not None:
+            self._manual_scoring_view.hide()
         if hasattr(self, "_header"):
             self._header.show()
         if hasattr(self, "_table_view_container"):
@@ -2106,6 +2133,8 @@ class MainWindow(QMainWindow):
             self._btn_mutation_planner.setChecked(False)
         if hasattr(self, "_btn_furniture_view"):
             self._btn_furniture_view.setChecked(False)
+        if hasattr(self, "_btn_manual_scoring"):
+            self._btn_manual_scoring.setChecked(False)
 
     def _show_fight_club_view(self):
         if hasattr(self, "_btn_fight_club"):
@@ -2133,8 +2162,10 @@ class MainWindow(QMainWindow):
             self._mutation_planner_view.hide()
         if hasattr(self, "_furniture_view") and self._furniture_view is not None:
             self._furniture_view.hide()
+        if hasattr(self, "_manual_scoring_view") and self._manual_scoring_view is not None:
+            self._manual_scoring_view.hide()
         if self._tree_view is not None:
-            self._tree_view.set_cats(self._cats)
+            self._set_view_cats_if_needed("tree", self._tree_view, self._cats)
             self._tree_view.show()
         if hasattr(self, "_btn_tree_view"):
             self._btn_tree_view.setChecked(True)
@@ -2152,6 +2183,8 @@ class MainWindow(QMainWindow):
             self._btn_mutation_planner.setChecked(False)
         if hasattr(self, "_btn_furniture_view"):
             self._btn_furniture_view.setChecked(False)
+        if hasattr(self, "_btn_manual_scoring"):
+            self._btn_manual_scoring.setChecked(False)
 
     def _show_safe_breeding_view(self):
         if self._active_btn is not None:
@@ -2175,9 +2208,11 @@ class MainWindow(QMainWindow):
             self._mutation_planner_view.hide()
         if hasattr(self, "_furniture_view") and self._furniture_view is not None:
             self._furniture_view.hide()
+        if hasattr(self, "_manual_scoring_view") and self._manual_scoring_view is not None:
+            self._manual_scoring_view.hide()
         if self._safe_breeding_view is not None:
             self._safe_breeding_view.set_quality_mode(self._safe_breeding_quality_mode, refresh=False)
-            self._safe_breeding_view.set_cats(self._cats)
+            self._set_view_cats_if_needed("safe_breeding", self._safe_breeding_view, self._cats)
             self._safe_breeding_view.show()
         if hasattr(self, "_btn_tree_view"):
             self._btn_tree_view.setChecked(False)
@@ -2195,6 +2230,8 @@ class MainWindow(QMainWindow):
             self._btn_mutation_planner.setChecked(False)
         if hasattr(self, "_btn_furniture_view"):
             self._btn_furniture_view.setChecked(False)
+        if hasattr(self, "_btn_manual_scoring"):
+            self._btn_manual_scoring.setChecked(False)
 
     def _show_breeding_partners_view(self):
         if self._active_btn is not None:
@@ -2218,8 +2255,10 @@ class MainWindow(QMainWindow):
             self._perfect_planner_view.hide()
         if hasattr(self, "_furniture_view") and self._furniture_view is not None:
             self._furniture_view.hide()
+        if hasattr(self, "_manual_scoring_view") and self._manual_scoring_view is not None:
+            self._manual_scoring_view.hide()
         if self._breeding_partners_view is not None:
-            self._breeding_partners_view.set_cats(self._cats)
+            self._set_view_cats_if_needed("breeding_partners", self._breeding_partners_view, self._cats)
             self._breeding_partners_view.show()
         if hasattr(self, "_btn_tree_view"):
             self._btn_tree_view.setChecked(False)
@@ -2237,6 +2276,8 @@ class MainWindow(QMainWindow):
             self._btn_mutation_planner.setChecked(False)
         if hasattr(self, "_btn_furniture_view"):
             self._btn_furniture_view.setChecked(False)
+        if hasattr(self, "_btn_manual_scoring"):
+            self._btn_manual_scoring.setChecked(False)
 
     def _show_room_optimizer_view(self):
         if self._active_btn is not None:
@@ -2260,8 +2301,10 @@ class MainWindow(QMainWindow):
             self._mutation_planner_view.hide()
         if hasattr(self, "_furniture_view") and self._furniture_view is not None:
             self._furniture_view.hide()
+        if hasattr(self, "_manual_scoring_view") and self._manual_scoring_view is not None:
+            self._manual_scoring_view.hide()
         if self._room_optimizer_view is not None:
-            self._room_optimizer_view.set_cats(self._cats)
+            self._set_view_cats_if_needed("room_optimizer", self._room_optimizer_view, self._cats)
             self._room_optimizer_view.show()
         if hasattr(self, "_btn_tree_view"):
             self._btn_tree_view.setChecked(False)
@@ -2279,6 +2322,8 @@ class MainWindow(QMainWindow):
             self._btn_mutation_planner.setChecked(False)
         if hasattr(self, "_btn_furniture_view"):
             self._btn_furniture_view.setChecked(False)
+        if hasattr(self, "_btn_manual_scoring"):
+            self._btn_manual_scoring.setChecked(False)
 
     def _show_perfect_planner_view(self):
         if self._active_btn is not None:
@@ -2302,11 +2347,18 @@ class MainWindow(QMainWindow):
             self._mutation_planner_view.hide()
         if hasattr(self, "_furniture_view") and self._furniture_view is not None:
             self._furniture_view.hide()
+        if hasattr(self, "_manual_scoring_view") and self._manual_scoring_view is not None:
+            self._manual_scoring_view.hide()
         if self._perfect_planner_view is not None:
             self._perfect_planner_view.show()
-            self._perfect_planner_view.set_loading_state(True)
-            cats = list(self._cats)
-            QTimer.singleShot(0, lambda cats=cats: self._perfect_planner_view.set_cats(cats))
+            if self._view_generation.get("perfect_planner") != self._cats_generation:
+                self._perfect_planner_view.set_loading_state(True)
+                cats = list(self._cats)
+                gen = self._cats_generation
+                def _deferred_set(cats=cats, gen=gen):
+                    self._perfect_planner_view.set_cats(cats)
+                    self._view_generation["perfect_planner"] = gen
+                QTimer.singleShot(0, _deferred_set)
         if hasattr(self, "_btn_tree_view"):
             self._btn_tree_view.setChecked(False)
         if hasattr(self, "_btn_safe_breeding_view"):
@@ -2323,6 +2375,8 @@ class MainWindow(QMainWindow):
             self._btn_mutation_planner.setChecked(False)
         if hasattr(self, "_btn_furniture_view"):
             self._btn_furniture_view.setChecked(False)
+        if hasattr(self, "_btn_manual_scoring"):
+            self._btn_manual_scoring.setChecked(False)
 
     def _show_calibration_view(self):
         if self._active_btn is not None:
@@ -2344,9 +2398,12 @@ class MainWindow(QMainWindow):
             self._perfect_planner_view.hide()
         if hasattr(self, "_furniture_view") and self._furniture_view is not None:
             self._furniture_view.hide()
+        if hasattr(self, "_manual_scoring_view") and self._manual_scoring_view is not None:
+            self._manual_scoring_view.hide()
         if self._calibration_view is not None:
-            if self._current_save:
+            if self._current_save and self._view_generation.get("calibration") != self._cats_generation:
                 self._calibration_view.set_context(self._current_save, self._cats)
+                self._view_generation["calibration"] = self._cats_generation
             self._calibration_view.show()
         if hasattr(self, "_btn_tree_view"):
             self._btn_tree_view.setChecked(False)
@@ -2364,6 +2421,8 @@ class MainWindow(QMainWindow):
             self._btn_mutation_planner.setChecked(False)
         if hasattr(self, "_btn_furniture_view"):
             self._btn_furniture_view.setChecked(False)
+        if hasattr(self, "_btn_manual_scoring"):
+            self._btn_manual_scoring.setChecked(False)
         if hasattr(self, "_mutation_planner_view") and self._mutation_planner_view is not None:
             self._mutation_planner_view.hide()
 
@@ -2389,9 +2448,10 @@ class MainWindow(QMainWindow):
             self._calibration_view.hide()
         if hasattr(self, "_furniture_view") and self._furniture_view is not None:
             self._furniture_view.hide()
+        if hasattr(self, "_manual_scoring_view") and self._manual_scoring_view is not None:
+            self._manual_scoring_view.hide()
         if self._mutation_planner_view is not None:
-            if self._mutation_planner_view._cats is not self._cats:
-                self._mutation_planner_view.set_cats(self._cats)
+            self._set_view_cats_if_needed("mutation_planner", self._mutation_planner_view, self._cats)
             self._mutation_planner_view.show()
         if hasattr(self, "_btn_tree_view"):
             self._btn_tree_view.setChecked(False)
@@ -2409,6 +2469,8 @@ class MainWindow(QMainWindow):
             self._btn_mutation_planner.setChecked(True)
         if hasattr(self, "_btn_furniture_view"):
             self._btn_furniture_view.setChecked(False)
+        if hasattr(self, "_btn_manual_scoring"):
+            self._btn_manual_scoring.setChecked(False)
 
     def _show_furniture_view(self):
         if self._active_btn is not None:
@@ -2432,9 +2494,12 @@ class MainWindow(QMainWindow):
             self._calibration_view.hide()
         if hasattr(self, "_mutation_planner_view") and self._mutation_planner_view is not None:
             self._mutation_planner_view.hide()
+        if hasattr(self, "_manual_scoring_view") and self._manual_scoring_view is not None:
+            self._manual_scoring_view.hide()
         if self._furniture_view is not None:
-            if self._current_save:
+            if self._current_save and self._view_generation.get("furniture") != self._cats_generation:
                 self._furniture_view.set_context(self._cats, self._furniture, self._furniture_data, available_rooms=self._available_house_rooms)
+                self._view_generation["furniture"] = self._cats_generation
             self._furniture_view.show()
         if hasattr(self, "_btn_tree_view"):
             self._btn_tree_view.setChecked(False)
@@ -2452,6 +2517,8 @@ class MainWindow(QMainWindow):
             self._btn_mutation_planner.setChecked(False)
         if hasattr(self, "_btn_furniture_view"):
             self._btn_furniture_view.setChecked(True)
+        if hasattr(self, "_btn_manual_scoring"):
+            self._btn_manual_scoring.setChecked(False)
 
     # ---- Navigation history (mouse back / forward buttons) -------------
 
@@ -2466,6 +2533,7 @@ class MainWindow(QMainWindow):
             ("calibration", getattr(self, "_calibration_view", None)),
             ("mutation_planner", getattr(self, "_mutation_planner_view", None)),
             ("furniture", getattr(self, "_furniture_view", None)),
+            ("manual_scoring", getattr(self, "_manual_scoring_view", None)),
         ]
         for kind, widget in checks:
             if widget is not None and widget.isVisible():
@@ -3028,15 +3096,20 @@ class MainWindow(QMainWindow):
 
     def _refresh_views_for_tag_filter(self):
         """Push tag-filtered cat list to secondary views."""
+        self._bump_cats_generation()
         filtered = self._tag_filtered_cats()
-        if self._room_optimizer_view is not None:
+        if self._room_optimizer_view is not None and self._room_optimizer_view.isVisible():
             self._room_optimizer_view.set_cats(filtered)
-        if self._safe_breeding_view is not None:
+            self._view_generation["room_optimizer"] = self._cats_generation
+        if self._safe_breeding_view is not None and self._safe_breeding_view.isVisible():
             self._safe_breeding_view.set_cats(filtered)
-        if self._breeding_partners_view is not None:
+            self._view_generation["safe_breeding"] = self._cats_generation
+        if self._breeding_partners_view is not None and self._breeding_partners_view.isVisible():
             self._breeding_partners_view.set_cats(filtered)
-        if self._perfect_planner_view is not None:
+            self._view_generation["breeding_partners"] = self._cats_generation
+        if self._perfect_planner_view is not None and self._perfect_planner_view.isVisible():
             self._perfect_planner_view.set_cats(filtered)
+            self._view_generation["perfect_planner"] = self._cats_generation
 
     def _clear_tag_filter(self):
         """Remove all tag filters."""
@@ -3063,18 +3136,20 @@ class MainWindow(QMainWindow):
                 [Qt.DisplayRole, Qt.DecorationRole, Qt.ToolTipRole, Qt.UserRole],
             )
         if self._cats:
+            self._bump_cats_generation()
             if self._tree_view is not None and self._tree_view.isVisible():
-                self._tree_view.set_cats(self._cats)
+                self._set_view_cats_if_needed("tree", self._tree_view, self._cats)
             if self._safe_breeding_view is not None and self._safe_breeding_view.isVisible():
-                self._safe_breeding_view.set_cats(self._cats)
+                self._set_view_cats_if_needed("safe_breeding", self._safe_breeding_view, self._cats)
             if self._breeding_partners_view is not None and self._breeding_partners_view.isVisible():
-                self._breeding_partners_view.set_cats(self._cats)
+                self._set_view_cats_if_needed("breeding_partners", self._breeding_partners_view, self._cats)
             if self._room_optimizer_view is not None and self._room_optimizer_view.isVisible():
-                self._room_optimizer_view.set_cats(self._cats)
+                self._set_view_cats_if_needed("room_optimizer", self._room_optimizer_view, self._cats)
             if self._perfect_planner_view is not None and self._perfect_planner_view.isVisible():
-                self._perfect_planner_view.set_cats(self._cats)
+                self._set_view_cats_if_needed("perfect_planner", self._perfect_planner_view, self._cats)
             if self._calibration_view is not None and self._calibration_view.isVisible():
                 self._calibration_view.set_context(self._current_save, self._cats)
+                self._view_generation["calibration"] = self._cats_generation
         # Repaint table without invalidating selection
         self._table.viewport().update()
         if self._detail and self._detail.current_cats:
@@ -3089,14 +3164,15 @@ class MainWindow(QMainWindow):
             _save_pinned(self._current_save, self._cats)
             _save_tags(self._current_save, self._cats)
         self._refresh_bulk_view_buttons()
-        if self._safe_breeding_view is not None:
-            self._safe_breeding_view.set_cats(self._cats)
-        if self._breeding_partners_view is not None:
-            self._breeding_partners_view.set_cats(self._cats)
-        if self._room_optimizer_view is not None:
-            self._room_optimizer_view.set_cats(self._cats)
-        if self._perfect_planner_view is not None:
-            self._perfect_planner_view.set_cats(self._cats)
+        self._bump_cats_generation()
+        if self._safe_breeding_view is not None and self._safe_breeding_view.isVisible():
+            self._set_view_cats_if_needed("safe_breeding", self._safe_breeding_view, self._cats)
+        if self._breeding_partners_view is not None and self._breeding_partners_view.isVisible():
+            self._set_view_cats_if_needed("breeding_partners", self._breeding_partners_view, self._cats)
+        if self._room_optimizer_view is not None and self._room_optimizer_view.isVisible():
+            self._set_view_cats_if_needed("room_optimizer", self._room_optimizer_view, self._cats)
+        if self._perfect_planner_view is not None and self._perfect_planner_view.isVisible():
+            self._set_view_cats_if_needed("perfect_planner", self._perfect_planner_view, self._cats)
 
     def _on_calibration_changed(self):
         if not self._current_save:
@@ -3104,16 +3180,18 @@ class MainWindow(QMainWindow):
         cal_explicit, cal_token, cal_rows = _apply_calibration(self._current_save, self._cats)
         self._source_model.load(self._cats)
         self._refresh_filter_button_counts()
-        if self._safe_breeding_view is not None:
-            self._safe_breeding_view.set_cats(self._cats)
-        if self._breeding_partners_view is not None:
-            self._breeding_partners_view.set_cats(self._cats)
-        if self._room_optimizer_view is not None:
-            self._room_optimizer_view.set_cats(self._cats)
-        if self._perfect_planner_view is not None:
-            self._perfect_planner_view.set_cats(self._cats)
+        self._bump_cats_generation()
+        if self._safe_breeding_view is not None and self._safe_breeding_view.isVisible():
+            self._set_view_cats_if_needed("safe_breeding", self._safe_breeding_view, self._cats)
+        if self._breeding_partners_view is not None and self._breeding_partners_view.isVisible():
+            self._set_view_cats_if_needed("breeding_partners", self._breeding_partners_view, self._cats)
+        if self._room_optimizer_view is not None and self._room_optimizer_view.isVisible():
+            self._set_view_cats_if_needed("room_optimizer", self._room_optimizer_view, self._cats)
+        if self._perfect_planner_view is not None and self._perfect_planner_view.isVisible():
+            self._set_view_cats_if_needed("perfect_planner", self._perfect_planner_view, self._cats)
         if self._calibration_view is not None and self._calibration_view.isVisible():
             self._calibration_view.set_context(self._current_save, self._cats)
+            self._view_generation["calibration"] = self._cats_generation
         self._update_count()
         self.statusBar().showMessage(
             _tr("status.calibration_applied", default="Calibration applied ({explicit} explicit, {token} token from {rows} rows)", explicit=cal_explicit, token=cal_token, rows=cal_rows)
@@ -3339,6 +3417,7 @@ class MainWindow(QMainWindow):
             self._pedigree_coi_memos = dict(result.get("pedigree_coi_memos", {}))
 
             self._cats = cats
+            self._bump_cats_generation()
             self._furniture = furniture
             self._furniture_by_room = furniture_by_room
             self._furniture_data = dict(_FURNITURE_DATA)
@@ -3372,20 +3451,22 @@ class MainWindow(QMainWindow):
                 self._room_optimizer_view.set_room_summaries(self._room_summaries)
             if self._furniture_view is not None:
                 self._furniture_view.set_context(self._cats, self._furniture, self._furniture_data, available_rooms=self._available_house_rooms)
+                self._view_generation["furniture"] = self._cats_generation
             # Only push cats to currently visible views immediately.
-            # Hidden views call set_cats themselves when shown via _show_* methods.
+            # Hidden views pick up changes via generation counter when shown.
             if self._tree_view is not None and self._tree_view.isVisible():
-                self._tree_view.set_cats(cats)
+                self._set_view_cats_if_needed("tree", self._tree_view, cats)
             if self._safe_breeding_view is not None and self._safe_breeding_view.isVisible():
-                self._safe_breeding_view.set_cats(cats)
+                self._set_view_cats_if_needed("safe_breeding", self._safe_breeding_view, cats)
             if self._breeding_partners_view is not None and self._breeding_partners_view.isVisible():
-                self._breeding_partners_view.set_cats(cats)
+                self._set_view_cats_if_needed("breeding_partners", self._breeding_partners_view, cats)
             if self._room_optimizer_view is not None and self._room_optimizer_view.isVisible():
-                self._room_optimizer_view.set_cats(cats)
+                self._set_view_cats_if_needed("room_optimizer", self._room_optimizer_view, cats)
             if self._perfect_planner_view is not None and self._perfect_planner_view.isVisible():
-                self._perfect_planner_view.set_cats(cats)
+                self._set_view_cats_if_needed("perfect_planner", self._perfect_planner_view, cats)
             if self._calibration_view is not None and self._calibration_view.isVisible():
                 self._calibration_view.set_context(self._current_save, cats)
+                self._view_generation["calibration"] = self._cats_generation
             self._sync_donation_planner_traits()
             name = os.path.basename(self._current_save)
             self._save_lbl.setText(name)
@@ -3447,6 +3528,8 @@ class MainWindow(QMainWindow):
             self._mutation_planner_view.save_session_state()
         if self._furniture_view is not None:
             self._furniture_view.save_session_state()
+        if self._manual_scoring_view is not None:
+            self._manual_scoring_view.save_session_state()
 
     def closeEvent(self, event):
         self._flush_persistent_view_state()
@@ -3710,20 +3793,23 @@ class MainWindow(QMainWindow):
         self._proxy_model.invalidate()
         self._rebuild_room_buttons(self._cats)
         self._refresh_filter_button_counts()
+        self._bump_cats_generation()
         if self._furniture_view is not None:
             self._furniture_view.set_context(self._cats, self._furniture, self._furniture_data, available_rooms=self._available_house_rooms)
+            self._view_generation["furniture"] = self._cats_generation
         if self._tree_view is not None and self._tree_view.isVisible():
-            self._tree_view.set_cats(self._cats)
+            self._set_view_cats_if_needed("tree", self._tree_view, self._cats)
         if self._safe_breeding_view is not None and self._safe_breeding_view.isVisible():
-            self._safe_breeding_view.set_cats(self._cats)
+            self._set_view_cats_if_needed("safe_breeding", self._safe_breeding_view, self._cats)
         if self._breeding_partners_view is not None and self._breeding_partners_view.isVisible():
-            self._breeding_partners_view.set_cats(self._cats)
+            self._set_view_cats_if_needed("breeding_partners", self._breeding_partners_view, self._cats)
         if self._room_optimizer_view is not None and self._room_optimizer_view.isVisible():
-            self._room_optimizer_view.set_cats(self._cats)
+            self._set_view_cats_if_needed("room_optimizer", self._room_optimizer_view, self._cats)
         if self._perfect_planner_view is not None and self._perfect_planner_view.isVisible():
-            self._perfect_planner_view.set_cats(self._cats)
+            self._set_view_cats_if_needed("perfect_planner", self._perfect_planner_view, self._cats)
         if self._calibration_view is not None and self._calibration_view.isVisible():
             self._calibration_view.set_context(self._current_save, self._cats)
+            self._view_generation["calibration"] = self._cats_generation
         self.statusBar().showMessage(_tr("status.rooms_refreshed", default="Room locations updated."))
 
     def _open_tree_browser(self):
@@ -3800,6 +3886,57 @@ class MainWindow(QMainWindow):
         _save_current_view("furniture")
         self._show_furniture_view()
 
+    def _open_manual_scoring_view(self):
+        self._push_nav_history()
+        _save_current_view("manual_scoring")
+        self._show_manual_scoring_view()
+
+    def _show_manual_scoring_view(self):
+        if self._active_btn is not None:
+            self._active_btn.setChecked(False)
+        self._active_btn = None
+        if hasattr(self, "_header"):
+            self._header.hide()
+        if hasattr(self, "_table_view_container"):
+            self._table_view_container.hide()
+        if hasattr(self, "_tree_view") and self._tree_view is not None:
+            self._tree_view.hide()
+        if hasattr(self, "_safe_breeding_view") and self._safe_breeding_view is not None:
+            self._safe_breeding_view.hide()
+        if hasattr(self, "_breeding_partners_view") and self._breeding_partners_view is not None:
+            self._breeding_partners_view.hide()
+        if hasattr(self, "_room_optimizer_view") and self._room_optimizer_view is not None:
+            self._room_optimizer_view.hide()
+        if hasattr(self, "_perfect_planner_view") and self._perfect_planner_view is not None:
+            self._perfect_planner_view.hide()
+        if hasattr(self, "_calibration_view") and self._calibration_view is not None:
+            self._calibration_view.hide()
+        if hasattr(self, "_mutation_planner_view") and self._mutation_planner_view is not None:
+            self._mutation_planner_view.hide()
+        if hasattr(self, "_furniture_view") and self._furniture_view is not None:
+            self._furniture_view.hide()
+        if self._manual_scoring_view is not None:
+            self._set_view_cats_if_needed("manual_scoring", self._manual_scoring_view, self._cats)
+            self._manual_scoring_view.show()
+        if hasattr(self, "_btn_tree_view"):
+            self._btn_tree_view.setChecked(False)
+        if hasattr(self, "_btn_safe_breeding_view"):
+            self._btn_safe_breeding_view.setChecked(False)
+        if hasattr(self, "_btn_breeding_partners_view"):
+            self._btn_breeding_partners_view.setChecked(False)
+        if hasattr(self, "_btn_room_optimizer"):
+            self._btn_room_optimizer.setChecked(False)
+        if hasattr(self, "_btn_perfect_planner"):
+            self._btn_perfect_planner.setChecked(False)
+        if hasattr(self, "_btn_calibration"):
+            self._btn_calibration.setChecked(False)
+        if hasattr(self, "_btn_mutation_planner"):
+            self._btn_mutation_planner.setChecked(False)
+        if hasattr(self, "_btn_furniture_view"):
+            self._btn_furniture_view.setChecked(False)
+        if hasattr(self, "_btn_manual_scoring"):
+            self._btn_manual_scoring.setChecked(True)
+
     def _restore_current_view(self):
         """Restore the last-used view after a save is loaded."""
         view = _load_current_view()
@@ -3813,6 +3950,7 @@ class MainWindow(QMainWindow):
             "calibration":        self._show_calibration_view,
             "mutation_planner":   self._show_mutation_planner_view,
             "furniture":          self._show_furniture_view,
+            "manual_scoring":     self._show_manual_scoring_view,
         }
         fn = _restore_map.get(view)
         if fn:
