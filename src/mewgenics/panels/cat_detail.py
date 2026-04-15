@@ -18,7 +18,11 @@ from save_parser import (
     _inheritance_candidates,
     _malady_breakdown,
 )
-from breeding import pair_projection, score_pair as score_pair_factors
+from breeding import (
+    pair_projection, score_pair as score_pair_factors,
+    game_compatibility, breeding_success_chance,
+    ability_inheritance_chances, disorder_inheritance_chances,
+)
 from mewgenics.constants import (
     STAT_COLORS, PAIR_COLORS,
     COL_BL, COL_MB,
@@ -681,8 +685,8 @@ class CatDetailPanel(QWidget):
         stim_lbl.setStyleSheet(_META_STYLE)
         hdr.addWidget(stim_lbl)
         stim_box = QSpinBox()
-        stim_box.setRange(0, 100)
-        stim_box.setValue(max(0, min(100, int(self._pair_stimulation))))
+        stim_box.setRange(-100, 200)
+        stim_box.setValue(max(-100, min(200, int(self._pair_stimulation))))
         stim_box.setFixedWidth(64)
         stim_box.setStyleSheet(
             "QSpinBox { background:#0d0d1c; color:#ccc; border:1px solid #2a2a4a;"
@@ -921,14 +925,26 @@ class CatDetailPanel(QWidget):
         inh_note.setWordWrap(True)
         inh.addWidget(inh_note)
 
-        active_label = QLabel("Active spell candidates", styleSheet="color:#555; font-size:10px;")
+        # ── Ability inheritance chances ──
+        ab_chances = ability_inheritance_chances(stim)
+        active_pct = ab_chances["first_active"] * 100
+        active2_pct = ab_chances["second_active"] * 100
+        passive_pct = ab_chances["passive"] * 100
+
+        active_label = QLabel(
+            f"Active spell candidates  ({active_pct:.0f}% first, {active2_pct:.0f}% second)",
+            styleSheet="color:#555; font-size:10px;",
+        )
         inh.addWidget(active_label)
         if active_candidates:
             inh.addWidget(_wrapped_chip_block(active_candidates, max_per_row=5))
         else:
             inh.addWidget(QLabel("No active ability candidates.", styleSheet=_META_STYLE))
 
-        passive_label = QLabel("Passive candidates", styleSheet="color:#555; font-size:10px;")
+        passive_label = QLabel(
+            f"Passive candidates  ({passive_pct:.0f}% chance)",
+            styleSheet="color:#555; font-size:10px;",
+        )
         inh.addWidget(passive_label)
         if passive_candidates:
             inh.addWidget(_wrapped_chip_block(passive_candidates, max_per_row=4))
@@ -947,6 +963,47 @@ class CatDetailPanel(QWidget):
                 tip_text = f"[{cat_label}] {detail}\n{_ability_tip(display)}" if _ability_tip(display) else f"[{cat_label}] {detail}"
                 prob_chips.append((chip_text, tip_text))
             inh.addWidget(_wrapped_chip_block(prob_chips, max_per_row=5))
+
+        # ── Compatibility estimate ──
+        compat = game_compatibility(a, b)
+        compat_row = QHBoxLayout()
+        compat_row.setSpacing(8)
+        compat_row.addWidget(QLabel("Compatibility:", styleSheet="color:#555; font-size:10px;"))
+        compat_val = f"{compat:.2f}"
+        if compat < 0.05:
+            compat_bg = "#6a2a2a"
+            compat_note = "will not breed"
+        elif compat < 0.15:
+            compat_bg = "#5a4a2a"
+            compat_note = "low"
+        elif compat < 0.40:
+            compat_bg = "#3a3a2a"
+            compat_note = "moderate"
+        else:
+            compat_bg = "#2a3a2a"
+            compat_note = "high"
+        compat_chip = _chip(f"{compat_val} ({compat_note})")
+        compat_chip.setStyleSheet(
+            f"QLabel {{ background:{compat_bg}; color:#ddd; border-radius:6px;"
+            f" padding:2px 7px; font-size:11px; }}")
+        compat_row.addWidget(compat_chip)
+        success = breeding_success_chance(compat)
+        if success > 0:
+            success_chip = _chip(f"~{success*100:.1f}% success/attempt")
+            success_chip.setStyleSheet(
+                "QLabel { background:#1a2a3a; color:#8ab; border-radius:6px;"
+                " padding:2px 7px; font-size:11px; }")
+            compat_row.addWidget(success_chip)
+        compat_tip = QLabel("(?)")
+        compat_tip.setStyleSheet("color:#555; font-size:10px;")
+        compat_tip.setToolTip(
+            "Game formula: 0.15 × CHA × Libido × Lover × Sexuality\n"
+            "Pairs below 0.05 are rejected by the game.\n"
+            "Success chance = compat² × (1 + 0.1 × comfort)"
+        )
+        compat_row.addWidget(compat_tip)
+        compat_row.addStretch()
+        inh.addLayout(compat_row)
 
         # ── Risk breakdown ──
         coi = kinship_coi(a, b)
@@ -968,15 +1025,34 @@ class CatDetailPanel(QWidget):
                 f" padding:2px 7px; font-size:11px; }}")
             return c
 
-        risk_row.addWidget(_risk_chip(f"Disorder {disorder_ch*100:.1f}%", disorder_ch))
+        risk_row.addWidget(_risk_chip(f"Inbred disorder {disorder_ch*100:.1f}%", disorder_ch))
         risk_row.addWidget(_risk_chip(f"Part defect {part_defect_ch*100:.1f}%", part_defect_ch))
         risk_row.addWidget(_risk_chip(f"Combined {combined_ch*100:.1f}%", combined_ch))
+
+        # ── Disorder inheritance from parents ──
+        dis_info = disorder_inheritance_chances(a, b)
+        if dis_info["chance_any"] > 0:
+            dis_chips: list[str] = []
+            if dis_info["disorders_a"]:
+                dis_chips.append(f"15% from {a.name} ({', '.join(dis_info['disorders_a'])})")
+            if dis_info["disorders_b"]:
+                dis_chips.append(f"15% from {b.name} ({', '.join(dis_info['disorders_b'])})")
+            risk_row.addWidget(QLabel("|", styleSheet="color:#333; font-size:10px;"))
+            for dt in dis_chips:
+                dc = _chip(dt)
+                dc.setStyleSheet(
+                    "QLabel { background:#4a3a2a; color:#dda; border-radius:6px;"
+                    " padding:2px 7px; font-size:11px; }")
+                risk_row.addWidget(dc)
+
         disorder_tip = QLabel("(?)")
         disorder_tip.setStyleSheet("color:#555; font-size:10px;")
-        disorder_tip.setToolTip(_tr(
-            "cat_detail.disorder_risk.tooltip",
-            default="Disorder: base 2%, scales above 0.20 CoI\nPart defect: 0 below 0.05 CoI, then 1.5x CoI\nCombined: chance of at least one occurring",
-        ))
+        disorder_tip.setToolTip(
+            "Inbred disorder: base 2%, scales above 0.20 CoI\n"
+            "Part defect: 0 below 0.05 CoI, then 1.5× CoI\n"
+            "Combined: chance of at least one inbred issue\n"
+            "Parent disorders: 15% chance from each parent independently"
+        )
         risk_row.addWidget(disorder_tip)
         risk_row.addStretch()
         inh.addLayout(risk_row)

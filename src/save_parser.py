@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 from collections import deque
 
-from visual_mutation_catalog import load_visual_mutation_names
+from visual_mutation_catalog import load_visual_mutation_names, VISUAL_MUTATION_NAMES
 
 logger = logging.getLogger("mewgenics.parser")
 
@@ -338,11 +338,30 @@ class GameData:
 # Populated at runtime via set_visual_mut_data() from the main module.
 _VISUAL_MUT_DATA: dict[str, dict[int, tuple[str, str]]] = {}
 
+# Mutation names that map to multiple body parts in the catalog — these must
+# always be disambiguated with a slot label even when a cat only has one.
+_name_to_parts: dict[str, set[str]] = {}
+for (_cat_part, _mid), _mname in VISUAL_MUTATION_NAMES.items():
+    _name_to_parts.setdefault(_mname, set()).add(_cat_part)
+_GLOBALLY_AMBIGUOUS_MUTATION_NAMES: frozenset[str] = frozenset(
+    n for n, parts in _name_to_parts.items() if len(parts) > 1
+)
+del _name_to_parts, _cat_part, _mid, _mname
+
 
 def set_visual_mut_data(data: dict[str, dict[int, tuple[str, str]]]):
     """Update the visual mutation lookup data (called after gpak loading)."""
-    global _VISUAL_MUT_DATA
+    global _VISUAL_MUT_DATA, _GLOBALLY_AMBIGUOUS_MUTATION_NAMES
     _VISUAL_MUT_DATA = data
+    # Extend ambiguous set with GPAK names that appear across categories
+    gpak_name_cats: dict[str, set[str]] = {}
+    for category, muts in data.items():
+        for mid, (name, _desc) in muts.items():
+            name = str(name).strip()
+            if name:
+                gpak_name_cats.setdefault(name, set()).add(category)
+    gpak_ambiguous = frozenset(n for n, cats in gpak_name_cats.items() if len(cats) > 1)
+    _GLOBALLY_AMBIGUOUS_MUTATION_NAMES = _GLOBALLY_AMBIGUOUS_MUTATION_NAMES | gpak_ambiguous
 
 
 def _load_gpak_text_strings(file_obj, file_offsets: dict[str, tuple[int, int]]) -> dict[str, str]:
@@ -1085,7 +1104,7 @@ def _visual_mutation_chip_items(entries: list[dict[str, object]]) -> list[tuple[
     chip_items: list[tuple[str, str, bool]] = []
     for group in groups:
         text = str(group["text"])
-        if text_counts[text] > 1:
+        if text_counts[text] > 1 or text in _GLOBALLY_AMBIGUOUS_MUTATION_NAMES:
             text = f"{text} ({' / '.join(group['slot_labels'])})"
         chip_items.append((text, str(group["tooltip"]), bool(group["is_defect"])))
     return chip_items
@@ -1120,7 +1139,7 @@ def _appearance_preview_text(a_names: list[str], b_names: list[str]) -> str:
 
 
 def _stimulation_inheritance_weight(stimulation: float) -> float:
-    stim = max(0.0, min(100.0, float(stimulation)))
+    stim = float(stimulation)
     return (1.0 + 0.01 * stim) / (2.0 + 0.01 * stim)
 
 
@@ -2086,35 +2105,45 @@ def get_grandparents(cat: Cat) -> list[Cat]:
 
 
 def can_breed(a: Cat, b: Cat) -> tuple[bool, str]:
-    """Return (ok, reason). reason is non-empty only when ok is False."""
+    """Return (ok, reason). reason is non-empty only when ok is False.
+
+    The game uses a continuous sexuality_mult rather than hard-blocking:
+      - Male-female: sexuality_mult = cos(0.5*pi * sexuality_coeff)
+      - Same-sex:    sexuality_mult = sin(0.5*pi * sexuality_coeff)
+    Even 'straight' cats (coeff ~0.05) have a small nonzero sin value, so
+    same-sex breeding is technically possible with enough charisma.  We still
+    flag near-zero compatibility as a *warning* rather than a hard block.
+    """
     if a is b:
         return False, "Cannot pair a cat with itself"
     ga = (a.gender or "?").strip().lower()
     gb = (b.gender or "?").strip().lower()
 
-    # Sexuality check
-    sa = (getattr(a, "sexuality", None) or "straight").lower()
-    sb = (getattr(b, "sexuality", None) or "straight").lower()
-
     if ga == "?" or gb == "?":
         return True, ""
 
-    if ga != "?" and gb != "?":
-        same_gender = ga == gb
-        if same_gender:
-            # Same-sex pairs need both cats to allow same-sex breeding.
-            if sa == "straight" or sb == "straight":
-                if sa == "straight":
-                    return False, f"{a.name} is straight — needs opposite-gender partner"
-                return False, f"{b.name} is straight — needs opposite-gender partner"
-            return True, ""
-
-        # Opposite-sex pairs need both cats to allow opposite-sex breeding.
-        if sa == "gay" or sb == "gay":
-            if sa == "gay":
-                return False, f"{a.name} is gay — needs same-gender partner"
-            return False, f"{b.name} is gay — needs same-gender partner"
+    same_gender = ga == gb
+    if same_gender:
+        sa = (getattr(a, "sexuality", None) or "straight").lower()
+        sb = (getattr(b, "sexuality", None) or "straight").lower()
+        if sa == "straight" and sb == "straight":
+            return False, f"Both cats are straight — very low same-sex compatibility"
+        if sa == "straight":
+            return True, f"{a.name} is straight — very low same-sex compatibility"
+        if sb == "straight":
+            return True, f"{b.name} is straight — very low same-sex compatibility"
         return True, ""
+
+    # Opposite-sex pair
+    sa = (getattr(a, "sexuality", None) or "straight").lower()
+    sb = (getattr(b, "sexuality", None) or "straight").lower()
+    if sa == "gay" and sb == "gay":
+        return False, f"Both cats are gay — very low opposite-sex compatibility"
+    if sa == "gay":
+        return True, f"{a.name} is gay — very low opposite-sex compatibility"
+    if sb == "gay":
+        return True, f"{b.name} is gay — very low opposite-sex compatibility"
+    return True, ""
 
 
 def _is_hater_pair(a: 'Cat', b: 'Cat') -> bool:

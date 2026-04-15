@@ -2,7 +2,7 @@
 
 A high-performance, Python-based tool for optimizing breeding operations in Mewgenics. It extracts data directly from your save files and helps you compare pairings, optimize room layouts, and plan long-term lines to maximize strong offspring while minimizing inbreeding risk.
 
-Current release: `v5.5.0`
+Current release: `v5.6.0`
 
 If you'd like to support the project, you can [here](https://ko-fi.com/frankieg33).
 
@@ -66,6 +66,22 @@ On Linux, use `build.sh`.
 - Original idea and reference from frankieg33
 
 ## Release Notes
+
+### v5.6.0
+
+- Game-accurate compatibility formula (`0.15 × CHA × libido × lover_mult × sexuality_mult`) displayed as a color-coded chip with per-attempt success % in the pair detail panel
+- Ability inheritance chances (stimulation-based: first active, second active, passive) shown inline with candidate labels
+- Disorder inheritance (15% per parent + inbred disorder roll based on COI) shown as chips in the risk row
+- Compatibility integrated into optimizer pipeline — pairs below 5% are rejected early (performance win), quality scores scale with compatibility factor
+- Stimulation inheritance weight unclamped to allow negative values per wiki mechanics
+- Soft warnings instead of hard blocks for edge-case sexuality pairings (one straight in same-sex pair, one gay in opposite-sex pair); only hard-blocks when both cats have near-zero compatibility
+- ? gender cats bypass sexuality scoring entirely (issue #75)
+- Manual Scoring: added disorder selectors (desired/undesired) with full persistence and scoring
+- Manual Scoring: cross-cat mutation name disambiguation using globally ambiguous name set (issue #76)
+- Manual Scoring: fixed QCheckBox state reads in per-mutation weight mode (issue #77)
+- Manual Scoring: added Show All / Checked / Unchecked filter buttons (issue #78)
+- Manual Scoring: fixed undesired mutation selections reverting on rebuild (issue #79)
+- Expanded stimulation spinbox range from [0, 100] to [-100, 200] in pair detail panel
 
 ### v5.5.0
 

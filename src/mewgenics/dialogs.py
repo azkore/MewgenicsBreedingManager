@@ -808,9 +808,11 @@ class WhatsNewDialog(QDialog):
         )
 
         default_highlights = highlights or [
-            "New Manual Scoring view — assign point weights to stats, mutations, inbredness, libido, aggression, passives, spells, and sexuality to sort and triage cats by total score.",
-            "View switching is now instant when cat data hasn't changed — hidden views pick up changes lazily when shown.",
-            "Background data paths (blacklist, calibration, tag filter) only update the visible view; hidden views refresh on demand.",
+            "Game-accurate compatibility formula — breeding success now uses the wiki's 0.15 × CHA × libido × lover × sexuality formula, shown as a color-coded chip in the pair detail panel.",
+            "Ability and disorder inheritance chances — stimulation-based ability inheritance probabilities and 15% per-parent disorder inheritance displayed inline.",
+            "Compatibility integrated into optimizer — pairs below 5% compatibility are filtered early (faster), and quality scores scale with compatibility.",
+            "Manual Scoring: disorder selectors, Show All/Checked/Unchecked filters, cross-cat mutation disambiguation, and fixed checkbox persistence bugs.",
+            "? gender cats bypass sexuality scoring; soft warnings replace hard blocks for edge-case sexuality pairings.",
         ]
 
         root = QVBoxLayout(self)
@@ -827,7 +829,7 @@ class WhatsNewDialog(QDialog):
         body.setHtml(
             f"""
             <div style="line-height:1.5;">
-              <p>New Manual Scoring view for cat triage, plus instant view switching and lazy data propagation for a snappier UI.</p>
+              <p>Game-accurate breeding compatibility, ability/disorder inheritance, and optimizer integration — plus Manual Scoring QOL fixes.</p>
               <ul>{bullets}</ul>
               <p><a href="https://github.com/frankieg33/MewgenicsBreedingManager/releases">View releases on GitHub</a></p>
             </div>

@@ -467,17 +467,26 @@ class TestCanBreed:
         ok, _ = can_breed(a, b)
         assert ok
 
-    def test_opposite_gender_gay_rejected(self):
+    def test_opposite_gender_gay_warned(self):
+        """One gay cat in opposite-sex pair: allowed but with low-compat warning."""
         a = _make_cat(db_key=1, gender="male", sexuality="gay")
         b = _make_cat(db_key=2, gender="female", sexuality="straight")
         ok, reason = can_breed(a, b)
+        assert ok
+        assert "gay" in reason.lower()
+
+    def test_opposite_gender_both_gay_rejected(self):
+        a = _make_cat(db_key=1, gender="male", sexuality="gay")
+        b = _make_cat(db_key=2, gender="female", sexuality="gay")
+        ok, reason = can_breed(a, b)
         assert not ok
 
-    def test_bi_same_gender_rejected_against_straight(self):
+    def test_bi_same_gender_warned_against_straight(self):
+        """Bi + straight same-sex: allowed but with low-compat warning."""
         a = _make_cat(db_key=1, gender="male", sexuality="bi")
         b = _make_cat(db_key=2, gender="male", sexuality="straight")
         ok, reason = can_breed(a, b)
-        assert not ok
+        assert ok
         assert "straight" in reason.lower()
 
     def test_bi_opposite_gender_allowed(self):
@@ -806,7 +815,7 @@ class TestBreedingHelpers:
         b = _make_cat(db_key=2, name="B", gender="female")
         hater_map = {1: set(), 2: set()}
         lover_map = {1: set(), 2: set()}
-        ok, reason, risk = evaluate_pair(
+        ok, reason, risk, _compat = evaluate_pair(
             a, b,
             hater_key_map=hater_map,
             lover_key_map=lover_map,
@@ -822,7 +831,7 @@ class TestBreedingHelpers:
         lover_map = {1: set(), 2: set()}
         cache_dict: dict = {}
         # First call
-        ok1, _, _ = evaluate_pair(
+        ok1, _, _, _ = evaluate_pair(
             a, b,
             hater_key_map=hater_map,
             lover_key_map=lover_map,
@@ -832,7 +841,7 @@ class TestBreedingHelpers:
         assert ok1
         assert len(cache_dict) == 1
         # Second call should use cache
-        ok2, _, _ = evaluate_pair(
+        ok2, _, _, _ = evaluate_pair(
             a, b,
             hater_key_map=hater_map,
             lover_key_map=lover_map,

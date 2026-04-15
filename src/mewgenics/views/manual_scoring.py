@@ -34,6 +34,14 @@ _DEFAULT_CONFIG = {
     "undesired_mutation_weights": {},
     "undesired_use_individual": False,
     "undesired_default_weight": -5,
+    "desired_disorders": [],
+    "desired_disorder_weights": {},
+    "desired_disorder_use_individual": False,
+    "desired_disorder_default_weight": 1,
+    "undesired_disorders": [],
+    "undesired_disorder_weights": {},
+    "undesired_disorder_use_individual": False,
+    "undesired_disorder_default_weight": -5,
     "inbredness_weights": {
         "not": 2, "slightly": 0, "moderately": -1,
         "highly": -10, "extremely": -10,
@@ -75,6 +83,28 @@ def compute_cat_score(cat, config: dict) -> tuple[int, dict[str, int]]:
             u_score += per_weights_u.get(m, default_u) if use_individual_u else default_u
     breakdown["undesired"] = u_score
 
+    # Desired disorders
+    desired_dis = set(config.get("desired_disorders", []))
+    use_ind_dd = config.get("desired_disorder_use_individual", False)
+    per_w_dd = config.get("desired_disorder_weights", {})
+    def_dd = config.get("desired_disorder_default_weight", 1)
+    dd_score = 0
+    for d in (cat.disorders or []):
+        if d in desired_dis:
+            dd_score += per_w_dd.get(d, def_dd) if use_ind_dd else def_dd
+    breakdown["desired_dis"] = dd_score
+
+    # Undesired disorders
+    undesired_dis = set(config.get("undesired_disorders", []))
+    use_ind_ud = config.get("undesired_disorder_use_individual", False)
+    per_w_ud = config.get("undesired_disorder_weights", {})
+    def_ud = config.get("undesired_disorder_default_weight", -5)
+    ud_score = 0
+    for d in (cat.disorders or []):
+        if d in undesired_dis:
+            ud_score += per_w_ud.get(d, def_ud) if use_ind_ud else def_ud
+    breakdown["undesired_dis"] = ud_score
+
     # Inbredness
     inb_label = _trait_label_from_value("inbredness", cat.inbredness) if cat.inbredness is not None else ""
     inb_weights = config.get("inbredness_weights", {})
@@ -97,9 +127,12 @@ def compute_cat_score(cat, config: dict) -> tuple[int, dict[str, int]]:
     n_abilities = len(cat.abilities or [])
     breakdown["spells"] = config.get("extra_spell_weight", 0) * max(0, n_abilities - 1)
 
-    # Sexuality
-    sex_weights = config.get("sexuality_weights", {})
-    breakdown["sexuality"] = sex_weights.get(getattr(cat, "sexuality", ""), 0)
+    # Sexuality — ? gender cats can breed with anyone, so sexuality is irrelevant
+    if getattr(cat, "gender", "") == "?":
+        breakdown["sexuality"] = 0
+    else:
+        sex_weights = config.get("sexuality_weights", {})
+        breakdown["sexuality"] = sex_weights.get(getattr(cat, "sexuality", ""), 0)
 
     total = sum(breakdown.values())
     return total, breakdown
@@ -109,8 +142,8 @@ def compute_cat_score(cat, config: dict) -> tuple[int, dict[str, int]]:
 # View
 # ---------------------------------------------------------------------------
 
-_BREAKDOWN_KEYS = ["stats", "desired", "undesired", "inbredness", "libido", "aggression", "passives", "spells", "sexuality"]
-_BREAKDOWN_LABELS = ["Stats", "Desired", "Undes.", "Inbred", "Libido", "Aggr", "Passives", "Spells", "Sexuality"]
+_BREAKDOWN_KEYS = ["stats", "desired", "undesired", "desired_dis", "undesired_dis", "inbredness", "libido", "aggression", "passives", "spells", "sexuality"]
+_BREAKDOWN_LABELS = ["Stats", "Desired", "Undes.", "+Dis.", "-Dis.", "Inbred", "Libido", "Aggr", "Passives", "Spells", "Sexuality"]
 
 _COL_NAME = 0
 _COL_ROOM = 1
@@ -168,15 +201,37 @@ class _MutationSelector(QWidget):
         mode_row.addStretch()
         body_vb.addLayout(mode_row)
 
-        self._chk_individual = QCheckBox("Set weight per mutation")
+        self._chk_individual = QCheckBox("Set individual weights")
+        self._chk_individual.setToolTip("Enable to assign a custom weight to each item separately")
         self._chk_individual.toggled.connect(self._on_individual_toggled)
         body_vb.addWidget(self._chk_individual)
 
         # Search
         self._search = QLineEdit()
-        self._search.setPlaceholderText("Filter mutations...")
+        self._search.setPlaceholderText("Filter...")
         self._search.textChanged.connect(self._filter_list)
         body_vb.addWidget(self._search)
+
+        # Show filter (All / Checked / Unchecked)
+        filter_row = QHBoxLayout()
+        filter_row.setSpacing(4)
+        filter_row.addWidget(QLabel("Show:"))
+        self._filter_mode = "all"
+        for mode_label, mode_key in [("All", "all"), ("Checked", "checked"), ("Unchecked", "unchecked")]:
+            btn = QPushButton(mode_label)
+            btn.setCheckable(True)
+            btn.setChecked(mode_key == "all")
+            btn.setFixedHeight(22)
+            btn.clicked.connect(lambda _, mk=mode_key, b=btn: self._set_filter_mode(mk, b))
+            filter_row.addWidget(btn)
+            if mode_key == "all":
+                self._btn_filter_all = btn
+            elif mode_key == "checked":
+                self._btn_filter_checked = btn
+            else:
+                self._btn_filter_unchecked = btn
+        filter_row.addStretch()
+        body_vb.addLayout(filter_row)
 
         # Mutation list (items are rows with checkbox + optional per-mutation spinbox)
         self._list = QListWidget()
@@ -222,11 +277,22 @@ class _MutationSelector(QWidget):
         self._update_toggle_text()
 
     def get_checked(self) -> list[str]:
-        return [
-            self._list.item(i).data(Qt.UserRole)
-            for i in range(self._list.count())
-            if self._list.item(i).checkState() == Qt.Checked
-        ]
+        result = []
+        for i in range(self._list.count()):
+            item = self._list.item(i)
+            # When per-mutation mode is active, the built-in checkState may be
+            # unreliable (ItemIsUserCheckable flag removed).  Read from the
+            # embedded QCheckBox widget instead when present.
+            widget = self._list.itemWidget(item)
+            if widget is not None:
+                chk = widget.findChild(QCheckBox)
+                if chk is not None:
+                    if chk.isChecked():
+                        result.append(item.data(Qt.UserRole))
+                    continue
+            if item.checkState() == Qt.Checked:
+                result.append(item.data(Qt.UserRole))
+        return result
 
     def get_per_weights(self) -> dict[str, int]:
         """Return per-mutation weights for checked mutations."""
@@ -346,6 +412,23 @@ class _MutationSelector(QWidget):
                 self._list.removeItemWidget(item)
                 item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
 
+    def _set_filter_mode(self, mode: str, btn: QPushButton):
+        """Switch between All / Checked / Unchecked filter."""
+        self._filter_mode = mode
+        self._btn_filter_all.setChecked(mode == "all")
+        self._btn_filter_checked.setChecked(mode == "checked")
+        self._btn_filter_unchecked.setChecked(mode == "unchecked")
+        self._filter_list(self._search.text())
+
+    def _is_item_checked(self, item: QListWidgetItem) -> bool:
+        """Check whether an item is checked, handling per-mutation widget mode."""
+        widget = self._list.itemWidget(item)
+        if widget is not None:
+            chk = widget.findChild(QCheckBox)
+            if chk is not None:
+                return chk.isChecked()
+        return item.checkState() == Qt.Checked
+
     def _filter_list(self, text: str):
         text_lower = text.lower()
         for i in range(self._list.count()):
@@ -357,7 +440,15 @@ class _MutationSelector(QWidget):
                 lbl = widget.findChild(QLabel)
                 if lbl:
                     visible_text = lbl.text()
-            item.setHidden(text_lower not in visible_text.lower())
+            matches_text = text_lower in visible_text.lower()
+            # Apply checked/unchecked filter
+            if self._filter_mode == "checked":
+                matches_filter = self._is_item_checked(item)
+            elif self._filter_mode == "unchecked":
+                matches_filter = not self._is_item_checked(item)
+            else:
+                matches_filter = True
+            item.setHidden(not (matches_text and matches_filter))
 
     def _set_all(self, checked: bool):
         self._suppress = True
@@ -380,6 +471,8 @@ class _MutationSelector(QWidget):
         if self._suppress:
             return
         self._update_toggle_text()
+        if self._filter_mode != "all":
+            self._filter_list(self._search.text())
         self._on_changed()
 
     def _on_changed(self, _=None):
@@ -388,10 +481,17 @@ class _MutationSelector(QWidget):
         self._parent_view._on_config_changed()
 
     def _count_checked(self) -> int:
-        return sum(
-            1 for i in range(self._list.count())
-            if self._list.item(i).checkState() == Qt.Checked
-        )
+        count = 0
+        for i in range(self._list.count()):
+            item = self._list.item(i)
+            widget = self._list.itemWidget(item)
+            if widget is not None:
+                chk = widget.findChild(QCheckBox)
+                if chk is not None:
+                    count += chk.isChecked()
+                    continue
+            count += item.checkState() == Qt.Checked
+        return count
 
     def _update_toggle_text(self):
         n = self._count_checked()
@@ -493,6 +593,13 @@ class ManualScoringView(QWidget):
         # --- Undesired mutations ---
         self._undesired_selector = _MutationSelector("Undesirable Mutations", -5, self)
         vb.addWidget(self._undesired_selector)
+
+        # --- Disorders ---
+        vb.addWidget(self._section_label("Disorders"))
+        self._desired_disorder_selector = _MutationSelector("Desired Disorders", 1, self)
+        vb.addWidget(self._desired_disorder_selector)
+        self._undesired_disorder_selector = _MutationSelector("Undesirable Disorders", -5, self)
+        vb.addWidget(self._undesired_disorder_selector)
 
         # --- Inbredness ---
         vb.addWidget(self._section_label("Inbredness"))
@@ -638,18 +745,34 @@ class ManualScoringView(QWidget):
     # ---- Mutation catalog rebuild -----------------------------------------
 
     def _rebuild_mutation_catalogs(self):
-        """Rebuild both mutation selectors from current cats."""
+        """Rebuild mutation and disorder selectors from current cats."""
         all_mutations = sorted({m for c in self._alive for m in (c.mutations or [])})
+        all_disorders = sorted({d for c in self._alive for d in (c.disorders or [])})
 
+        # Snapshot prev selections before any rebuild — apply_per_weights can
+        # trigger _on_config_changed which would overwrite self._config with
+        # an incomplete read (later selectors haven't been rebuilt yet).
         prev_desired = set(self._config.get("desired_mutations", []))
         prev_desired_weights = self._config.get("desired_mutation_weights", {})
-        self._desired_selector.rebuild(all_mutations, prev_desired, prev_desired_weights)
-        self._desired_selector.apply_per_weights()
-
         prev_undesired = set(self._config.get("undesired_mutations", []))
         prev_undesired_weights = self._config.get("undesired_mutation_weights", {})
+        prev_desired_dis = set(self._config.get("desired_disorders", []))
+        prev_desired_dis_weights = self._config.get("desired_disorder_weights", {})
+        prev_undesired_dis = set(self._config.get("undesired_disorders", []))
+        prev_undesired_dis_weights = self._config.get("undesired_disorder_weights", {})
+
+        # Suppress config reads during rebuild so apply_per_weights signals
+        # don't clobber later selectors before they're rebuilt.
+        self._suppress_recompute = True
+        self._desired_selector.rebuild(all_mutations, prev_desired, prev_desired_weights)
+        self._desired_selector.apply_per_weights()
         self._undesired_selector.rebuild(all_mutations, prev_undesired, prev_undesired_weights)
         self._undesired_selector.apply_per_weights()
+        self._desired_disorder_selector.rebuild(all_disorders, prev_desired_dis, prev_desired_dis_weights)
+        self._desired_disorder_selector.apply_per_weights()
+        self._undesired_disorder_selector.rebuild(all_disorders, prev_undesired_dis, prev_undesired_dis_weights)
+        self._undesired_disorder_selector.apply_per_weights()
+        self._suppress_recompute = False
 
     # ---- Config reading ---------------------------------------------------
 
@@ -665,6 +788,14 @@ class ManualScoringView(QWidget):
             "undesired_mutation_weights": self._undesired_selector.get_per_weights(),
             "undesired_use_individual": self._undesired_selector.use_individual(),
             "undesired_default_weight": self._undesired_selector.default_weight(),
+            "desired_disorders": self._desired_disorder_selector.get_checked(),
+            "desired_disorder_weights": self._desired_disorder_selector.get_per_weights(),
+            "desired_disorder_use_individual": self._desired_disorder_selector.use_individual(),
+            "desired_disorder_default_weight": self._desired_disorder_selector.default_weight(),
+            "undesired_disorders": self._undesired_disorder_selector.get_checked(),
+            "undesired_disorder_weights": self._undesired_disorder_selector.get_per_weights(),
+            "undesired_disorder_use_individual": self._undesired_disorder_selector.use_individual(),
+            "undesired_disorder_default_weight": self._undesired_disorder_selector.default_weight(),
             "inbredness_weights": {k: s.value() for k, s in self._spin_inbredness.items()},
             "libido_weights": {k: s.value() for k, s in self._spin_libido.items()},
             "aggression_weights": {k: s.value() for k, s in self._spin_aggression.items()},
@@ -780,6 +911,8 @@ class ManualScoringView(QWidget):
         self._spin_stat.setValue(_DEFAULT_CONFIG["stat_weight"])
         self._desired_selector.reset()
         self._undesired_selector.reset()
+        self._desired_disorder_selector.reset()
+        self._undesired_disorder_selector.reset()
         for k, v in _DEFAULT_CONFIG["inbredness_weights"].items():
             self._spin_inbredness[k].setValue(v)
         for k, v in _DEFAULT_CONFIG["libido_weights"].items():
@@ -817,7 +950,7 @@ class ManualScoringView(QWidget):
 
         self._spin_stat.setValue(s.get("stat_weight", _DEFAULT_CONFIG["stat_weight"]))
 
-        # Restore mutation selector state (items rebuilt later in set_cats)
+        # Restore mutation/disorder selector state (items rebuilt later in set_cats)
         self._desired_selector.set_state(
             use_individual=s.get("desired_use_individual", False),
             default_weight=s.get("desired_default_weight", 1),
@@ -827,6 +960,16 @@ class ManualScoringView(QWidget):
             use_individual=s.get("undesired_use_individual", False),
             default_weight=s.get("undesired_default_weight", -5),
             per_weights=s.get("undesired_mutation_weights", {}),
+        )
+        self._desired_disorder_selector.set_state(
+            use_individual=s.get("desired_disorder_use_individual", False),
+            default_weight=s.get("desired_disorder_default_weight", 1),
+            per_weights=s.get("desired_disorder_weights", {}),
+        )
+        self._undesired_disorder_selector.set_state(
+            use_individual=s.get("undesired_disorder_use_individual", False),
+            default_weight=s.get("undesired_disorder_default_weight", -5),
+            per_weights=s.get("undesired_disorder_weights", {}),
         )
 
         for k, spin in self._spin_inbredness.items():
@@ -851,12 +994,16 @@ class ManualScoringView(QWidget):
 
         self._suppress_recompute = False
 
-        # Build initial config — mutation lists restored later in set_cats
+        # Build initial config — mutation/disorder lists restored later in set_cats
         self._config = self._read_config()
         self._config["desired_mutations"] = s.get("desired_mutations", [])
         self._config["desired_mutation_weights"] = s.get("desired_mutation_weights", {})
         self._config["undesired_mutations"] = s.get("undesired_mutations", [])
         self._config["undesired_mutation_weights"] = s.get("undesired_mutation_weights", {})
+        self._config["desired_disorders"] = s.get("desired_disorders", [])
+        self._config["desired_disorder_weights"] = s.get("desired_disorder_weights", {})
+        self._config["undesired_disorders"] = s.get("undesired_disorders", [])
+        self._config["undesired_disorder_weights"] = s.get("undesired_disorder_weights", {})
 
     def _restore_sort_order(self):
         """Called after table is populated to restore sort column/order."""
