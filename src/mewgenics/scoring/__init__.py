@@ -24,3 +24,4 @@ from mewgenics.scoring.helpers import (  # noqa: F401
     compute_all_scores,
     compute_heatmap_norms,
 )
+from mewgenics.scoring.filters import FilterState, cat_passes_filter  # noqa: F401

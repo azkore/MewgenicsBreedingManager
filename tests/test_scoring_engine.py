@@ -235,3 +235,73 @@ def test_compute_heatmap_norms_disabled():
     assert col_max == {}
     assert row_max == {}
     assert score_max == 1.0
+
+
+# ── filters.py tests ─────────────────────────────────────────────────────────
+
+from mewgenics.scoring.filters import FilterState, cat_passes_filter
+from mewgenics.scoring.engine import ScoreResult
+
+
+def _dummy_score(total=5.0, gene_risk=None):
+    return ScoreResult(
+        total=total, tier="Good", tier_color="#1ec8a0",
+        breakdown=[], subtotals={}, scope_gene_risk=gene_risk,
+    )
+
+
+def test_filter_state_roundtrip():
+    fs = FilterState()
+    fs.age_active = True
+    fs.age_value = 8
+    fs.age_op = "Greater Than"
+    d = fs.to_dict()
+    fs2 = FilterState.from_dict(d)
+    assert fs2.age_active is True
+    assert fs2.age_value == 8
+    assert fs2.age_op == "Greater Than"
+
+
+def test_filter_passes_all_disabled():
+    cat = _scope_cat("A", age=5)
+    fs = FilterState()  # all disabled
+    assert cat_passes_filter(cat, fs, _dummy_score(), set()) is True
+
+
+def test_filter_age_less_than():
+    fs = FilterState()
+    fs.age_active = True
+    fs.age_value = 10
+    fs.age_op = "Less Than"
+    assert cat_passes_filter(_scope_cat("Young", age=5), fs, _dummy_score(), set()) is True
+    assert cat_passes_filter(_scope_cat("Old", age=15), fs, _dummy_score(), set()) is False
+
+
+def test_filter_gender():
+    fs = FilterState()
+    fs.gender_active = True
+    fs.gender_male = True
+    fs.gender_female = False
+    fs.gender_unknown = False
+    assert cat_passes_filter(_scope_cat("M", gender="M"), fs, _dummy_score(), set()) is True
+    assert cat_passes_filter(_scope_cat("F", gender="F"), fs, _dummy_score(), set()) is False
+
+
+def test_filter_stat():
+    fs = FilterState()
+    fs.stat_filters["STR"]["active"] = True
+    fs.stat_filters["STR"]["value"] = 7
+    fs.stat_filters["STR"]["op"] = "Equals"
+    cat7 = _scope_cat("Strong", stats={"STR": 7, "DEX": 5, "CON": 5, "INT": 5, "SPD": 5, "CHA": 5, "LCK": 5})
+    cat5 = _scope_cat("Weak", stats={"STR": 5, "DEX": 5, "CON": 5, "INT": 5, "SPD": 5, "CHA": 5, "LCK": 5})
+    assert cat_passes_filter(cat7, fs, _dummy_score(), set()) is True
+    assert cat_passes_filter(cat5, fs, _dummy_score(), set()) is False
+
+
+def test_filter_score():
+    fs = FilterState()
+    fs.score_active = True
+    fs.score_value = 5.0
+    fs.score_op = "Greater Than"
+    assert cat_passes_filter(_scope_cat("A"), fs, _dummy_score(total=8.0), set()) is True
+    assert cat_passes_filter(_scope_cat("B"), fs, _dummy_score(total=3.0), set()) is False
