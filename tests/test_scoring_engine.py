@@ -62,3 +62,139 @@ def test_get_mutation_stat_bonuses_empty():
     cat = _make_cat()
     bonuses = get_mutation_stat_bonuses(cat)
     assert bonuses == {}
+
+
+# ── engine.py tests ──────────────────────────────────────────────────────────
+
+from mewgenics.scoring.engine import (
+    compute_breed_priority_score, ScoreResult, priority_tier,
+    BREED_PRIORITY_WEIGHTS, ability_base, is_basic_trait,
+)
+
+
+def test_priority_tier_boundaries():
+    assert priority_tier(10.0) == ("Keep", "#f0c060")
+    assert priority_tier(4.0) == ("Good", "#1ec8a0")
+    assert priority_tier(0.0) == ("Neutral", "#777777")
+    assert priority_tier(-1.0) == ("Consider", "#e08030")
+    assert priority_tier(-5.0) == ("Consider", "#e08030")
+    assert priority_tier(-6.0) == ("Cull", "#e04040")
+
+
+def test_ability_base_strips_tier2():
+    assert ability_base("Vurp2") == "Vurp"
+    assert ability_base("Vurp") == "Vurp"
+    assert ability_base("A2") == "A"
+    assert ability_base("2") == "2"  # single char, no strip
+
+
+def test_is_basic_trait():
+    assert is_basic_trait("BasicAttack") is True
+    assert is_basic_trait("basicmove") is True
+    assert is_basic_trait("Vurp") is False
+
+
+def _scope_cat(name, stats=None, gender="M", room="Floor1_Large",
+               abilities=None, passive_abilities=None, mutations=None,
+               defects=None, disorders=None, aggression=0.5, libido=0.5,
+               sexuality="straight", age=5, lovers=None, haters=None,
+               children=None, status="In House"):
+    s = stats or {"STR": 5, "DEX": 5, "CON": 5, "INT": 5, "SPD": 5, "CHA": 5, "LCK": 5}
+    return SimpleNamespace(
+        name=name, base_stats=dict(s), total_stats=dict(s),
+        gender=gender, room=room, status=status, age=age,
+        abilities=abilities or [], passive_abilities=passive_abilities or [],
+        mutations=mutations or [], defects=defects or [], disorders=disorders or [],
+        aggression=aggression, libido=libido, sexuality=sexuality,
+        lovers=lovers or [], haters=haters or [], children=children or [],
+        visual_mutation_entries=[], db_key=id(name),
+    )
+
+
+def test_score_basic_cat_no_scope():
+    """With empty scope, cat is sole owner of its 7-stats (not in scope set)."""
+    cat = _scope_cat("Solo", stats={"STR": 7, "DEX": 7, "CON": 5, "INT": 5, "SPD": 5, "CHA": 5, "LCK": 5})
+    result = compute_breed_priority_score(
+        cat, scope_cats=[], ma_ratings={},
+        stat_names=["STR", "DEX", "CON", "INT", "SPD", "CHA", "LCK"],
+    )
+    assert isinstance(result, ScoreResult)
+    # Sole owner of 2 stats at 7: 2 * (5.0*2) = 20.0, plus 7-count: 2*2.0 = 4.0
+    assert result.subtotals["stat_7"] == 20.0
+    assert result.subtotals["stat_7_count"] == 4.0
+    assert result.total == 24.0
+    assert result.tier == "Keep"
+
+
+def test_score_7_rarity_sole_owner():
+    """Sole owner of a 7 in a stat gets 2x weight."""
+    stat_names = ["STR", "DEX", "CON", "INT", "SPD", "CHA", "LCK"]
+    cat_a = _scope_cat("A", stats={"STR": 7, "DEX": 5, "CON": 5, "INT": 5, "SPD": 5, "CHA": 5, "LCK": 5})
+    cat_b = _scope_cat("B", stats={"STR": 5, "DEX": 5, "CON": 5, "INT": 5, "SPD": 5, "CHA": 5, "LCK": 5})
+    scope = [cat_a, cat_b]
+    result = compute_breed_priority_score(
+        cat_a, scope_cats=scope, ma_ratings={}, stat_names=stat_names,
+    )
+    # Sole owner: stat_7 * 2 = 5.0 * 2 = 10.0, plus 7-count: 2.0 * 1 = 2.0
+    assert result.subtotals["stat_7"] == 10.0
+    assert result.subtotals["stat_7_count"] == 2.0
+
+
+def test_score_7_rarity_shared():
+    """When two cats share a 7 in STR, the bonus is the base weight (not 2x)."""
+    stat_names = ["STR", "DEX", "CON", "INT", "SPD", "CHA", "LCK"]
+    cat_a = _scope_cat("A", stats={"STR": 7, "DEX": 5, "CON": 5, "INT": 5, "SPD": 5, "CHA": 5, "LCK": 5})
+    cat_b = _scope_cat("B", stats={"STR": 7, "DEX": 5, "CON": 5, "INT": 5, "SPD": 5, "CHA": 5, "LCK": 5})
+    scope = [cat_a, cat_b]
+    result = compute_breed_priority_score(
+        cat_a, scope_cats=scope, ma_ratings={}, stat_names=stat_names,
+    )
+    assert result.subtotals["stat_7"] == 5.0  # base weight, 2 cats < threshold 7
+
+
+def test_score_trait_rating_desirable():
+    """A desirable trait on a sole owner gets 2x weight."""
+    stat_names = ["STR", "DEX", "CON", "INT", "SPD", "CHA", "LCK"]
+    cat = _scope_cat("A", abilities=["Vurp"])
+    scope = [cat]
+    result = compute_breed_priority_score(
+        cat, scope_cats=scope, ma_ratings={"Vurp": 1},
+        stat_names=stat_names,
+    )
+    # Sole owner of desirable: 2 * trait_desirable(2.0) = 4.0
+    assert result.subtotals["trait_desirable"] == 4.0
+
+
+def test_score_gene_risk_safe():
+    """Cat with zero risk against all scope partners gets zero_risk_bonus."""
+    stat_names = ["STR", "DEX", "CON", "INT", "SPD", "CHA", "LCK"]
+    cat_a = _scope_cat("A", gender="M")
+    cat_b = _scope_cat("B", gender="F")
+    scope = [cat_a, cat_b]
+
+    def fake_risk(a, b, memo=None):
+        return 0.0
+
+    def fake_can_breed(a, b):
+        return (True, [])
+
+    result = compute_breed_priority_score(
+        cat_a, scope_cats=scope, ma_ratings={}, stat_names=stat_names,
+        gene_risk_lookup=fake_risk, can_breed_fn=fake_can_breed,
+    )
+    assert result.subtotals["zero_risk_bonus"] == 2.0
+
+
+def test_score_aggression_low():
+    stat_names = ["STR", "DEX", "CON", "INT", "SPD", "CHA", "LCK"]
+    cat = _scope_cat("Calm", aggression=0.1)
+    result = compute_breed_priority_score(cat, [], {}, stat_names)
+    assert result.subtotals["low_aggression"] == 1.0
+
+
+def test_score_age_penalty():
+    stat_names = ["STR", "DEX", "CON", "INT", "SPD", "CHA", "LCK"]
+    cat = _scope_cat("Old", age=14)
+    result = compute_breed_priority_score(cat, [], {}, stat_names)
+    # age 14, threshold 10, over=4, mult=1+(4-1)//3=2, pts=2*-2.0=-4.0
+    assert result.subtotals["age_penalty"] == -4.0
