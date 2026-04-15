@@ -3537,19 +3537,22 @@ class MainWindow(QMainWindow):
             if self._furniture_view is not None:
                 self._furniture_view.set_context(self._cats, self._furniture, self._furniture_data, available_rooms=self._available_house_rooms)
                 self._view_generation["furniture"] = self._cats_generation
-            # Only push cats to currently visible views immediately.
-            # Hidden views pick up changes via generation counter when shown.
-            if self._tree_view is not None and self._tree_view.isVisible():
+            # Push cats to all views so switching tabs is instant.
+            if self._tree_view is not None:
                 self._set_view_cats_if_needed("tree", self._tree_view, cats)
-            if self._safe_breeding_view is not None and self._safe_breeding_view.isVisible():
+            if self._safe_breeding_view is not None:
                 self._set_view_cats_if_needed("safe_breeding", self._safe_breeding_view, cats)
-            if self._breeding_partners_view is not None and self._breeding_partners_view.isVisible():
+            if self._breeding_partners_view is not None:
                 self._set_view_cats_if_needed("breeding_partners", self._breeding_partners_view, cats)
-            if self._room_optimizer_view is not None and self._room_optimizer_view.isVisible():
+            if self._room_optimizer_view is not None:
                 self._set_view_cats_if_needed("room_optimizer", self._room_optimizer_view, cats)
-            if self._perfect_planner_view is not None and self._perfect_planner_view.isVisible():
+            if self._perfect_planner_view is not None:
                 self._set_view_cats_if_needed("perfect_planner", self._perfect_planner_view, cats)
-            if self._calibration_view is not None and self._calibration_view.isVisible():
+            if self._mutation_planner_view is not None:
+                self._set_view_cats_if_needed("mutation_planner", self._mutation_planner_view, cats)
+            if self._manual_scoring_view is not None:
+                self._set_view_cats_if_needed("manual_scoring", self._manual_scoring_view, cats)
+            if self._calibration_view is not None:
                 self._calibration_view.set_context(self._current_save, cats)
                 self._view_generation["calibration"] = self._cats_generation
             self._sync_donation_planner_traits()
