@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QColor, QFont
 
 from mewgenics.constants import (
-    _CHIP_STYLE, _DEFECT_CHIP_STYLE, _SEC_STYLE, _DETAIL_TEXT_STYLE, _SIDEBAR_BTN,
+    _CHIP_STYLE, _CHIP_UPGRADED_STYLE, _DEFECT_CHIP_STYLE, _SEC_STYLE, _DETAIL_TEXT_STYLE, _SIDEBAR_BTN,
 )
 
 
@@ -80,6 +80,14 @@ def _enable_manual_header_resize(header, columns: list[int]):
 def _chip(text: str, tooltip: str = "") -> QLabel:
     lbl = QLabel(text)
     lbl.setStyleSheet(_CHIP_STYLE)
+    if tooltip:
+        lbl.setToolTip(tooltip)
+    return lbl
+
+
+def _upgraded_chip(text: str, tooltip: str = "") -> QLabel:
+    lbl = QLabel(text)
+    lbl.setStyleSheet(_CHIP_UPGRADED_STYLE)
     if tooltip:
         lbl.setToolTip(tooltip)
     return lbl

@@ -6,7 +6,7 @@ from typing import Sequence
 
 from save_parser import (
     Cat, _load_gpak_text_strings, _resolve_game_string,
-    _stimulation_inheritance_weight,
+    _stimulation_inheritance_weight, _extract_primary_language_text,
 )
 
 
@@ -331,6 +331,13 @@ _ABILITY_KEY_ALIASES: dict[str, str] = {
 _ABILITY_DESC: dict[str, str] = {}
 
 
+def _strip_tier(name: str) -> tuple[str, int]:
+    """Return (base_name, tier). 'TankSwap2' -> ('TankSwap', 2), 'TankSwap' -> ('TankSwap', 1)."""
+    if len(name) > 1 and name[-1] == "2":
+        return name[:-1], 2
+    return name, 1
+
+
 def _mutation_display_name(name: str) -> str:
     """Return a human-readable display name for a mutation/ability identifier."""
     key = re.sub(r'[^a-z0-9]', '', name.lower())
@@ -345,7 +352,7 @@ def _mutation_display_name(name: str) -> str:
 
 def _trait_selector_summary(tip: str) -> str:
     """Condense a tooltip/detail string for use in the trait selector."""
-    text = str(tip or "").replace("\u00a0", " ").strip()
+    text = _extract_primary_language_text(str(tip or "").replace("\u00a0", " ").strip())
     if not text:
         return ""
 
@@ -394,16 +401,8 @@ def _trait_display_kind(category: str) -> str:
 
 
 def _trait_description_preview(tip: str) -> str:
-    """Return a compact one-line preview of a trait's description.
-
-    Previously this cropped everything after the first comma or semicolon
-    as a workaround for :func:`save_parser._load_gpak_text_strings`
-    returning multi-language glob (``"English,Polski,Русский,中文"``). The
-    parser now returns a single-language value, so cropping at commas just
-    loses legitimate content like ``"+2 STR, -1 DEX"``. Full descriptions
-    are returned as-is and let downstream widgets wrap/truncate visually.
-    """
-    text = str(tip or "").replace("\u00a0", " ").strip()
+    """Return a compact one-line preview of a trait's description."""
+    text = _extract_primary_language_text(str(tip or "").replace("\u00a0", " ").strip())
     if not text:
         return ""
 
@@ -449,26 +448,55 @@ def _is_redundant_trait_metadata(text: str) -> bool:
 
 
 def _ability_tip(name: str) -> str:
-    """Return a tooltip description for an ability/mutation name, or '' if unknown."""
-    key = re.sub(r'[^a-z0-9]', '', name.lower())
+    """Return a tooltip description for an ability/mutation name, or '' if unknown.
+
+    Strips any trailing tier suffix ('2') before lookup so that 'TankSwap2'
+    resolves the same as 'TankSwap' for the base description.
+
+    Prefers the GPAK description when available (authoritative and complete);
+    falls back to the hardcoded _ABILITY_LOOKUP when GPAK is not loaded.
+    """
+    base, _tier = _strip_tier(name)
+    key = re.sub(r'[^a-z0-9]', '', base.lower())
     key = _ABILITY_KEY_ALIASES.get(key, key)
-    lookup = _ABILITY_LOOKUP.get(key, "")
-    desc = _ABILITY_DESC.get(key, "")
-    clean_desc = _trait_description_preview(desc) if desc else ""
-    if lookup and clean_desc and lookup.lower() != clean_desc.lower():
-        return f"{lookup}\n{clean_desc}"
-    return clean_desc or lookup
+    return _ABILITY_DESC.get(key) or _ABILITY_LOOKUP.get(key, "")
+
+
+def _ability_upgraded_tip(name: str, passive_tier: int = 1) -> str:
+    """Return tooltip for an ability, appending the tier-2 description when upgraded.
+
+    For active abilities the tier is auto-detected from a trailing '2' suffix.
+    For passives, pass ``passive_tier`` from ``cat.passive_tiers``.
+    The upgrade line is prefixed with '+' to distinguish it from the base description.
+    """
+    base, active_tier = _strip_tier(name)
+    tier = active_tier if active_tier > 1 else passive_tier
+    base_tip = _ability_tip(base)
+    if tier < 2:
+        return base_tip
+    tier2_key = re.sub(r'[^a-z0-9]', '', base.lower()) + "2"
+    upgrade_text = _ABILITY_DESC.get(tier2_key, "")
+    if not upgrade_text:
+        return base_tip
+    if base_tip:
+        return f"{base_tip}\n+ Upgraded: {upgrade_text}"
+    return f"+ Upgraded: {upgrade_text}"
 
 
 def _abilities_tooltip(cat: "Cat") -> str:
+    passive_tiers = getattr(cat, "passive_tiers", {})
     lines: list[str] = []
     for ability in cat.abilities:
-        tip = _ability_tip(ability)
-        lines.append(ability if not tip else f"{ability}\n{tip}")
+        base, tier = _strip_tier(ability)
+        label = f"{base}+" if tier > 1 else base
+        tip = _ability_upgraded_tip(ability)
+        lines.append(label if not tip else f"{label}\n{tip}")
     for passive in cat.passive_abilities:
+        tier = passive_tiers.get(passive, 1)
         name = _mutation_display_name(passive)
-        tip = _ability_tip(passive)
-        lines.append(f"● {name}" if not tip else f"● {name}\n{tip}")
+        label = f"● {name}+" if tier > 1 else f"● {name}"
+        tip = _ability_upgraded_tip(passive, passive_tier=tier)
+        lines.append(label if not tip else f"{label}\n{tip}")
     for disorder in cat.disorders:
         name = _mutation_display_name(disorder)
         tip = _ability_tip(disorder)
@@ -537,16 +565,21 @@ _MUTATION_EFFECT_RE = re.compile(
 
 
 def _ability_effect_lines(cat: "Cat") -> list[str]:
+    passive_tiers = getattr(cat, "passive_tiers", {})
     lines: list[str] = []
     for ability in cat.abilities:
-        tip = _ability_tip(ability).strip()
+        base, tier = _strip_tier(ability)
+        label = f"{base}+" if tier > 1 else base
+        tip = _ability_upgraded_tip(ability).strip()
         if tip:
-            lines.append(f"{ability}: {tip}")
+            lines.append(f"{label}: {tip}")
     for passive in cat.passive_abilities:
+        tier = passive_tiers.get(passive, 1)
         name = _mutation_display_name(passive)
-        tip = _ability_tip(passive).strip()
+        label = f"{name}+" if tier > 1 else name
+        tip = _ability_upgraded_tip(passive, passive_tier=tier).strip()
         if tip:
-            lines.append(f"{name}: {tip}")
+            lines.append(f"{label}: {tip}")
     return lines
 
 
@@ -754,6 +787,7 @@ def _load_ability_descriptions(gpak_path: str | None) -> dict[str, str]:
 
             block_re = re.compile(r'^([A-Za-z]\w*)\s*\{', re.MULTILINE)
             desc_re = re.compile(r'^\s*desc\s+"([^"]*)"', re.MULTILINE)
+            tier2_block_re = re.compile(r'^\s*2\s*\{', re.MULTILINE)
 
             def _clean(text: str) -> str:
                 text = re.sub(r'\[img:[^\]]+\]', '', text)
@@ -781,14 +815,39 @@ def _load_ability_descriptions(gpak_path: str | None) -> dict[str, str]:
                             depth -= 1
                         idx += 1
                     block = content[block_start:idx - 1]
+                    base_key = ability_id.lower()
+
                     dm = desc_re.search(block)
-                    if not dm:
-                        continue
-                    desc_val = dm.group(1)
-                    desc_val = _resolve_game_string(desc_val, game_strings)
-                    if not desc_val or desc_val == "nothing":
-                        continue
-                    result[ability_id.lower()] = _clean(desc_val)
+                    if dm:
+                        desc_val = dm.group(1)
+                        desc_val = game_strings.get(desc_val, desc_val)
+                        desc_val = _resolve_game_string(desc_val, game_strings)
+                        if desc_val and desc_val != "nothing":
+                            result[base_key] = _clean(desc_val)
+
+                    # Passive GON files use nested tier blocks: 2 { desc "..." }
+                    # Active ability tier-2 variants are separate top-level blocks and
+                    # are already captured above, so only write if not yet present.
+                    tier2_key = base_key + "2"
+                    if tier2_key not in result:
+                        t2m = tier2_block_re.search(block)
+                        if t2m:
+                            t2_start = t2m.end()
+                            t2_depth, t2_idx = 1, t2_start
+                            while t2_idx < len(block) and t2_depth > 0:
+                                if block[t2_idx] == '{':
+                                    t2_depth += 1
+                                elif block[t2_idx] == '}':
+                                    t2_depth -= 1
+                                t2_idx += 1
+                            t2_block = block[t2_start:t2_idx - 1]
+                            t2dm = desc_re.search(t2_block)
+                            if t2dm:
+                                t2_desc = t2dm.group(1)
+                                t2_desc = game_strings.get(t2_desc, t2_desc)
+                                t2_desc = _resolve_game_string(t2_desc, game_strings)
+                                if t2_desc and t2_desc != "nothing":
+                                    result[tier2_key] = _clean(t2_desc)
         return result
     except Exception:
         return {}

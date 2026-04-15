@@ -410,7 +410,7 @@ def _load_gpak_text_strings(file_obj, file_offsets: dict[str, tuple[int, int]]) 
                                 value = candidate
                                 break
                     if value:
-                        game_strings[key] = html.unescape(value)
+                        game_strings[key] = _extract_primary_language_text(html.unescape(value))
                         parsed_any = True
         except Exception:
             parsed_any = False
@@ -424,8 +424,8 @@ def _load_gpak_text_strings(file_obj, file_offsets: dict[str, tuple[int, int]]) 
             if len(parts) != 2:
                 continue
             key, value = parts[0].strip(), parts[1].strip()
-            if key:
-                game_strings[key] = value
+            if key and value:
+                game_strings[key] = _extract_primary_language_text(html.unescape(value))
     return game_strings
 
 
@@ -466,7 +466,7 @@ def _load_gpak_csv_strings(
                     value = candidate
                     break
         if value:
-            values[key] = html.unescape(value)
+            values[key] = _extract_primary_language_text(html.unescape(value))
     return values
 
 
@@ -551,7 +551,50 @@ def _resolve_game_string(value: str, game_strings: dict[str, str]) -> str:
         if next_value is None:
             break
         current = next_value.strip()
-    return current
+    return _extract_primary_language_text(current)
+
+
+def _extract_primary_language_text(value: str) -> str:
+    """Return the primary-language segment from packed localized strings."""
+    text = str(value or "").replace("\u00a0", " ").strip()
+    if not text:
+        return ""
+
+    # Common packed format where languages are concatenated with triple bars.
+    if "|||" in text:
+        first = text.split("|||", 1)[0].strip()
+        return first or text
+
+    lang_token = r"(?:en(?:[-_](?:us|gb))?|english|ru|russian|pl|polish|zh(?:[-_]cn)?|chinese|ja|japanese|ko|korean)"
+    token_prefix = re.compile(rf"^\s*(?:\[{lang_token}\]|{lang_token})\s*[:=\-]\s*", flags=re.IGNORECASE)
+    token_anywhere = re.compile(rf"(?:^|\s*[|/;]\s*)(?:\[{lang_token}\]|{lang_token})\s*[:=\-]\s*", flags=re.IGNORECASE)
+
+    if token_anywhere.search(text):
+        chunks = [chunk.strip() for chunk in re.split(r"\s*[|/;]\s*", text) if chunk.strip()]
+        parsed: list[tuple[str, str]] = []
+        for chunk in chunks:
+            match = re.match(
+                rf"^\s*(?:\[(?P<btag>{lang_token})\]|(?P<tag>{lang_token}))\s*[:=\-]\s*(?P<body>.+)$",
+                chunk,
+                flags=re.IGNORECASE,
+            )
+            if not match:
+                continue
+            tag = (match.group("btag") or match.group("tag") or "").strip().lower()
+            body = (match.group("body") or "").strip()
+            if body:
+                parsed.append((tag, body))
+        if parsed:
+            for tag, body in parsed:
+                if tag.startswith("en") or tag == "english":
+                    return body
+            return parsed[0][1]
+
+    if token_prefix.match(text):
+        cleaned = token_prefix.sub("", text, count=1).strip()
+        return cleaned or text
+
+    return text
 
 
 def _parse_mutation_gon(
@@ -916,6 +959,7 @@ def _read_visual_mutation_entries(table: list[int]) -> list[dict[str, object]]:
             continue
 
         part_label = _VISUAL_MUTATION_PART_LABELS.get(group_key, slot_label)
+        is_defect = (700 <= mutation_id <= 706) or mutation_id == 0xFFFF_FFFE
         display_name = ""
         detail = ""
         source = "generic"
@@ -938,7 +982,8 @@ def _read_visual_mutation_entries(table: list[int]) -> list[dict[str, object]]:
                 display_name = str(catalog_name).strip()
                 source = f"catalog:{fallback_part}"
             else:
-                display_name = f"{part_label} Mutation"
+                base = f"{part_label} Mutation"
+                display_name = f"{base} {stat_desc}" if stat_desc else base
                 source = f"generic:{gpak_category}"
         elif catalog_name:
             display_name = str(catalog_name).strip()
@@ -949,7 +994,9 @@ def _read_visual_mutation_entries(table: list[int]) -> list[dict[str, object]]:
             else:
                 display_name = f"{part_label} {mutation_id}"
 
-        is_defect = (700 <= mutation_id <= 706) or mutation_id == 0xFFFF_FFFE
+        if is_defect:
+            # Defects are shown in-game as part-level defect labels.
+            display_name = f"{part_label} Birth Defect"
 
         display_name = str(display_name).strip() or f"{slot_label} {mutation_id}"
         if logger.isEnabledFor(logging.DEBUG) and (verbose_logs or not _is_synthetic_visual_mutation_name(display_name, part_label, slot_label, mutation_id)):
@@ -1085,7 +1132,7 @@ def _visual_mutation_chip_items(entries: list[dict[str, object]]) -> list[tuple[
         kind = "Birth Defect" if is_defect else "Mutation"
         id_str = "-2" if mutation_id == 0xFFFF_FFFE else str(mutation_id)
         tooltip = f"{title_label} {kind} (ID {id_str})\n{name}"
-        if detail:
+        if detail and detail not in name:
             tooltip = f"{tooltip}\n{detail}"
         if len(slot_labels) > 1:
             tooltip = f"{tooltip}\nAffects: {', '.join(slot_labels)}"
@@ -1581,8 +1628,11 @@ class Cat:
                 if _valid_str(ri):
                     passives.append(ri)
 
+            passive_tiers: dict[str, int] = {}
             try:
-                r.u32()   # passive1 tier — discard
+                passive1_tier = r.u32()
+                if passives:
+                    passive_tiers[passives[0]] = passive1_tier
             except Exception:
                 logger.debug("Cat %s: passive1 tier read failed", cat_key, exc_info=True)
 
@@ -1600,12 +1650,15 @@ class Cat:
                     else:
                         disorders.append(item)
                 try:
-                    r.u32()
+                    slot_tier = r.u32()
+                    if tail_idx == 0 and item is not None and _IDENT_RE.match(item) and _valid_str(item):
+                        passive_tiers[item] = slot_tier
                 except Exception:
                     logger.debug("Cat %s: tail slot %d tier read failed", cat_key, tail_idx, exc_info=True)
                     break
 
             self.passive_abilities = passives
+            self.passive_tiers = passive_tiers
             self.disorders = disorders
             self.equipment = []
 
@@ -1627,6 +1680,7 @@ class Cat:
             self.equipment = [s for s in [r.str() for _ in range(4)] if _valid_str(s)]
 
             self.passive_abilities = []
+            self.passive_tiers = {}
             self.disorders = []
             first = r.str()
             if _valid_str(first):

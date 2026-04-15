@@ -56,6 +56,7 @@ def _make_cat(
         aggression=aggression,
         libido=libido,
         base_stats={stat: stat_seed for stat in STAT_NAMES},
+        total_stats={stat: stat_seed for stat in STAT_NAMES},
         haters=[],
         lovers=[],
     )

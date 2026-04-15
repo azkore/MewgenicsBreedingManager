@@ -451,6 +451,7 @@ def test_safe_breeding_view_populates_all_columns_even_if_sorting_is_enabled():
             self.room = ""
             self.room_display = ""
             self.base_stats = {stat: 5 for stat in mm.STAT_NAMES}
+            self.total_stats = {stat: 5 for stat in mm.STAT_NAMES}
             self.parent_a = parent_a
             self.parent_b = parent_b
             self.sexuality = "bi"

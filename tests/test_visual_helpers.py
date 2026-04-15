@@ -32,8 +32,8 @@ def test_visual_mutation_chip_items_merge_duplicate_slots(monkeypatch):
 
     assert chips == [
         (
-            "Leg Mutation",
-            "Leg Mutation (ID 401)\nLeg Mutation\nFast\nAffects: Left Leg, Right Leg",
+            "Leg Mutation Fast",
+            "Leg Mutation (ID 401)\nLeg Mutation Fast\nAffects: Left Leg, Right Leg",
             False,
         )
     ]
