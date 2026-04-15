@@ -38,6 +38,9 @@ resources.gpak
 icons.zip
 tools/icons.zip
 
+# Worktrees
+.worktrees/
+
 # Repo-local scratch space
 tmp/
 pytest-cache-files-*/
