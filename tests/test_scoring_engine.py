@@ -198,3 +198,40 @@ def test_score_age_penalty():
     result = compute_breed_priority_score(cat, [], {}, stat_names)
     # age 14, threshold 10, over=4, mult=1+(4-1)//3=2, pts=2*-2.0=-4.0
     assert result.subtotals["age_penalty"] == -4.0
+
+
+# ── helpers.py tests ─────────────────────────────────────────────────────────
+
+from mewgenics.scoring.helpers import (
+    build_relationship_maps, compute_seven_sets,
+    compute_all_scores, compute_heatmap_norms,
+)
+
+
+def test_build_relationship_maps():
+    cat_a = _scope_cat("A")
+    cat_b = _scope_cat("B", haters=[cat_a])
+    cat_c = _scope_cat("C", lovers=[cat_a])
+    hated_by, loved_by = build_relationship_maps([cat_a, cat_b, cat_c])
+    assert cat_b in hated_by.get(id(cat_a), [])  # cat_b hates cat_a → cat_a is in hated_by
+    assert cat_c in loved_by.get(id(cat_a), [])   # cat_c loves cat_a
+
+
+def test_compute_seven_sets():
+    stat_names = ["STR", "DEX", "CON", "INT", "SPD", "CHA", "LCK"]
+    cat_a = _scope_cat("A", stats={"STR": 7, "DEX": 7, "CON": 5, "INT": 5, "SPD": 5, "CHA": 5, "LCK": 5})
+    cat_b = _scope_cat("B", stats={"STR": 7, "DEX": 5, "CON": 5, "INT": 5, "SPD": 5, "CHA": 5, "LCK": 5})
+    scope_set = {id(cat_a), id(cat_b)}
+    seven_sets, scope_7_sets = compute_seven_sets(
+        [cat_a, cat_b], scope_set, stat_names=stat_names,
+    )
+    assert seven_sets[id(cat_a)] == frozenset({"STR", "DEX"})
+    assert seven_sets[id(cat_b)] == frozenset({"STR"})
+    assert len(scope_7_sets) == 2
+
+
+def test_compute_heatmap_norms_disabled():
+    col_max, row_max, score_max = compute_heatmap_norms({}, [], False, "column")
+    assert col_max == {}
+    assert row_max == {}
+    assert score_max == 1.0
