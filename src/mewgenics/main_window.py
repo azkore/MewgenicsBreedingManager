@@ -334,11 +334,7 @@ class MainWindow(QMainWindow):
         save_to_load = initial_save if initial_save else (_saved_default_save() if use_saved_default else None)
         if save_to_load:
             # Defer load_save to after the window is shown so the UI appears instantly.
-            # The deferred view build chain starts at the end of _on_save_loaded.
             QTimer.singleShot(0, lambda: self.load_save(save_to_load))
-        else:
-            # No save to load — start building views in idle time after the window shows.
-            QTimer.singleShot(0, self._deferred_build_views)
 
     # ── Menu ──────────────────────────────────────────────────────────────
 
@@ -1547,13 +1543,10 @@ class MainWindow(QMainWindow):
         vs.setStretchFactor(0, 1)
         vs.setStretchFactor(1, 0)
 
-        # Secondary views are built lazily via _ensure_*() methods.
-        # They are constructed either on-demand (user clicks a sidebar button)
-        # or during the idle build chain (_deferred_build_views) that runs
-        # after the save finishes loading. This keeps MainWindow.__init__
-        # fast — only the roster table + detail panel are built eagerly.
+        # Build all secondary views eagerly so every tab is ready when
+        # the user clicks it — no freeze on first navigation.
         self._content_vb = vb
-        self._deferred_build_pending = True
+        self._build_all_views()
 
         # Loading overlay — shown during background save parse, dismissed before UI population
         self._loading_overlay = QWidget(w)
@@ -2164,26 +2157,17 @@ class MainWindow(QMainWindow):
         self._content_vb.addWidget(self._calibration_view, 1)
         self._push_cats_to_view_if_loaded("calibration", self._calibration_view)
 
-    _DEFERRED_VIEW_BUILD_ORDER = [
-        "_ensure_room_optimizer_view",
-        "_ensure_mutation_planner_view",
-        "_ensure_manual_scoring_view",
-        "_ensure_perfect_planner_view",
-        "_ensure_safe_breeding_view",
-        "_ensure_breeding_partners_view",
-        "_ensure_tree_view",
-        "_ensure_furniture_view",
-        "_ensure_calibration_view",
-    ]
-
-    def _deferred_build_views(self, step: int = 0):
-        """Build one secondary view per idle tick until all are constructed."""
-        if step >= len(self._DEFERRED_VIEW_BUILD_ORDER):
-            self._deferred_build_pending = False
-            return
-        builder = getattr(self, self._DEFERRED_VIEW_BUILD_ORDER[step])
-        builder()
-        QTimer.singleShot(0, lambda: self._deferred_build_views(step + 1))
+    def _build_all_views(self):
+        """Build all secondary views eagerly during init."""
+        self._ensure_room_optimizer_view()
+        self._ensure_mutation_planner_view()
+        self._ensure_manual_scoring_view()
+        self._ensure_perfect_planner_view()
+        self._ensure_safe_breeding_view()
+        self._ensure_breeding_partners_view()
+        self._ensure_tree_view()
+        self._ensure_furniture_view()
+        self._ensure_calibration_view()
 
     # ── View switching ─────────────────────────────────────────────────
 
@@ -3594,10 +3578,6 @@ class MainWindow(QMainWindow):
         finally:
             self._save_view_disabled = False
             self._restore_current_view()
-            # Start building remaining views in idle time now that the
-            # roster is populated and the user can interact with it.
-            if self._deferred_build_pending:
-                QTimer.singleShot(0, self._deferred_build_views)
 
     def _update_default_save_menu(self):
         """Update the enabled state of default save menu items."""
