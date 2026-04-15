@@ -334,7 +334,11 @@ class MainWindow(QMainWindow):
         save_to_load = initial_save if initial_save else (_saved_default_save() if use_saved_default else None)
         if save_to_load:
             # Defer load_save to after the window is shown so the UI appears instantly.
+            # The deferred view build chain starts at the end of _on_save_loaded.
             QTimer.singleShot(0, lambda: self.load_save(save_to_load))
+        else:
+            # No save to load — start building views in idle time after the window shows.
+            QTimer.singleShot(0, self._deferred_build_views)
 
     # ── Menu ──────────────────────────────────────────────────────────────
 
@@ -1543,49 +1547,13 @@ class MainWindow(QMainWindow):
         vs.setStretchFactor(0, 1)
         vs.setStretchFactor(1, 0)
 
-        # Family tree view lives in the same main container and is swapped in/out
-        # via left sidebar "VIEW" buttons.
-        self._tree_view = FamilyTreeBrowserView(self)
-        self._tree_view.hide()
-        vb.addWidget(self._tree_view, 1)
-        self._safe_breeding_view = SafeBreedingView(self)
-        self._safe_breeding_view.set_navigate_to_pair_callback(self._navigate_to_cat_pair)
-        self._safe_breeding_view.hide()
-        vb.addWidget(self._safe_breeding_view, 1)
-        self._breeding_partners_view = BreedingPartnersView(self)
-        self._breeding_partners_view.set_navigate_to_cat_callback(self._navigate_to_cat_by_name)
-        self._breeding_partners_view.hide()
-        vb.addWidget(self._breeding_partners_view, 1)
-        self._room_optimizer_view = RoomOptimizerView(self)
-        self._room_optimizer_view.hide()
-        vb.addWidget(self._room_optimizer_view, 1)
-        self._perfect_planner_view = PerfectCatPlannerView(self)
-        self._perfect_planner_view.hide()
-        vb.addWidget(self._perfect_planner_view, 1)
-        self._calibration_view = CalibrationView(self)
-        self._calibration_view.calibrationChanged.connect(self._on_calibration_changed)
-        self._calibration_view.hide()
-        vb.addWidget(self._calibration_view, 1)
-        self._mutation_planner_view = MutationDisorderPlannerView(self)
-        self._mutation_planner_view.hide()
-        vb.addWidget(self._mutation_planner_view, 1)
-        self._furniture_view = FurnitureView(self)
-        self._furniture_view.hide()
-        vb.addWidget(self._furniture_view, 1)
-        self._manual_scoring_view = ManualScoringView(self)
-        self._manual_scoring_view.hide()
-        vb.addWidget(self._manual_scoring_view, 1)
-        # Wire planner to optimizer so traits can be imported
-        self._room_optimizer_view.set_planner_view(self._mutation_planner_view)
-        self._perfect_planner_view.set_mutation_planner_view(self._mutation_planner_view)
-        self._mutation_planner_view.traitsChanged.connect(self._sync_donation_planner_traits)
-        self._room_optimizer_view.room_priority_panel.configChanged.connect(self._sync_room_config_views)
-        # Allow cat locator tables to navigate to cat in Alive Cats view
-        self._mutation_planner_view.set_navigate_to_cat_callback(self._navigate_to_cat)
-        self._room_optimizer_view.cat_locator.set_navigate_to_cat_callback(self._navigate_to_cat)
-        self._room_optimizer_view.set_navigate_to_pair_callback(self._navigate_to_cat_pair)
-        self._perfect_planner_view.cat_locator.set_navigate_to_cat_callback(self._navigate_to_cat)
-        self._perfect_planner_view.offspring_tracker.set_navigate_to_cat_callback(self._navigate_to_cat)
+        # Secondary views are built lazily via _ensure_*() methods.
+        # They are constructed either on-demand (user clicks a sidebar button)
+        # or during the idle build chain (_deferred_build_views) that runs
+        # after the save finishes loading. This keeps MainWindow.__init__
+        # fast — only the roster table + detail panel are built eagerly.
+        self._content_vb = vb
+        self._deferred_build_pending = True
 
         # Loading overlay — shown during background save parse, dismissed before UI population
         self._loading_overlay = QWidget(w)
@@ -2092,6 +2060,131 @@ class MainWindow(QMainWindow):
         view.set_cats(cats)
         self._view_generation[view_key] = self._cats_generation
 
+    # ── Deferred view construction ───────────────────────────────────
+    #
+    # Secondary views are built lazily so the window appears fast.
+    # Each _ensure_*() method constructs the view if it is still None,
+    # adds it to the content layout, wires signals, and pushes cat data.
+    # The idle chain (_deferred_build_views) calls them in priority
+    # order after the save finishes loading.
+
+    def _push_cats_to_view_if_loaded(self, view_key: str, view):
+        """Push current cat data to a freshly-built view if cats are loaded."""
+        if self._cats and view is not None:
+            view.set_cats(self._cats)
+            self._view_generation[view_key] = self._cats_generation
+
+    def _ensure_room_optimizer_view(self):
+        if self._room_optimizer_view is not None:
+            return
+        self._room_optimizer_view = RoomOptimizerView(self)
+        self._room_optimizer_view.hide()
+        self._content_vb.addWidget(self._room_optimizer_view, 1)
+        self._room_optimizer_view.room_priority_panel.configChanged.connect(self._sync_room_config_views)
+        self._room_optimizer_view.cat_locator.set_navigate_to_cat_callback(self._navigate_to_cat)
+        self._room_optimizer_view.set_navigate_to_pair_callback(self._navigate_to_cat_pair)
+        # Wire to mutation planner if it's already built
+        if self._mutation_planner_view is not None:
+            self._room_optimizer_view.set_planner_view(self._mutation_planner_view)
+        self._push_cats_to_view_if_loaded("room_optimizer", self._room_optimizer_view)
+
+    def _ensure_mutation_planner_view(self):
+        if self._mutation_planner_view is not None:
+            return
+        self._mutation_planner_view = MutationDisorderPlannerView(self)
+        self._mutation_planner_view.hide()
+        self._content_vb.addWidget(self._mutation_planner_view, 1)
+        self._mutation_planner_view.traitsChanged.connect(self._sync_donation_planner_traits)
+        self._mutation_planner_view.set_navigate_to_cat_callback(self._navigate_to_cat)
+        # Wire to room optimizer if it was built first (normal order)
+        if self._room_optimizer_view is not None:
+            self._room_optimizer_view.set_planner_view(self._mutation_planner_view)
+        self._push_cats_to_view_if_loaded("mutation_planner", self._mutation_planner_view)
+
+    def _ensure_manual_scoring_view(self):
+        if self._manual_scoring_view is not None:
+            return
+        self._manual_scoring_view = ManualScoringView(self)
+        self._manual_scoring_view.hide()
+        self._content_vb.addWidget(self._manual_scoring_view, 1)
+        self._push_cats_to_view_if_loaded("manual_scoring", self._manual_scoring_view)
+
+    def _ensure_perfect_planner_view(self):
+        if self._perfect_planner_view is not None:
+            return
+        self._perfect_planner_view = PerfectCatPlannerView(self)
+        self._perfect_planner_view.hide()
+        self._content_vb.addWidget(self._perfect_planner_view, 1)
+        self._perfect_planner_view.cat_locator.set_navigate_to_cat_callback(self._navigate_to_cat)
+        self._perfect_planner_view.offspring_tracker.set_navigate_to_cat_callback(self._navigate_to_cat)
+        if self._mutation_planner_view is not None:
+            self._perfect_planner_view.set_mutation_planner_view(self._mutation_planner_view)
+        self._push_cats_to_view_if_loaded("perfect_planner", self._perfect_planner_view)
+
+    def _ensure_safe_breeding_view(self):
+        if self._safe_breeding_view is not None:
+            return
+        self._safe_breeding_view = SafeBreedingView(self)
+        self._safe_breeding_view.set_navigate_to_pair_callback(self._navigate_to_cat_pair)
+        self._safe_breeding_view.hide()
+        self._content_vb.addWidget(self._safe_breeding_view, 1)
+        self._push_cats_to_view_if_loaded("safe_breeding", self._safe_breeding_view)
+
+    def _ensure_breeding_partners_view(self):
+        if self._breeding_partners_view is not None:
+            return
+        self._breeding_partners_view = BreedingPartnersView(self)
+        self._breeding_partners_view.set_navigate_to_cat_callback(self._navigate_to_cat_by_name)
+        self._breeding_partners_view.hide()
+        self._content_vb.addWidget(self._breeding_partners_view, 1)
+        self._push_cats_to_view_if_loaded("breeding_partners", self._breeding_partners_view)
+
+    def _ensure_tree_view(self):
+        if self._tree_view is not None:
+            return
+        self._tree_view = FamilyTreeBrowserView(self)
+        self._tree_view.hide()
+        self._content_vb.addWidget(self._tree_view, 1)
+        self._push_cats_to_view_if_loaded("tree", self._tree_view)
+
+    def _ensure_furniture_view(self):
+        if self._furniture_view is not None:
+            return
+        self._furniture_view = FurnitureView(self)
+        self._furniture_view.hide()
+        self._content_vb.addWidget(self._furniture_view, 1)
+        self._push_cats_to_view_if_loaded("furniture", self._furniture_view)
+
+    def _ensure_calibration_view(self):
+        if self._calibration_view is not None:
+            return
+        self._calibration_view = CalibrationView(self)
+        self._calibration_view.calibrationChanged.connect(self._on_calibration_changed)
+        self._calibration_view.hide()
+        self._content_vb.addWidget(self._calibration_view, 1)
+        self._push_cats_to_view_if_loaded("calibration", self._calibration_view)
+
+    _DEFERRED_VIEW_BUILD_ORDER = [
+        "_ensure_room_optimizer_view",
+        "_ensure_mutation_planner_view",
+        "_ensure_manual_scoring_view",
+        "_ensure_perfect_planner_view",
+        "_ensure_safe_breeding_view",
+        "_ensure_breeding_partners_view",
+        "_ensure_tree_view",
+        "_ensure_furniture_view",
+        "_ensure_calibration_view",
+    ]
+
+    def _deferred_build_views(self, step: int = 0):
+        """Build one secondary view per idle tick until all are constructed."""
+        if step >= len(self._DEFERRED_VIEW_BUILD_ORDER):
+            self._deferred_build_pending = False
+            return
+        builder = getattr(self, self._DEFERRED_VIEW_BUILD_ORDER[step])
+        builder()
+        QTimer.singleShot(0, lambda: self._deferred_build_views(step + 1))
+
     # ── View switching ─────────────────────────────────────────────────
 
     def _show_table_view(self):
@@ -2141,6 +2234,7 @@ class MainWindow(QMainWindow):
             self._filter("__fight_club__", self._btn_fight_club)
 
     def _show_tree_view(self):
+        self._ensure_tree_view()
         if self._active_btn is not None:
             self._active_btn.setChecked(False)
         self._active_btn = None
@@ -2187,6 +2281,7 @@ class MainWindow(QMainWindow):
             self._btn_manual_scoring.setChecked(False)
 
     def _show_safe_breeding_view(self):
+        self._ensure_safe_breeding_view()
         if self._active_btn is not None:
             self._active_btn.setChecked(False)
         self._active_btn = None
@@ -2234,6 +2329,7 @@ class MainWindow(QMainWindow):
             self._btn_manual_scoring.setChecked(False)
 
     def _show_breeding_partners_view(self):
+        self._ensure_breeding_partners_view()
         if self._active_btn is not None:
             self._active_btn.setChecked(False)
         self._active_btn = None
@@ -2280,6 +2376,7 @@ class MainWindow(QMainWindow):
             self._btn_manual_scoring.setChecked(False)
 
     def _show_room_optimizer_view(self):
+        self._ensure_room_optimizer_view()
         if self._active_btn is not None:
             self._active_btn.setChecked(False)
         self._active_btn = None
@@ -2326,6 +2423,7 @@ class MainWindow(QMainWindow):
             self._btn_manual_scoring.setChecked(False)
 
     def _show_perfect_planner_view(self):
+        self._ensure_perfect_planner_view()
         if self._active_btn is not None:
             self._active_btn.setChecked(False)
         self._active_btn = None
@@ -2379,6 +2477,7 @@ class MainWindow(QMainWindow):
             self._btn_manual_scoring.setChecked(False)
 
     def _show_calibration_view(self):
+        self._ensure_calibration_view()
         if self._active_btn is not None:
             self._active_btn.setChecked(False)
         self._active_btn = None
@@ -2427,6 +2526,7 @@ class MainWindow(QMainWindow):
             self._mutation_planner_view.hide()
 
     def _show_mutation_planner_view(self):
+        self._ensure_mutation_planner_view()
         if self._active_btn is not None:
             self._active_btn.setChecked(False)
         self._active_btn = None
@@ -2473,6 +2573,7 @@ class MainWindow(QMainWindow):
             self._btn_manual_scoring.setChecked(False)
 
     def _show_furniture_view(self):
+        self._ensure_furniture_view()
         if self._active_btn is not None:
             self._active_btn.setChecked(False)
         self._active_btn = None
@@ -3493,6 +3594,10 @@ class MainWindow(QMainWindow):
         finally:
             self._save_view_disabled = False
             self._restore_current_view()
+            # Start building remaining views in idle time now that the
+            # roster is populated and the user can interact with it.
+            if self._deferred_build_pending:
+                QTimer.singleShot(0, self._deferred_build_views)
 
     def _update_default_save_menu(self):
         """Update the enabled state of default save menu items."""
@@ -3892,6 +3997,7 @@ class MainWindow(QMainWindow):
         self._show_manual_scoring_view()
 
     def _show_manual_scoring_view(self):
+        self._ensure_manual_scoring_view()
         if self._active_btn is not None:
             self._active_btn.setChecked(False)
         self._active_btn = None
