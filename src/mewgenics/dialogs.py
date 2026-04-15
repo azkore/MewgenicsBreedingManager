@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QScrollArea, QFrame, QGridLayout, QSpinBox, QDoubleSpinBox, QCheckBox,
     QListWidget, QListWidgetItem, QFileDialog, QGroupBox,
     QStackedWidget, QTextBrowser, QDialogButtonBox,
+    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
 )
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QColor, QPixmap
@@ -40,6 +41,7 @@ from mewgenics.utils.optimizer_settings import (
 )
 
 from save_parser import Cat
+from mewgenics.scoring.cat_stats import get_cat_stats
 
 
 # ---------------------------------------------------------------------------
@@ -1350,3 +1352,174 @@ class SaveSelectorDialog(QDialog):
     @property
     def selected_path(self) -> Optional[str]:
         return self._selected_path
+
+
+# ---------------------------------------------------------------------------
+# StatsOverviewDialog
+# ---------------------------------------------------------------------------
+
+class StatsOverviewDialog(QDialog):
+    """Non-blocking popup: alive cats x current stats with injury breakdown."""
+
+    def __init__(self, cats: list, stat_names: list | None = None,
+                 room_display: dict | None = None, parent=None):
+        super().__init__(parent)
+        from save_parser import STAT_NAMES as _PARSER_STAT_NAMES
+        self._all_cats = cats
+        self._stat_names = stat_names or list(_PARSER_STAT_NAMES)
+        self._room_disp = room_display or {}
+        self._include_injuries = True
+
+        n = len(self._stat_names)
+        self._col_sum = 2 + n
+        self._col_fx = 3 + n
+        self._num_cols = 4 + n
+
+        self.setWindowTitle("Current Stats Overview")
+        self.setWindowFlags(self.windowFlags() | Qt.Window)
+        self.setStyleSheet("background:#0a0a18; color:#d7d7e6;")
+        self.resize(960, 580)
+
+        vb = QVBoxLayout(self)
+        vb.setContentsMargins(12, 12, 12, 12)
+        vb.setSpacing(8)
+
+        # Header
+        hdr = QWidget()
+        hdr.setStyleSheet("background:#1a1a32; border-radius:4px; border-bottom:1px solid #2a2a4a;")
+        hdr_l = QHBoxLayout(hdr)
+        hdr_l.setContentsMargins(10, 6, 10, 6)
+        hdr_l.setSpacing(10)
+        title = QLabel("Current Stats Overview")
+        title.setStyleSheet("color:#d7d7e6; font-size:14px; font-weight:bold;")
+        hdr_l.addWidget(title)
+        hdr_l.addStretch()
+        self._chk_injuries = QCheckBox("Include injuries / effects")
+        self._chk_injuries.setChecked(True)
+        self._chk_injuries.setStyleSheet("color:#bbb; font-size:11px;")
+        self._chk_injuries.stateChanged.connect(self._on_toggle)
+        hdr_l.addWidget(self._chk_injuries)
+        vb.addWidget(hdr)
+
+        # Table
+        headers = ["Name", "Loc"] + list(self._stat_names) + ["Sum", "Effects"]
+        self._table = QTableWidget()
+        self._table.setColumnCount(self._num_cols)
+        self._table.setHorizontalHeaderLabels(headers)
+        self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self._table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self._table.setAlternatingRowColors(True)
+        self._table.setSortingEnabled(False)
+        self._table.setStyleSheet(
+            "QTableWidget { background:#0d0d1c; color:#ccc; gridline-color:#1e1e38;"
+            " border:1px solid #2a2a4a; }"
+            "QTableWidget::item:selected { background:#1e3060; }"
+            "QHeaderView::section { background:#1a1a32; color:#aaa; border:1px solid #2a2a4a;"
+            " padding:4px; font-weight:bold; }"
+        )
+        self._table.verticalHeader().setVisible(False)
+        hh = self._table.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.Stretch)
+        hh.setSectionResizeMode(1, QHeaderView.Fixed)
+        self._table.setColumnWidth(1, 68)
+        for c in range(2, 2 + n):
+            hh.setSectionResizeMode(c, QHeaderView.Fixed)
+            self._table.setColumnWidth(c, 38)
+        hh.setSectionResizeMode(self._col_sum, QHeaderView.Fixed)
+        self._table.setColumnWidth(self._col_sum, 44)
+        hh.setSectionResizeMode(self._col_fx, QHeaderView.Interactive)
+        self._table.setColumnWidth(self._col_fx, 220)
+        vb.addWidget(self._table)
+
+        # Footer
+        self._note = QLabel("")
+        self._note.setStyleSheet("color:#666; font-size:10px;")
+        vb.addWidget(self._note)
+        close_btn = QPushButton("Close")
+        close_btn.setStyleSheet(
+            "QPushButton { background:#1a1a32; color:#aaa; border:1px solid #2a2a4a;"
+            " border-radius:4px; padding:6px 16px; }"
+            "QPushButton:hover { background:#252545; color:#ddd; }"
+        )
+        close_btn.clicked.connect(self.accept)
+        vb.addWidget(close_btn, alignment=Qt.AlignRight)
+
+        self._populate()
+
+    def _on_toggle(self):
+        self._include_injuries = self._chk_injuries.isChecked()
+        self._populate()
+
+    def _populate(self):
+        cats = [c for c in self._all_cats if getattr(c, 'status', 'Gone') != 'Gone']
+        self.setUpdatesEnabled(False)
+        try:
+            self._table.setSortingEnabled(False)
+            self._table.setRowCount(len(cats))
+            fx_count = 0
+            for row, cat in enumerate(cats):
+                base = getattr(cat, 'base_stats', {}) or {}
+                stats = get_cat_stats(cat, self._include_injuries)
+                # Name
+                self._table.setItem(row, 0, QTableWidgetItem(getattr(cat, 'name', '?')))
+                # Location
+                raw_room = getattr(cat, 'room', '') or ''
+                loc_text = 'Adv.' if getattr(cat, 'status', '') == 'Adventure' else self._room_disp.get(raw_room, raw_room or '\u2014')
+                loc_item = QTableWidgetItem(loc_text)
+                loc_item.setTextAlignment(Qt.AlignCenter)
+                self._table.setItem(row, 1, loc_item)
+                # Stats
+                cat_sum = 0
+                for ci, sn in enumerate(self._stat_names):
+                    val = stats.get(sn, 0)
+                    cat_sum += val
+                    item = QTableWidgetItem()
+                    item.setData(Qt.DisplayRole, val)
+                    item.setTextAlignment(Qt.AlignCenter)
+                    b_val = base.get(sn, 0)
+                    if val >= 7:
+                        item.setForeground(QColor("#1ec8a0"))
+                    elif val == 6:
+                        item.setForeground(QColor("#777777"))
+                    elif val < 5:
+                        item.setForeground(QColor("#555555"))
+                    if self._include_injuries and val < b_val:
+                        item.setBackground(QColor("#2a0505"))
+                    self._table.setItem(row, 2 + ci, item)
+                # Sum
+                sum_item = QTableWidgetItem()
+                sum_item.setData(Qt.DisplayRole, cat_sum)
+                sum_item.setTextAlignment(Qt.AlignCenter)
+                self._table.setItem(row, self._col_sum, sum_item)
+                # Effects
+                effects = []
+                for sn in self._stat_names:
+                    b = base.get(sn, 0)
+                    t = stats.get(sn, b)
+                    if t != b:
+                        effects.append((sn, t - b))
+                if effects:
+                    fx_count += 1
+                    fx_text = ", ".join(f"{sn} {d:+d}" for sn, d in effects)
+                    fx_item = QTableWidgetItem(fx_text)
+                    has_neg = any(d < 0 for _, d in effects)
+                    has_pos = any(d > 0 for _, d in effects)
+                    if has_neg and not has_pos:
+                        fx_item.setForeground(QColor("#e04040"))
+                    elif has_pos and not has_neg:
+                        fx_item.setForeground(QColor("#1ec8a0"))
+                else:
+                    fx_item = QTableWidgetItem("\u2014")
+                    fx_item.setForeground(QColor("#555"))
+                self._table.setItem(row, self._col_fx, fx_item)
+            self._table.setSortingEnabled(True)
+            self._table.sortByColumn(self._col_sum, Qt.DescendingOrder)
+            mode = "effective" if self._include_injuries else "base"
+            self._note.setText(f"{len(cats)} alive cats  \u00b7  {fx_count} with stat effects  \u00b7  showing {mode} stats")
+        finally:
+            self.setUpdatesEnabled(True)
+
+    def refresh(self, cats: list):
+        self._all_cats = cats
+        self._populate()
