@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPixmap
 
+from mewgenics.utils.gpak import extract_entry as _gpak_extract_entry
+
 
 _ABILITY_SWF_NAME = "swfs/ability_icons.swf"
 _ABILITY_SPRITE_ID = 1346
@@ -72,26 +74,7 @@ def _normalize_key(value: str) -> str:
 def _gpak_entry_bytes(gpak_path: str | None, target_name: str) -> bytes | None:
     if not gpak_path:
         return None
-    try:
-        with open(gpak_path, "rb") as f:
-            count = struct.unpack("<I", f.read(4))[0]
-            entries = []
-            for _ in range(count):
-                name_len = struct.unpack("<H", f.read(2))[0]
-                name = f.read(name_len).decode("utf-8", errors="replace")
-                size = struct.unpack("<I", f.read(4))[0]
-                entries.append((name, size))
-            dir_end = f.tell()
-
-            offset = dir_end
-            for name, size in entries:
-                if name == target_name:
-                    f.seek(offset)
-                    return f.read(size)
-                offset += size
-    except Exception:
-        return None
-    return None
+    return _gpak_extract_entry(gpak_path, target_name)
 
 
 def _swf_rect_size(data: bytes, offset: int) -> int:
