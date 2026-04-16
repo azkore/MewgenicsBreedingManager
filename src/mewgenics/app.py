@@ -4,8 +4,12 @@ import os
 import logging
 from typing import Optional
 
-from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
-from PySide6.QtGui import QColor, QPalette
+from PySide6.QtWidgets import (
+    QApplication, QDialog, QMessageBox, QWidget,
+    QVBoxLayout, QLabel, QProgressBar,
+)
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QColor, QPalette, QFont
 
 from mewgenics.utils.paths import APP_VERSION
 from mewgenics.utils.config import _saved_default_save, find_save_files
@@ -16,6 +20,65 @@ from mewgenics.dialogs import SaveSelectorDialog
 from mewgenics.main_window import MainWindow, _ensure_gpak_path_interactive
 
 logger = logging.getLogger("mewgenics")
+
+
+class _SplashScreen(QWidget):
+    """Dark-themed startup splash — shown while the app initialises."""
+
+    def __init__(self):
+        super().__init__(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WA_TranslucentBackground, False)
+        self.setFixedSize(420, 200)
+        self.setStyleSheet("background:#0a0a18;")
+
+        vb = QVBoxLayout(self)
+        vb.setAlignment(Qt.AlignCenter)
+        vb.setSpacing(6)
+
+        title = QLabel("Mewgenics Breeding Manager")
+        title.setAlignment(Qt.AlignCenter)
+        title_font = QFont()
+        title_font.setPointSize(16)
+        title_font.setBold(True)
+        title.setFont(title_font)
+        title.setStyleSheet("color:#d0d0e8;")
+        vb.addWidget(title)
+
+        ver = QLabel(f"v{APP_VERSION}")
+        ver.setAlignment(Qt.AlignCenter)
+        ver.setStyleSheet("color:#556; font-size:11px;")
+        vb.addWidget(ver)
+
+        vb.addSpacing(12)
+
+        self._status = QLabel("Starting...")
+        self._status.setAlignment(Qt.AlignCenter)
+        self._status.setStyleSheet("color:#889; font-size:11px;")
+        vb.addWidget(self._status)
+
+        bar = QProgressBar()
+        bar.setFixedWidth(300)
+        bar.setFixedHeight(6)
+        bar.setRange(0, 0)  # indeterminate pulse
+        bar.setTextVisible(False)
+        bar.setStyleSheet(
+            "QProgressBar { background:#1a1a32; border:1px solid #2a2a4a; border-radius:3px; }"
+            "QProgressBar::chunk { background:#3f8f72; border-radius:2px; }"
+        )
+        vb.addWidget(bar, 0, Qt.AlignCenter)
+
+        # Centre on screen
+        screen = QApplication.primaryScreen()
+        if screen:
+            geo = screen.availableGeometry()
+            self.move(
+                geo.x() + (geo.width() - self.width()) // 2,
+                geo.y() + (geo.height() - self.height()) // 2,
+            )
+
+    def set_status(self, text: str):
+        self._status.setText(text)
+        QApplication.processEvents()
 
 
 def main():
@@ -51,7 +114,13 @@ def main():
     from PySide6 import QtWidgets
     QtWidgets.QMessageBox()
 
+    # Show splash screen immediately so the user sees something.
+    splash = _SplashScreen()
+    splash.show()
+    QApplication.processEvents()
+
     if not _GPAK_PATH:
+        splash.hide()
         QMessageBox.information(
             None,
             "Locate Mewgenics",
@@ -59,15 +128,23 @@ def main():
             "If the app needs you to browse for it, the chooser will start from your configured save root first.",
         )
         _ensure_gpak_path_interactive()
+        splash.show()
+        QApplication.processEvents()
 
     # Extract DefinedShape PNGs from the bundled ZIP if the cache is empty.
-    ensure_defined_shapes()
+    splash.set_status("Loading cat assets...")
+
+    def _on_shapes_progress(current, total):
+        splash.set_status(f"Extracting cat sprites... {current}/{total}")
+
+    ensure_defined_shapes(progress_callback=_on_shapes_progress)
 
     # Open directly only when a valid default save exists; otherwise always show the save selector.
     default_save = _saved_default_save()
     initial_save: Optional[str] = default_save if default_save and os.path.isfile(default_save) else None
 
     if initial_save is None:
+        splash.hide()
         saves = find_save_files()
         dlg = SaveSelectorDialog(saves)
         if dlg.exec() == QDialog.Accepted:
@@ -75,7 +152,33 @@ def main():
         else:
             return 0
 
+    splash.set_status("Building interface...")
     win = MainWindow(initial_save=initial_save, use_saved_default=False)
     _main_window_ref["win"] = win
+
+    # Show the main window behind the splash. The splash stays on top
+    # until the save finishes loading so the user never sees a blank window.
     win.show()
+
+    if initial_save:
+        splash.set_status("Loading save file...")
+        splash.raise_()  # keep above the main window
+
+        def _dismiss_splash():
+            splash.close()
+
+        # The deferred QTimer.singleShot(0, load_save) in MainWindow.__init__
+        # starts a SaveLoadWorker.  Hook its completion to close the splash.
+        # We need a small delay so the worker is created first.
+        def _hook_worker():
+            worker = getattr(win, "_save_load_worker", None)
+            if worker is not None:
+                worker.finished_load.connect(_dismiss_splash)
+            else:
+                splash.close()
+
+        QTimer.singleShot(50, _hook_worker)
+    else:
+        splash.close()
+
     return app.exec()

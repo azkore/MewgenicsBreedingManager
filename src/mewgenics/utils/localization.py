@@ -25,10 +25,10 @@ _CURRENT_LANGUAGE = "en"
 
 # ── Mutable localized lookups (updated by _refresh_localized_constants) ──────
 ROOM_DISPLAY = {
-    "Floor1_Large":   "1F Left",
-    "Floor1_Small":   "1F Right",
-    "Floor2_Small":   "2F Left",
-    "Floor2_Large":   "2F Right",
+    "Floor1_Large":   "1st FL L",
+    "Floor1_Small":   "1st FL R",
+    "Floor2_Small":   "2nd FL L",
+    "Floor2_Large":   "2nd FL R",
     "Attic":          "Attic",
 }
 STATUS_ABBREV = {

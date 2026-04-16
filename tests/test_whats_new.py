@@ -39,9 +39,9 @@ class TestOnboardingDialog:
         dialog = OnboardingDialog()
         assert dialog.windowTitle() == "Getting Started"
 
-    def test_has_5_pages(self):
+    def test_has_7_pages(self):
         dialog = OnboardingDialog()
-        assert dialog._stack.count() == 5
+        assert dialog._stack.count() == 7
 
     def test_navigation_next(self):
         dialog = OnboardingDialog()
@@ -64,6 +64,6 @@ class TestOnboardingDialog:
 
     def test_page_label_updates(self):
         dialog = OnboardingDialog()
-        assert "1 of 5" in dialog._page_label.text()
+        assert "1 of 7" in dialog._page_label.text()
         dialog._next_page()
-        assert "2 of 5" in dialog._page_label.text()
+        assert "2 of 7" in dialog._page_label.text()

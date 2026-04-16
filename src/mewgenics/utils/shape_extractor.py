@@ -67,29 +67,38 @@ def _find_shapes_zip() -> Path | None:
     return None
 
 
-def _extract_from_zip(zip_path: Path, output_dir: Path) -> int:
+def _extract_from_zip(zip_path: Path, output_dir: Path,
+                      progress_callback=None) -> int:
     """Extract PNGs from a DefinedShapes.zip archive.
 
     Skips files that already exist on disk.  Returns newly-written count.
+    *progress_callback*, if provided, is called with ``(current, total)``
+    periodically during extraction.
     """
     written = 0
     with zipfile.ZipFile(zip_path, "r") as zf:
-        for info in zf.infolist():
-            if not info.filename.endswith(".png"):
-                continue
+        png_entries = [i for i in zf.infolist() if i.filename.endswith(".png")]
+        total = len(png_entries)
+        for idx, info in enumerate(png_entries):
             dest = output_dir / info.filename
-            if dest.exists():
-                continue
-            dest.write_bytes(zf.read(info.filename))
-            written += 1
+            if not dest.exists():
+                dest.write_bytes(zf.read(info.filename))
+                written += 1
+            if progress_callback and idx % 200 == 0:
+                progress_callback(idx, total)
+        if progress_callback:
+            progress_callback(total, total)
     return written
 
 
-def ensure_defined_shapes() -> None:
+def ensure_defined_shapes(progress_callback=None) -> None:
     """Extract shapes from the bundled ZIP if the cache is empty or sparse.
 
     Intended to be called once during app startup after QApplication exists.
     The ZIP is the only source — if it is missing, shapes will not render.
+
+    *progress_callback*, if provided, is called with ``(current, total)``
+    during extraction so the caller can update a splash screen.
     """
     output_dir = _DEFINED_SHAPES_DIR
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -110,5 +119,6 @@ def ensure_defined_shapes() -> None:
         return
 
     logger.info("Extracting shapes from %s", zip_path)
-    written = _extract_from_zip(zip_path, output_dir)
+    written = _extract_from_zip(zip_path, output_dir,
+                                progress_callback=progress_callback)
     logger.info("ZIP extraction: %d new PNGs written", written)
