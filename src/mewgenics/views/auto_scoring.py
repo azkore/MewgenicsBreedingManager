@@ -29,15 +29,12 @@ from mewgenics.scoring.helpers import (
     build_relationship_maps, compute_seven_sets,
     compute_all_scores, compute_heatmap_norms,
 )
-from mewgenics.scoring.filters import FilterState, cat_passes_filter
+from mewgenics.scoring.filters import FilterState, cat_passes_filter, cat_passes_pre_score_filter
 from mewgenics.scoring.cat_stats import get_cat_stats
+from mewgenics.utils.config import _saved_auto_scoring_auto_calc
 
-# Room display mapping — same as main_window uses
-try:
-    from mewgenics.constants import ROOM_DISPLAY, ROOM_KEYS
-except ImportError:
-    ROOM_DISPLAY = {}
-    ROOM_KEYS = {}
+from mewgenics.utils.localization import ROOM_DISPLAY
+from save_parser import ROOM_KEYS
 
 _STAT_NAMES = list(STAT_NAMES)
 _N_STATS = len(_STAT_NAMES)
@@ -54,11 +51,12 @@ _TOTAL_COLS = _COL_TOTAL + 1
 
 class _ScoringWorker(QThread):
     """Runs the heavy scoring computation off the main thread."""
-    finished = Signal(object)  # emits the result tuple
+    finished = Signal(object)  # emits a dict payload
 
     def __init__(self, alive, cats, scope_cats, scope_set,
                  use_current_stats, add_mutation_stats,
-                 ma_ratings, weights):
+                 ma_ratings, weights, breeding_cache=None,
+                 run_revision: int = 0):
         super().__init__()
         self._alive = alive
         self._cats = cats
@@ -68,23 +66,44 @@ class _ScoringWorker(QThread):
         self._add_mutation_stats = add_mutation_stats
         self._ma_ratings = ma_ratings
         self._weights = dict(weights)
+        self._breeding_cache = breeding_cache
+        self._run_revision = run_revision
 
     def run(self):
+        if self.isInterruptionRequested():
+            self.finished.emit({"status": "canceled", "run_revision": self._run_revision})
+            return
         hated_by_map, _ = build_relationship_maps(self._cats)
         seven_sets, scope_7_sets = compute_seven_sets(
             self._alive, self._scope_set,
             use_current_stats=self._use_current_stats,
             add_mutation_stats=self._add_mutation_stats,
             stat_names=_STAT_NAMES,
+            should_cancel=self.isInterruptionRequested,
         )
+        if seven_sets is None:
+            self.finished.emit({"status": "canceled", "run_revision": self._run_revision})
+            return
+        risk_lookup = self._breeding_cache.get_risk if self._breeding_cache is not None else None
         result = compute_all_scores(
             self._alive, self._scope_cats, self._scope_set,
             seven_sets, scope_7_sets, hated_by_map,
             self._ma_ratings, _STAT_NAMES, self._weights,
+            gene_risk_lookup=risk_lookup,
             use_current_stats=self._use_current_stats,
             add_mutation_stats=self._add_mutation_stats,
+            should_cancel=self.isInterruptionRequested,
         )
-        self.finished.emit((result, seven_sets, scope_7_sets))
+        if result is None:
+            self.finished.emit({"status": "canceled", "run_revision": self._run_revision})
+            return
+        self.finished.emit({
+            "status": "ok",
+            "run_revision": self._run_revision,
+            "result": result,
+            "seven_sets": seven_sets,
+            "scope_7_sets": scope_7_sets,
+        })
 
 
 class AutoScoringView(QWidget):
@@ -118,6 +137,10 @@ class AutoScoringView(QWidget):
         self._suppress_recompute = False
         self._stale = False  # True when cats changed but _recompute() was deferred
         self._scoring_worker: _ScoringWorker | None = None
+        self._breeding_cache = None
+        self._results_stale = True
+        self._config_revision = 0
+        self._auto_calc = _saved_auto_scoring_auto_calc()
 
         # Scoring state
         self._weights: dict[str, float] = dict(BREED_PRIORITY_WEIGHTS)
@@ -165,23 +188,31 @@ class AutoScoringView(QWidget):
         self._cats = cats or []
         self._alive = [c for c in self._cats if c.status != "Gone"]
         self._rebuild_scope_checkboxes()
-        if self.isVisible():
-            self._recompute()
-        else:
-            self._stale = True
+        self._mark_dirty(clear_results=True, cancel_running=True)
 
     def set_trait_ratings(self, tr: TraitRatings):
         self._trait_ratings = tr
         self._load_from_trait_ratings()
 
+    def set_cache(self, cache):
+        self._breeding_cache = cache
+        if self._scoring_worker is None:
+            return
+        self._mark_dirty(cancel_running=True)
+
     def save_session_state(self):
         self._do_save()
 
+    def set_auto_recalculate(self, enabled: bool):
+        self._auto_calc = bool(enabled)
+        self._auto_calc_chk.blockSignals(True)
+        self._auto_calc_chk.setChecked(self._auto_calc)
+        self._auto_calc_chk.blockSignals(False)
+
     def showEvent(self, event):
         super().showEvent(event)
-        if self._stale:
-            self._stale = False
-            self._recompute()
+        if self._stale and self._status_label.text() == "":
+            self._status_label.setText(self._dirty_status_text())
 
     # ── Left panel ────────────────────────────────────────────────────────
 
@@ -330,6 +361,27 @@ class AutoScoringView(QWidget):
         w = QWidget()
         vb = QVBoxLayout(w)
         vb.setContentsMargins(0, 0, 0, 0)
+        vb.setSpacing(6)
+
+        toolbar = QHBoxLayout()
+        toolbar.setContentsMargins(8, 8, 8, 0)
+        toolbar.setSpacing(6)
+        self._calculate_btn = QPushButton("Calculate")
+        self._calculate_btn.setToolTip("Run the scoring computation for all cats.\nRequired after changing weights, scope, or options.")
+        self._calculate_btn.clicked.connect(self._recompute)
+        toolbar.addWidget(self._calculate_btn)
+        self._stop_btn = QPushButton("Stop Calc")
+        self._stop_btn.setToolTip("Cancel the running scoring computation.")
+        self._stop_btn.clicked.connect(self._stop_scoring)
+        self._stop_btn.setEnabled(False)
+        toolbar.addWidget(self._stop_btn)
+        self._auto_calc_chk = QCheckBox("Auto Calc")
+        self._auto_calc_chk.setToolTip("Automatically recalculate scores when weights, scope, or options change.")
+        self._auto_calc_chk.setChecked(self._auto_calc)
+        self._auto_calc_chk.toggled.connect(self._on_auto_calc_toggled)
+        toolbar.addWidget(self._auto_calc_chk)
+        toolbar.addStretch()
+        vb.addLayout(toolbar)
 
         self._table = QTableWidget()
         self._table.setColumnCount(_TOTAL_COLS)
@@ -478,12 +530,26 @@ class AutoScoringView(QWidget):
         rooms = sorted({c.room for c in self._alive if c.room})
         for rk in rooms:
             display = ROOM_DISPLAY.get(rk, rk)
-            n_m = sum(1 for c in self._alive if c.room == rk and c.gender == "M")
-            n_f = sum(1 for c in self._alive if c.room == rk and c.gender == "F")
-            n_q = sum(1 for c in self._alive if c.room == rk and c.gender == "?")
+            room_cats = [c for c in self._alive if c.room == rk]
+            # Show filtered counts when filters are active
+            filtered = [
+                c for c in room_cats
+                if cat_passes_pre_score_filter(
+                    c, self._filter_state,
+                    use_current_stats=self._use_current_stats,
+                    add_mutation_stats=self._add_mutation_stats,
+                )
+            ]
+            n_m = sum(1 for c in filtered if c.gender == "M")
+            n_f = sum(1 for c in filtered if c.gender == "F")
+            n_q = sum(1 for c in filtered if c.gender == "?")
+            total = len(filtered)
+            total_room = len(room_cats)
             label = f"{display}  ({n_m}M {n_f}F"
             if n_q:
                 label += f" {n_q}?"
+            if total < total_room:
+                label += f" | {total}/{total_room}"
             label += ")"
             cb = QCheckBox(label)
             cb.setChecked(True)
@@ -493,13 +559,69 @@ class AutoScoringView(QWidget):
             self._scope_container.addWidget(cb)
 
     def _compute_scope(self):
-        """Determine which cats are in scope based on checkboxes."""
+        """Determine which cats are in scope based on checkboxes and filters."""
         if self._chk_all_cats.isChecked():
-            self._scope_cats = list(self._alive)
+            candidates = self._alive
         else:
             active_rooms = {rk for rk, cb in self._room_checkboxes.items() if cb.isChecked()}
-            self._scope_cats = [c for c in self._alive if c.room in active_rooms]
+            candidates = [c for c in self._alive if c.room in active_rooms]
+        # Apply pre-score filters to exclude cats from scope
+        self._scope_cats = [
+            c for c in candidates
+            if cat_passes_pre_score_filter(
+                c, self._filter_state,
+                use_current_stats=self._use_current_stats,
+                add_mutation_stats=self._add_mutation_stats,
+            )
+        ]
         self._scope_set = {id(c) for c in self._scope_cats}
+
+    def _dirty_status_text(self) -> str:
+        if not self._alive:
+            return "No cats loaded"
+        if self._scoring_worker is not None:
+            return "Calculation running..."
+        if self._results and not self._results_stale:
+            return "Showing previous scores."
+        if self._auto_calc:
+            return "Scores are out of date. Recalculating..."
+        return "Scores are out of date. Click Calculate to recompute."
+
+    def _clear_results(self):
+        self._results = {}
+        self._cat_sub_counts = {}
+        self._table.setRowCount(0)
+        self._breakdown_list.clear()
+        self._children_list.clear()
+        self._risk_list.clear()
+
+    def _update_calc_buttons(self):
+        running = self._scoring_worker is not None
+        self._calculate_btn.setEnabled(bool(self._alive) and not running)
+        self._stop_btn.setEnabled(running)
+
+    def _on_auto_calc_toggled(self, checked: bool):
+        from mewgenics.utils.config import _set_auto_scoring_auto_calc
+        self._auto_calc = bool(checked)
+        _set_auto_scoring_auto_calc(self._auto_calc)
+        if self._auto_calc and self._results_stale and self._alive:
+            self._recompute()
+
+    def _mark_dirty(self, *, clear_results: bool = False, cancel_running: bool = False):
+        if cancel_running and self._scoring_worker is not None:
+            self._stop_scoring(update_status=False)
+        self._config_revision += 1
+        self._results_stale = True
+        self._stale = True
+        if clear_results:
+            self._clear_results()
+        self._compute_scope()
+        self._update_trait_lists()
+        self._status_label.setText(self._dirty_status_text())
+        self._update_calc_buttons()
+        self._schedule_save()
+        if self._auto_calc and self._alive:
+            self._recompute()
 
     # ── Recompute flow ────────────────────────────────────────────────────
 
@@ -520,30 +642,57 @@ class AutoScoringView(QWidget):
         if self._trait_ratings:
             ma_ratings = dict(self._trait_ratings.ratings)
 
-        # Cancel any in-flight worker
-        if self._scoring_worker is not None:
-            self._scoring_worker.finished.disconnect()
-            self._scoring_worker = None
-
         self._status_label.setText("Computing scores...")
+        self._stale = False
+        self._update_calc_buttons()
 
         worker = _ScoringWorker(
             self._alive, self._cats, self._scope_cats, self._scope_set,
             self._use_current_stats, self._add_mutation_stats,
             ma_ratings, self._weights,
+            breeding_cache=self._breeding_cache,
+            run_revision=self._config_revision,
         )
         worker.finished.connect(self._on_scoring_done)
         self._scoring_worker = worker
+        self._update_calc_buttons()
         worker.start()
+
+    def _stop_scoring(self, update_status: bool = True):
+        worker = self._scoring_worker
+        if worker is None:
+            return
+        worker.requestInterruption()
+        if update_status:
+            self._status_label.setText("Stopping calculation...")
+        self._update_calc_buttons()
 
     def _on_scoring_done(self, payload):
         """Handle completed scoring from the background worker."""
-        self._scoring_worker = None
-        (results_tuple, seven_sets, scope_7_sets) = payload
+        worker = self.sender()
+        if worker is self._scoring_worker:
+            self._scoring_worker = None
+        if worker is not None:
+            worker.deleteLater()
+        self._update_calc_buttons()
+
+        if not isinstance(payload, dict):
+            self._status_label.setText(self._dirty_status_text())
+            return
+        if payload.get("status") != "ok":
+            self._status_label.setText(self._dirty_status_text())
+            return
+        if payload.get("run_revision") != self._config_revision:
+            self._status_label.setText(self._dirty_status_text())
+            return
+
+        results_tuple = payload["result"]
 
         (self._results, self._cat_sub_counts, all_scores_sorted,
          all_scope_gene_risks, all_scope_children, max_7_count,
          scope_stat_sums, pair_risk_cache) = results_tuple
+        self._results_stale = False
+        self._stale = False
 
         # Heatmap norms
         col_max_abs, row_max_abs, score_max_abs = compute_heatmap_norms(
@@ -578,7 +727,14 @@ class AutoScoringView(QWidget):
             if self._hide_out_of_scope and id(cat) not in self._scope_set:
                 continue
             result = self._results.get(id(cat))
-            if result and not cat_passes_filter(cat, self._filter_state, result, self._scope_set):
+            if result and not cat_passes_filter(
+                cat,
+                self._filter_state,
+                result,
+                self._scope_set,
+                use_current_stats=self._use_current_stats,
+                add_mutation_stats=self._add_mutation_stats,
+            ):
                 continue
             visible.append(cat)
 
@@ -680,6 +836,15 @@ class AutoScoringView(QWidget):
             f"{len(visible)} visible  \u00b7  {n_scope} in scope  \u00b7  {len(self._alive)} alive"
         )
 
+    def _refresh_table_from_results(self):
+        if not self._results or self._results_stale:
+            self._status_label.setText(self._dirty_status_text())
+            return
+        col_max_abs, row_max_abs, score_max_abs = compute_heatmap_norms(
+            self._results, self._alive, self._heatmap_on, self._heat_algo,
+        )
+        self._populate_table(col_max_abs, row_max_abs, score_max_abs)
+
     # ── Right panel updates ───────────────────────────────────────────────
 
     def _update_trait_lists(self):
@@ -733,7 +898,8 @@ class AutoScoringView(QWidget):
         idx = cycle.index(current) if current in cycle else 0
         new_val = cycle[(idx + 1) % len(cycle)]
         self._trait_ratings.set_rating(name, new_val)
-        self._recompute()
+        self._update_trait_lists()
+        self._mark_dirty(clear_results=True, cancel_running=True)
 
     def _on_row_selected(self, row, col, prev_row, prev_col):
         if row < 0:
@@ -785,7 +951,10 @@ class AutoScoringView(QWidget):
             ok, _ = can_breed(cat, partner)
             if not ok:
                 continue
-            r = risk_percent(cat, partner)
+            if self._breeding_cache is not None:
+                r = self._breeding_cache.get_risk(cat, partner)
+            else:
+                r = risk_percent(cat, partner)
             if r > 0:
                 risks.append((r, partner.name))
         risks.sort(reverse=True)
@@ -811,41 +980,51 @@ class AutoScoringView(QWidget):
         self._trait_ratings.switch_profile(slot)
         self._trait_ratings.save()
         self._load_from_trait_ratings()
-        self._recompute()
+        self._mark_dirty(clear_results=True, cancel_running=True)
 
     def _on_display_changed(self):
         mode = self._display_combo.currentText().lower()
         self._display_mode = mode
-        self._recompute()
+        self._refresh_table_from_results()
+        self._schedule_save()
 
     def _on_heatmap_toggled(self):
         self._heatmap_on = self._chk_heatmap.isChecked()
-        self._recompute()
+        self._refresh_table_from_results()
+        self._schedule_save()
 
     def _on_heat_algo_changed(self):
         self._heat_algo = self._heat_algo_combo.currentText().lower()
         if self._heatmap_on:
-            self._recompute()
+            self._refresh_table_from_results()
+        self._schedule_save()
 
     def _on_show_stats_toggled(self):
         show = self._chk_show_stats.isChecked()
         for si in range(_N_STATS):
             self._table.setColumnHidden(_COL_STAT_START + si, not show)
+        self._schedule_save()
 
     def _on_scope_changed(self):
         if self._suppress_recompute:
             return
-        self._recompute()
+        self._mark_dirty(clear_results=True, cancel_running=True)
 
     def _on_option_changed(self):
         if self._suppress_recompute:
             return
-        self._recompute()
+        sender = self.sender()
+        if sender in (self._chk_hide_kittens, self._chk_hide_oos):
+            self._read_options()
+            self._refresh_table_from_results()
+            self._schedule_save()
+            return
+        self._mark_dirty(clear_results=True, cancel_running=True)
 
     def _on_weight_changed(self):
         if self._suppress_recompute:
             return
-        self._recompute()
+        self._mark_dirty(clear_results=True, cancel_running=True)
 
     def _open_stats_overview(self):
         from mewgenics.dialogs import StatsOverviewDialog
@@ -857,7 +1036,9 @@ class AutoScoringView(QWidget):
         if dlg.exec() == QDialog.Accepted:
             self._filter_state = dlg.result_state()
             self._update_filter_summary()
-            self._recompute()
+            self._rebuild_scope_checkboxes()
+            self._mark_dirty(cancel_running=True)
+            self._schedule_save()
 
     def _update_filter_summary(self):
         active = []
@@ -976,6 +1157,7 @@ class AutoScoringView(QWidget):
                 self._splitter.setSizes(sizes)
 
         self._suppress_recompute = False
+        self._mark_dirty(clear_results=True, cancel_running=True)
 
     def _schedule_save(self):
         self._save_timer.start()

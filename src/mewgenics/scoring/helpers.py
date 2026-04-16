@@ -38,19 +38,22 @@ def compute_seven_sets(
     use_current_stats: bool = False,
     add_mutation_stats: bool = False,
     stat_names: list[str] | None = None,
+    should_cancel=None,
 ) -> tuple[dict[int, frozenset], dict[int, frozenset]]:
     """Pre-compute which stats each cat has at 7.
 
     Returns (seven_sets, scope_7_sets) — both keyed by id(cat).
     """
     _names = stat_names or list(STAT_NAMES)
-    seven_sets: dict[int, frozenset] = {
-        id(c): frozenset(
+    seven_sets: dict[int, frozenset] = {}
+    for c in alive:
+        if callable(should_cancel) and should_cancel():
+            return None, None
+        stats = get_cat_stats(c, use_current_stats, add_mutation_stats)
+        seven_sets[id(c)] = frozenset(
             sn for sn in _names
-            if get_cat_stats(c, use_current_stats, add_mutation_stats).get(sn) == 7
+            if stats.get(sn) == 7
         )
-        for c in alive
-    }
     scope_7_sets: dict[int, frozenset] = {
         cid: s for cid, s in seven_sets.items() if cid in scope_set
     }
@@ -72,6 +75,7 @@ def compute_all_scores(
     use_current_stats: bool = False,
     add_mutation_stats: bool = False,
     can_breed_fn=None,
+    should_cancel=None,
 ) -> tuple:
     """Run scoring for all cats.
 
@@ -94,6 +98,8 @@ def compute_all_scores(
     results: dict[int, ScoreResult] = {}
     cat_sub_counts: dict[int, int] = {}
     for cat in alive:
+        if callable(should_cancel) and should_cancel():
+            return None
         results[id(cat)] = compute_breed_priority_score(
             cat, scope_cats, ma_ratings,
             stat_names=stat_names,
@@ -107,7 +113,10 @@ def compute_all_scores(
             add_mutation_stats=add_mutation_stats,
             can_breed_fn=can_breed_fn,
             _precomputed=_precomputed,
+            should_cancel=should_cancel,
         )
+        if results[id(cat)] is None:
+            return None
         # 7-sub: penalize cats whose 7-set is strictly dominated by scope peers
         my_sevens = seven_sets.get(id(cat), frozenset())
         sub_cnt = sum(

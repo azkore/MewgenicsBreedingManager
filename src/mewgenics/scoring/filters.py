@@ -117,13 +117,91 @@ def _trait_bucket(value: float | None) -> str:
     return "med"
 
 
-def _has_injury(cat) -> bool:
-    base = getattr(cat, 'base_stats', {}) or {}
-    total = getattr(cat, 'total_stats', {}) or {}
+def _has_injury(cat, *, add_mutation_stats: bool = False) -> bool:
+    base = get_cat_stats(cat, False, add_mutation_stats)
+    total = get_cat_stats(cat, True, add_mutation_stats)
     for sn in STAT_NAMES:
         if total.get(sn, 0) < base.get(sn, 0):
             return True
     return False
+
+
+def cat_passes_pre_score_filter(
+    cat,
+    fs: FilterState,
+    *,
+    use_current_stats: bool = False,
+    add_mutation_stats: bool = False,
+) -> bool:
+    """Return True if cat passes filters that don't need score results.
+
+    Used to exclude cats from scope before scoring runs.
+    """
+    if fs.age_active:
+        age = getattr(cat, 'age', None)
+        if age is not None and not _compare(age, fs.age_op, fs.age_value):
+            return False
+    if fs.gender_active:
+        g = getattr(cat, 'gender', '?')
+        allowed = set()
+        if fs.gender_male:
+            allowed.add('M')
+        if fs.gender_female:
+            allowed.add('F')
+        if fs.gender_unknown:
+            allowed.add('?')
+        match = g in allowed
+        if fs.gender_not:
+            match = not match
+        if not match:
+            return False
+    stats = get_cat_stats(cat, use_current_stats, add_mutation_stats)
+    for sn, sf in fs.stat_filters.items():
+        if sf.get("active") and not _compare(stats.get(sn, 0), sf["op"], sf["value"]):
+            return False
+    if fs.sum_active:
+        cat_sum = sum(stats.values())
+        if not _compare(cat_sum, fs.sum_op, fs.sum_value):
+            return False
+    if fs.count7_active:
+        count7 = sum(1 for v in stats.values() if v == 7)
+        if not _compare(count7, fs.count7_op, fs.count7_value):
+            return False
+    if fs.aggro_active:
+        bucket = _trait_bucket(getattr(cat, 'aggression', None))
+        allowed = set()
+        if fs.aggro_low:
+            allowed.add("low")
+        if fs.aggro_med:
+            allowed.add("med")
+        if fs.aggro_high:
+            allowed.add("high")
+        match = bucket in allowed
+        if fs.aggro_not:
+            match = not match
+        if not match:
+            return False
+    if fs.libido_active:
+        bucket = _trait_bucket(getattr(cat, 'libido', None))
+        allowed = set()
+        if fs.libido_low:
+            allowed.add("low")
+        if fs.libido_med:
+            allowed.add("med")
+        if fs.libido_high:
+            allowed.add("high")
+        match = bucket in allowed
+        if fs.libido_not:
+            match = not match
+        if not match:
+            return False
+    if fs.injury_active and not _has_injury(cat, add_mutation_stats=add_mutation_stats):
+        return False
+    if fs.location_active and fs.location_rooms:
+        room = getattr(cat, 'room', None) or ''
+        if room not in fs.location_rooms:
+            return False
+    return True
 
 
 def cat_passes_filter(
@@ -131,6 +209,9 @@ def cat_passes_filter(
     fs: FilterState,
     score_result: ScoreResult,
     scope_set: set[int],
+    *,
+    use_current_stats: bool = False,
+    add_mutation_stats: bool = False,
 ) -> bool:
     """Return True if cat passes all enabled filters."""
     # Age
@@ -156,7 +237,7 @@ def cat_passes_filter(
             return False
 
     # Individual stats
-    stats = getattr(cat, 'base_stats', {}) or {}
+    stats = get_cat_stats(cat, use_current_stats, add_mutation_stats)
     for sn, sf in fs.stat_filters.items():
         if sf.get("active") and not _compare(stats.get(sn, 0), sf["op"], sf["value"]):
             return False
@@ -222,7 +303,7 @@ def cat_passes_filter(
             return False
 
     # Injury
-    if fs.injury_active and not _has_injury(cat):
+    if fs.injury_active and not _has_injury(cat, add_mutation_stats=add_mutation_stats):
         return False
 
     # Location

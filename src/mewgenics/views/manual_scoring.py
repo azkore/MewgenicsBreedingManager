@@ -14,7 +14,7 @@ from PySide6.QtGui import QColor, QBrush
 
 from save_parser import Cat, ROOM_KEYS
 from mewgenics.utils.localization import _tr, ROOM_DISPLAY
-from mewgenics.utils.config import _load_ui_state, _save_ui_state
+from mewgenics.utils.config import _load_ui_state, _save_ui_state, _saved_manual_scoring_auto_calc
 from mewgenics.utils.cat_analysis import _cat_base_sum
 from mewgenics.utils.calibration import _trait_label_from_value
 from mewgenics.utils.abilities import _ability_tip, _mutation_display_name
@@ -379,15 +379,20 @@ class _MutationSelector(QWidget):
             chk.setChecked(item.checkState() == Qt.Checked)
             chk.toggled.connect(lambda checked, it=item: self._sync_check_from_widget(it, checked))
             row.addWidget(chk)
-            lbl = QLabel(item.text())
-            lbl.setStyleSheet("color:#ccc;")
-            row.addWidget(lbl, 1)
             spin = QSpinBox()
             spin.setRange(-99, 99)
             spin.setValue(self._spin_default.value())
             spin.setFixedWidth(60)
             spin.valueChanged.connect(self._on_changed)
             row.addWidget(spin)
+            full_text = item.text()
+            # Show only mutation name; full description goes in tooltip
+            name = item.data(Qt.UserRole)
+            short_text = _mutation_display_name(name) if name else full_text
+            lbl = QLabel(short_text)
+            lbl.setStyleSheet("color:#ccc;")
+            lbl.setToolTip(item.toolTip() or full_text)
+            row.addWidget(lbl, 1)
             self._list.setItemWidget(item, w)
             # Disable the built-in checkbox since the widget checkbox takes over
             item.setFlags(item.flags() & ~Qt.ItemIsUserCheckable)
@@ -407,9 +412,12 @@ class _MutationSelector(QWidget):
             item = self._list.item(i)
             widget = self._list.itemWidget(item)
             if widget is not None:
-                lbl = widget.findChild(QLabel)
-                if lbl:
-                    item.setText(lbl.text())
+                # Reconstruct full display text from raw mutation name
+                name = item.data(Qt.UserRole)
+                display = _mutation_display_name(name) if name else ""
+                tip = _ability_tip(name) if name else ""
+                full = f"{display}  \u2014  {tip}" if tip else display
+                item.setText(full)
                 self._list.removeItemWidget(item)
                 item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
 
@@ -434,13 +442,13 @@ class _MutationSelector(QWidget):
         text_lower = text.lower()
         for i in range(self._list.count()):
             item = self._list.item(i)
-            # Check both the item text and the label inside the widget
+            # Check item text, label widget, and tooltip for search matches
             visible_text = item.text()
             widget = self._list.itemWidget(item)
             if widget is not None:
                 lbl = widget.findChild(QLabel)
                 if lbl:
-                    visible_text = lbl.text()
+                    visible_text = lbl.toolTip() or lbl.text()
             matches_text = text_lower in visible_text.lower()
             # Apply checked/unchecked filter
             if self._filter_mode == "checked":
@@ -540,6 +548,8 @@ class ManualScoringView(QWidget):
         self._session_state: dict = _load_ui_state(self._UI_STATE_KEY)
         self._suppress_recompute = False
         self._trait_ratings: Optional[TraitRatings] = None
+        self._auto_calc = _saved_manual_scoring_auto_calc()
+        self._results_stale = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -684,13 +694,23 @@ class ManualScoringView(QWidget):
         toolbar.addWidget(QLabel("Room:"))
         self._room_combo = QComboBox()
         self._room_combo.setMinimumWidth(140)
-        self._room_combo.currentIndexChanged.connect(self._recompute)
+        self._room_combo.currentIndexChanged.connect(self._on_filter_changed)
         toolbar.addWidget(self._room_combo)
 
         self._chk_in_house = QCheckBox("In House only")
         self._chk_in_house.setChecked(True)
-        self._chk_in_house.toggled.connect(self._recompute)
+        self._chk_in_house.toggled.connect(self._on_filter_changed)
         toolbar.addWidget(self._chk_in_house)
+
+        self._calculate_btn = QPushButton("Calculate")
+        self._calculate_btn.setToolTip("Run scoring for all cats with current config.")
+        self._calculate_btn.clicked.connect(self._recompute)
+        toolbar.addWidget(self._calculate_btn)
+        self._auto_calc_chk = QCheckBox("Auto Calc")
+        self._auto_calc_chk.setToolTip("Automatically recalculate scores when config changes.")
+        self._auto_calc_chk.setChecked(self._auto_calc)
+        self._auto_calc_chk.toggled.connect(self._on_auto_calc_toggled)
+        toolbar.addWidget(self._auto_calc_chk)
 
         toolbar.addStretch()
 
@@ -824,7 +844,36 @@ class ManualScoringView(QWidget):
         if self._suppress_recompute:
             return
         self._config = self._read_config()
-        self._recompute()
+        if self._auto_calc:
+            self._recompute()
+        else:
+            self._mark_stale()
+
+    def _on_filter_changed(self, _=None):
+        if self._suppress_recompute:
+            return
+        if self._auto_calc:
+            self._recompute()
+        else:
+            self._mark_stale()
+
+    def _mark_stale(self):
+        self._results_stale = True
+        self._status_label.setText("Scores are out of date. Click Calculate to recompute.")
+        self._calculate_btn.setEnabled(bool(self._alive))
+
+    def _on_auto_calc_toggled(self, checked: bool):
+        from mewgenics.utils.config import _set_manual_scoring_auto_calc
+        self._auto_calc = bool(checked)
+        _set_manual_scoring_auto_calc(self._auto_calc)
+        if self._auto_calc and self._results_stale and self._alive:
+            self._recompute()
+
+    def set_auto_recalculate(self, enabled: bool):
+        self._auto_calc = bool(enabled)
+        self._auto_calc_chk.blockSignals(True)
+        self._auto_calc_chk.setChecked(self._auto_calc)
+        self._auto_calc_chk.blockSignals(False)
 
     # ---- Data reception ---------------------------------------------------
 
@@ -860,6 +909,7 @@ class ManualScoringView(QWidget):
     # ---- Recompute and display --------------------------------------------
 
     def _recompute(self, _=None):
+        self._results_stale = False
         room_filter = self._room_combo.currentData() or ""
         in_house_only = self._chk_in_house.isChecked()
 

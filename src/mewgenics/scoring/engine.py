@@ -265,6 +265,7 @@ def compute_breed_priority_score(
     add_mutation_stats: bool = False,
     can_breed_fn=None,
     _precomputed: dict | None = None,
+    should_cancel=None,
 ) -> ScoreResult:
     """Compute breed priority score for an individual cat.
 
@@ -464,6 +465,8 @@ def compute_breed_priority_score(
     risk_fn = gene_risk_lookup if callable(gene_risk_lookup) else risk_percent
     _risk_vals: list[float] = []
     for partner in scope_cats:
+        if callable(should_cancel) and should_cancel():
+            return None
         if partner is cat:
             continue
         if not _can_breed(cat, partner)[0]:

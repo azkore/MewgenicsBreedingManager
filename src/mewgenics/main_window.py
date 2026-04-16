@@ -43,6 +43,8 @@ from mewgenics.utils.config import (
     _save_current_view, _load_current_view,
     _set_save_dir, find_save_files,
     _saved_room_optimizer_auto_recalc, _set_room_optimizer_auto_recalc,
+    _saved_auto_scoring_auto_calc, _set_auto_scoring_auto_calc,
+    _saved_manual_scoring_auto_calc, _set_manual_scoring_auto_calc,
     _save_splitter_state, _bind_splitter_persistence,
     _saved_zoom_percent, _set_zoom_percent,
     _saved_font_size_offset, _set_font_size_offset_config,
@@ -417,6 +419,18 @@ class MainWindow(QMainWindow):
         self._room_optimizer_auto_recalc_action.setChecked(_saved_room_optimizer_auto_recalc())
         self._room_optimizer_auto_recalc_action.toggled.connect(self._toggle_room_optimizer_auto_recalc)
         vm.addAction(self._room_optimizer_auto_recalc_action)
+
+        self._auto_scoring_auto_calc_action = QAction(_tr("menu.settings.auto_scoring_auto_calc", default="Auto Recalculate Auto Scoring"), self)
+        self._auto_scoring_auto_calc_action.setCheckable(True)
+        self._auto_scoring_auto_calc_action.setChecked(_saved_auto_scoring_auto_calc())
+        self._auto_scoring_auto_calc_action.toggled.connect(self._toggle_auto_scoring_auto_calc)
+        vm.addAction(self._auto_scoring_auto_calc_action)
+
+        self._manual_scoring_auto_calc_action = QAction(_tr("menu.settings.manual_scoring_auto_calc", default="Auto Recalculate Manual Scoring"), self)
+        self._manual_scoring_auto_calc_action.setCheckable(True)
+        self._manual_scoring_auto_calc_action.setChecked(_saved_manual_scoring_auto_calc())
+        self._manual_scoring_auto_calc_action.toggled.connect(self._toggle_manual_scoring_auto_calc)
+        vm.addAction(self._manual_scoring_auto_calc_action)
 
         vm.addSeparator()
 
@@ -1242,6 +1256,10 @@ class MainWindow(QMainWindow):
             self._reset_ui_settings_action.setText(_tr("menu.settings.reset_ui_defaults"))
         if hasattr(self, "_room_optimizer_auto_recalc_action"):
             self._room_optimizer_auto_recalc_action.setText(_tr("menu.settings.room_optimizer_auto_recalc", default="Auto Recalculate Room Optimizer"))
+        if hasattr(self, "_auto_scoring_auto_calc_action"):
+            self._auto_scoring_auto_calc_action.setText(_tr("menu.settings.auto_scoring_auto_calc", default="Auto Recalculate Auto Scoring"))
+        if hasattr(self, "_manual_scoring_auto_calc_action"):
+            self._manual_scoring_auto_calc_action.setText(_tr("menu.settings.manual_scoring_auto_calc", default="Auto Recalculate Manual Scoring"))
 
     def _change_language(self, language: str):
         if language not in _SUPPORTED_LANGUAGES or language == _current_language():
@@ -2114,7 +2132,14 @@ class MainWindow(QMainWindow):
         self._manual_scoring_view = ManualScoringView(self)
         self._manual_scoring_view.hide()
         self._content_vb.addWidget(self._manual_scoring_view, 1)
+        self._manual_scoring_view._auto_calc_chk.toggled.connect(self._sync_manual_scoring_auto_calc_action)
         self._push_cats_to_view_if_loaded("manual_scoring", self._manual_scoring_view)
+
+    def _sync_manual_scoring_auto_calc_action(self, checked: bool):
+        if hasattr(self, "_manual_scoring_auto_calc_action"):
+            self._manual_scoring_auto_calc_action.blockSignals(True)
+            self._manual_scoring_auto_calc_action.setChecked(checked)
+            self._manual_scoring_auto_calc_action.blockSignals(False)
 
     def _ensure_auto_scoring_view(self):
         if self._auto_scoring_view is not None:
@@ -2122,9 +2147,18 @@ class MainWindow(QMainWindow):
         self._auto_scoring_view = AutoScoringView(self)
         self._auto_scoring_view.hide()
         self._content_vb.addWidget(self._auto_scoring_view, 1)
+        self._auto_scoring_view._auto_calc_chk.toggled.connect(self._sync_auto_scoring_auto_calc_action)
         if self._trait_ratings is not None:
             self._auto_scoring_view.set_trait_ratings(self._trait_ratings)
+        if self._breeding_cache is not None:
+            self._auto_scoring_view.set_cache(self._breeding_cache)
         self._push_cats_to_view_if_loaded("auto_scoring", self._auto_scoring_view)
+
+    def _sync_auto_scoring_auto_calc_action(self, checked: bool):
+        if hasattr(self, "_auto_scoring_auto_calc_action"):
+            self._auto_scoring_auto_calc_action.blockSignals(True)
+            self._auto_scoring_auto_calc_action.setChecked(checked)
+            self._auto_scoring_auto_calc_action.blockSignals(False)
 
     def _ensure_perfect_planner_view(self):
         if self._perfect_planner_view is not None:
@@ -3465,6 +3499,8 @@ class MainWindow(QMainWindow):
             self._perfect_planner_view.set_cache(cache)
         if self._room_optimizer_view is not None:
             self._room_optimizer_view.set_cache(cache)
+        if self._auto_scoring_view is not None:
+            self._auto_scoring_view.set_cache(cache)
         self._cache_progress.setFormat(_tr("loading.cache.pair_risks"))
 
     def _on_cache_ready(self, cache: BreedingCache):
@@ -3479,6 +3515,8 @@ class MainWindow(QMainWindow):
             self._room_optimizer_view.set_cache(cache)
         if self._perfect_planner_view is not None:
             self._perfect_planner_view.set_cache(cache)
+        if self._auto_scoring_view is not None:
+            self._auto_scoring_view.set_cache(cache)
         self.statusBar().showMessage(
             self.statusBar().currentMessage() + _tr("status.cache_ready_suffix", default="  |  Breeding cache ready")
         )
@@ -3588,6 +3626,8 @@ class MainWindow(QMainWindow):
                 self._room_optimizer_view.set_cache(None)
             if self._perfect_planner_view is not None:
                 self._perfect_planner_view.set_cache(None)
+            if self._auto_scoring_view is not None:
+                self._auto_scoring_view.set_cache(None)
             self._refresh_threshold_runtime(cats)
             self._source_model.load(cats, accessible_cats=accessible_cats)
             self._rebuild_room_buttons(cats)
@@ -3599,23 +3639,10 @@ class MainWindow(QMainWindow):
             if self._furniture_view is not None:
                 self._furniture_view.set_context(self._cats, self._furniture, self._furniture_data, available_rooms=self._available_house_rooms)
                 self._view_generation["furniture"] = self._cats_generation
-            # Push cats to all views so switching tabs is instant.
-            if self._tree_view is not None:
-                self._set_view_cats_if_needed("tree", self._tree_view, cats)
-            if self._safe_breeding_view is not None:
-                self._set_view_cats_if_needed("safe_breeding", self._safe_breeding_view, cats)
-            if self._breeding_partners_view is not None:
-                self._set_view_cats_if_needed("breeding_partners", self._breeding_partners_view, cats)
-            if self._room_optimizer_view is not None:
-                self._set_view_cats_if_needed("room_optimizer", self._room_optimizer_view, cats)
-            if self._perfect_planner_view is not None:
-                self._set_view_cats_if_needed("perfect_planner", self._perfect_planner_view, cats)
-            if self._mutation_planner_view is not None:
-                self._set_view_cats_if_needed("mutation_planner", self._mutation_planner_view, cats)
-            if self._manual_scoring_view is not None:
-                self._set_view_cats_if_needed("manual_scoring", self._manual_scoring_view, cats)
-            if self._auto_scoring_view is not None:
-                self._set_view_cats_if_needed("auto_scoring", self._auto_scoring_view, cats)
+            # Cats are pushed to views on-demand when they become visible
+            # (each _show_*_view calls _set_view_cats_if_needed).
+            # _restore_current_view() in the finally block shows the active
+            # view, which triggers the push for just that one view.
 
             # Initialize shared trait ratings
             if self._current_save:
@@ -3736,6 +3763,24 @@ class MainWindow(QMainWindow):
         if self._room_optimizer_view is not None and hasattr(self._room_optimizer_view, "set_auto_recalculate"):
             self._room_optimizer_view.set_auto_recalculate(False)
 
+        _set_auto_scoring_auto_calc(False)
+        if hasattr(self, "_auto_scoring_auto_calc_action"):
+            self._auto_scoring_auto_calc_action.blockSignals(True)
+            self._auto_scoring_auto_calc_action.setChecked(False)
+            self._auto_scoring_auto_calc_action.blockSignals(False)
+        asv = getattr(self, "_auto_scoring_view", None)
+        if asv is not None and hasattr(asv, "set_auto_recalculate"):
+            asv.set_auto_recalculate(False)
+
+        _set_manual_scoring_auto_calc(True)
+        if hasattr(self, "_manual_scoring_auto_calc_action"):
+            self._manual_scoring_auto_calc_action.blockSignals(True)
+            self._manual_scoring_auto_calc_action.setChecked(True)
+            self._manual_scoring_auto_calc_action.blockSignals(False)
+        msv = getattr(self, "_manual_scoring_view", None)
+        if msv is not None and hasattr(msv, "set_auto_recalculate"):
+            msv.set_auto_recalculate(True)
+
         self._apply_accessibility_preset("Default")
 
         _set_total_stats_display(False)
@@ -3782,6 +3827,16 @@ class MainWindow(QMainWindow):
         _set_room_optimizer_auto_recalc(bool(checked))
         if self._room_optimizer_view is not None and hasattr(self._room_optimizer_view, "set_auto_recalculate"):
             self._room_optimizer_view.set_auto_recalculate(bool(checked))
+
+    def _toggle_auto_scoring_auto_calc(self, checked: bool):
+        _set_auto_scoring_auto_calc(bool(checked))
+        if self._auto_scoring_view is not None and hasattr(self._auto_scoring_view, "set_auto_recalculate"):
+            self._auto_scoring_view.set_auto_recalculate(bool(checked))
+
+    def _toggle_manual_scoring_auto_calc(self, checked: bool):
+        _set_manual_scoring_auto_calc(bool(checked))
+        if self._manual_scoring_view is not None and hasattr(self._manual_scoring_view, "set_auto_recalculate"):
+            self._manual_scoring_view.set_auto_recalculate(bool(checked))
 
     def _toggle_lineage(self, checked: bool):
         self._show_lineage = checked
