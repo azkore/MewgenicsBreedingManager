@@ -156,6 +156,29 @@ def main():
     win = MainWindow(initial_save=initial_save, use_saved_default=False)
     _main_window_ref["win"] = win
 
-    splash.close()
+    # Show the main window behind the splash. The splash stays on top
+    # until the save finishes loading so the user never sees a blank window.
     win.show()
+
+    if initial_save:
+        splash.set_status("Loading save file...")
+        splash.raise_()  # keep above the main window
+
+        def _dismiss_splash():
+            splash.close()
+
+        # The deferred QTimer.singleShot(0, load_save) in MainWindow.__init__
+        # starts a SaveLoadWorker.  Hook its completion to close the splash.
+        # We need a small delay so the worker is created first.
+        def _hook_worker():
+            worker = getattr(win, "_save_load_worker", None)
+            if worker is not None:
+                worker.finished_load.connect(_dismiss_splash)
+            else:
+                splash.close()
+
+        QTimer.singleShot(50, _hook_worker)
+    else:
+        splash.close()
+
     return app.exec()
