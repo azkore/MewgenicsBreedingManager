@@ -114,16 +114,18 @@ class TestSaveLoadWorkerFailedSignal:
         """
         worker = SaveLoadWorker(str(tmp_path / "nope.sav"))
         finished_results = []
-        failed_messages = []
+        failed_events = []
         worker.finished_load.connect(finished_results.append)
-        worker.failed.connect(failed_messages.append)
+        worker.failed.connect(lambda msg, transient: failed_events.append((msg, transient)))
 
         _run_thread_to_completion(worker)
 
         assert finished_results == []
-        assert len(failed_messages) == 1
-        # Caller can see what went wrong.
-        assert failed_messages[0]  # non-empty repr
+        assert len(failed_events) == 1
+        msg, is_transient = failed_events[0]
+        assert msg  # non-empty repr
+        # A missing file surfaces as OSError/FileNotFoundError → transient.
+        assert is_transient is True
 
     def test_retry_with_backoff_recovers_from_transient_failure(
         self, qt_app, tmp_path, monkeypatch
@@ -184,6 +186,97 @@ class TestSaveLoadWorkerFailedSignal:
         assert failed == [], f"worker should have recovered, got failure {failed!r}"
         assert len(finished) == 1
         assert attempts["n"] == 2  # one failed, one succeeded
+
+    def test_non_transient_parse_failure_is_flagged_not_transient(
+        self, qt_app, tmp_path, monkeypatch
+    ):
+        """Corrupt saves / parser bugs raise TypeError/KeyError etc.
+        Those must be reported with is_transient=False so the main window
+        can skip the self-heal retry timer and avoid a busy-loop.
+        """
+        path = tmp_path / "fake.sav"
+        path.touch()
+
+        def busted_parse(p):
+            raise KeyError("missing field — real bug, do not retry")
+
+        monkeypatch.setattr(save_loader_module, "parse_save", busted_parse)
+
+        worker = SaveLoadWorker(str(path))
+        failed_events = []
+        worker.failed.connect(lambda msg, transient: failed_events.append((msg, transient)))
+
+        _run_thread_to_completion(worker)
+
+        assert len(failed_events) == 1
+        _, is_transient = failed_events[0]
+        assert is_transient is False
+
+
+# ─────────────────────────────────────────────────────────────────────
+# P1: _on_save_load_failed caps retries so a permanently-broken save
+#     cannot spin a self-heal loop forever.
+# ─────────────────────────────────────────────────────────────────────
+
+
+class TestSaveLoadFailureRetryPolicy:
+    def _bare_window(self):
+        window = main_window_module.MainWindow.__new__(main_window_module.MainWindow)
+        window._save_load_worker = None
+        window._save_load_retries = 0
+        window._loading_overlay = SimpleNamespace(hide=lambda: None)
+        window.statusBar = lambda: SimpleNamespace(showMessage=lambda *a, **k: None)
+        return window
+
+    def test_non_transient_failure_does_not_schedule_retry(self, qt_app):
+        window = self._bare_window()
+        scheduled = []
+        with patch.object(main_window_module, "QTimer") as qt:
+            qt.singleShot = lambda ms, fn: scheduled.append((ms, fn))
+            main_window_module.MainWindow._on_save_load_failed(
+                window, "KeyError('foo')", False
+            )
+        assert scheduled == []
+        assert window._save_load_retries == 0  # no increment on permanent error
+
+    def test_transient_failure_under_cap_schedules_retry(self, qt_app):
+        window = self._bare_window()
+        scheduled = []
+        with patch.object(main_window_module, "QTimer") as qt:
+            qt.singleShot = lambda ms, fn: scheduled.append((ms, fn))
+            main_window_module.MainWindow._on_save_load_failed(
+                window, "OperationalError('locked')", True
+            )
+        assert len(scheduled) == 1
+        assert scheduled[0][0] == 500
+        assert window._save_load_retries == 1
+
+    def test_transient_failure_at_cap_stops_retrying(self, qt_app):
+        window = self._bare_window()
+        window._save_load_retries = main_window_module.MainWindow._SAVE_LOAD_RETRY_CAP
+        scheduled = []
+        with patch.object(main_window_module, "QTimer") as qt:
+            qt.singleShot = lambda ms, fn: scheduled.append((ms, fn))
+            main_window_module.MainWindow._on_save_load_failed(
+                window, "OperationalError('locked')", True
+            )
+        assert scheduled == [], "retry cap must stop the self-heal loop"
+        # Cap is sticky until a successful load resets it.
+        assert window._save_load_retries == main_window_module.MainWindow._SAVE_LOAD_RETRY_CAP
+
+    def test_superseded_worker_does_not_advance_retry_counter(self, qt_app):
+        window = self._bare_window()
+        window._save_load_worker = SimpleNamespace(name="current")
+        stale = SimpleNamespace(name="stale")
+        with patch.object(main_window_module, "QTimer") as qt:
+            scheduled = []
+            qt.singleShot = lambda ms, fn: scheduled.append((ms, fn))
+            main_window_module.MainWindow._on_save_load_failed(
+                window, "OperationalError('locked')", True, source_worker=stale
+            )
+        assert scheduled == []
+        assert window._save_load_retries == 0
+        assert window._save_load_worker is not None  # current worker untouched
 
 
 # ─────────────────────────────────────────────────────────────────────

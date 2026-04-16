@@ -133,6 +133,11 @@ from mewgenics.utils.paths import _scoring_path
 
 
 class MainWindow(QMainWindow):
+    # Max consecutive self-heal retries after a transient save-load failure.
+    # After this, we stop and wait for a fresh fileChanged event (or manual
+    # reload) rather than spinning on a permanently-broken save.
+    _SAVE_LOAD_RETRY_CAP = 3
+
     @staticmethod
     def _set_bulk_toggle_label(btn: QPushButton, label: str, enabled: bool):
         btn.setText(_tr("bulk.label_template", label=label, state=_tr("common.on" if enabled else "common.off")))
@@ -269,6 +274,9 @@ class MainWindow(QMainWindow):
         self._breeding_cache: Optional[BreedingCache] = None
         self._cache_worker: Optional[BreedingCacheWorker] = None
         self._save_load_worker: Optional[SaveLoadWorker] = None
+        # Consecutive self-heal attempts triggered by `_on_save_load_failed`.
+        # Capped so a permanently broken save can't loop forever.
+        self._save_load_retries: int = 0
         self._quick_refresh_worker: Optional[QuickRoomRefreshWorker] = None
         # Stale-signal discriminator for `_on_room_patch`.  See
         # `_start_quick_room_refresh` for why `quit()/wait()` alone
@@ -3544,33 +3552,37 @@ class MainWindow(QMainWindow):
             self.statusBar().currentMessage() + _tr("status.cache_ready_suffix", default="  |  Breeding cache ready")
         )
 
-    def _on_save_load_failed(self, msg: str, source_worker: Optional[SaveLoadWorker] = None):
+    def _on_save_load_failed(self, msg: str, is_transient: bool = True,
+                              source_worker: Optional[SaveLoadWorker] = None):
         """Handle a SaveLoadWorker that raised during parsing.
 
-        The game writes the save atomically (temp file + rename) and the
-        watcher can fire during that brief window.  `SaveLoadWorker`
-        already retries with backoff; if it still fails, we surface the
-        error in the status bar and schedule a single self-healing retry
-        500 ms later — the next save the game writes almost always
-        resolves the condition.  Without this slot, the QThread would
-        die silently, the loading overlay would stay up forever, and
-        `_save_load_worker` would remain non-None so every subsequent
-        file-change event would cascade into `_reload()` hitting the
-        old `terminate()` path.
+        Only schedule a self-heal reload for transient I/O errors — a
+        permanently broken save (corrupt file, parser bug, KeyError, etc.)
+        must not spin the retry timer forever.  The next `fileChanged`
+        event will re-trigger a load naturally if the game fixes the
+        condition by writing a fresh save.
         """
         if source_worker is not None and source_worker is not self._save_load_worker:
             return  # superseded — a newer load is already running
         self._save_load_worker = None
         self._loading_overlay.hide()
-        self.statusBar().showMessage(
-            _tr("status.save_load_failed",
-                default="Save load failed ({error}) — retrying in 500 ms.",
-                error=msg)
-        )
-        # Self-heal: try once more.  If the file is still mid-write we'll
-        # fail again and the user will see the status message; the next
-        # fileChanged event will re-trigger a refresh anyway.
-        QTimer.singleShot(500, self._reload)
+        if is_transient and self._save_load_retries < self._SAVE_LOAD_RETRY_CAP:
+            self._save_load_retries += 1
+            self.statusBar().showMessage(
+                _tr("status.save_load_failed",
+                    default="Save load failed ({error}) — retrying in 500 ms.",
+                    error=msg)
+            )
+            QTimer.singleShot(500, self._reload)
+        else:
+            # Permanent failure or retry budget exhausted.  Leave the
+            # error visible and let a fresh fileChanged event (or a
+            # manual reload) reset the counter on success.
+            self.statusBar().showMessage(
+                _tr("status.save_load_failed_permanent",
+                    default="Save load failed ({error}). Open a different save or fix the file.",
+                    error=msg)
+            )
 
     # ── Loading ────────────────────────────────────────────────────────────
 
@@ -3625,7 +3637,8 @@ class MainWindow(QMainWindow):
                 self._on_save_loaded(result, force, source_worker=w)
         )
         worker.failed.connect(
-            lambda msg, w=worker: self._on_save_load_failed(msg, source_worker=w)
+            lambda msg, transient, w=worker:
+                self._on_save_load_failed(msg, transient, source_worker=w)
         )
         self._save_load_worker = worker
         worker.start()
@@ -3640,6 +3653,7 @@ class MainWindow(QMainWindow):
         if source_worker is not None and source_worker is not self._save_load_worker:
             return
         self._save_load_worker = None
+        self._save_load_retries = 0  # success resets the self-heal counter
         # Dismiss overlay immediately — UI work below is fast (model.load is O(n), no ancestry)
         self._loading_overlay.hide()
         self._save_view_disabled = True

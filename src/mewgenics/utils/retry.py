@@ -18,7 +18,7 @@ T = TypeVar("T")
 # a real bug or a genuinely corrupted save, so propagate immediately
 # rather than wasting ~350 ms re-running an expensive parse that will
 # re-allocate hundreds of MB for nothing.
-_TRANSIENT_EXCEPTIONS: tuple[type[BaseException], ...] = (
+TRANSIENT_EXCEPTIONS: tuple[type[BaseException], ...] = (
     sqlite3.OperationalError,  # "database is locked", "disk I/O error", "unable to open"
     sqlite3.DatabaseError,     # malformed header / truncated file
     OSError,                   # file momentarily missing, NTFS rename blip
@@ -38,7 +38,7 @@ def retry_transient(func: Callable[[], T], delays_ms=_DEFAULT_DELAYS_MS) -> T:
     for attempt in range(total_attempts):
         try:
             return func()
-        except _TRANSIENT_EXCEPTIONS:
+        except TRANSIENT_EXCEPTIONS:
             if attempt + 1 >= total_attempts:
                 raise
             time.sleep(delays_ms[attempt] / 1000.0)
