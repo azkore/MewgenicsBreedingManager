@@ -81,6 +81,7 @@ class AutoScoringView(QWidget):
         self._alive: list = []
         self._trait_ratings: Optional[TraitRatings] = None
         self._suppress_recompute = False
+        self._stale = False  # True when cats changed but _recompute() was deferred
 
         # Scoring state
         self._weights: dict[str, float] = dict(BREED_PRIORITY_WEIGHTS)
@@ -128,7 +129,10 @@ class AutoScoringView(QWidget):
         self._cats = cats or []
         self._alive = [c for c in self._cats if c.status != "Gone"]
         self._rebuild_scope_checkboxes()
-        self._recompute()
+        if self.isVisible():
+            self._recompute()
+        else:
+            self._stale = True
 
     def set_trait_ratings(self, tr: TraitRatings):
         self._trait_ratings = tr
@@ -136,6 +140,12 @@ class AutoScoringView(QWidget):
 
     def save_session_state(self):
         self._do_save()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._stale:
+            self._stale = False
+            self._recompute()
 
     # ── Left panel ────────────────────────────────────────────────────────
 
@@ -412,6 +422,7 @@ class AutoScoringView(QWidget):
     def _recompute(self):
         if self._suppress_recompute:
             return
+        self._stale = False
         if not self._alive:
             self._table.setRowCount(0)
             self._status_label.setText("No cats loaded")
