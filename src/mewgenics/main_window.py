@@ -4114,6 +4114,8 @@ class MainWindow(QMainWindow):
             self._mutation_planner_view.hide()
         if hasattr(self, "_furniture_view") and self._furniture_view is not None:
             self._furniture_view.hide()
+        if hasattr(self, "_auto_scoring_view") and self._auto_scoring_view is not None:
+            self._auto_scoring_view.hide()
         if self._manual_scoring_view is not None:
             self._set_view_cats_if_needed("manual_scoring", self._manual_scoring_view, self._cats)
             self._manual_scoring_view.show()
