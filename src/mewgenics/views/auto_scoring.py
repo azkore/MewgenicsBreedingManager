@@ -319,7 +319,7 @@ class AutoScoringView(QWidget):
         self._table = QTableWidget()
         self._table.setColumnCount(_TOTAL_COLS)
 
-        headers = ["Name", "Loc"]
+        headers = ["Name", "Room"]
         headers += _STAT_NAMES
         headers += [col_name for col_name, _ in SCORE_COLUMNS]
         headers += ["Score"]
@@ -335,7 +335,7 @@ class AutoScoringView(QWidget):
         hh = self._table.horizontalHeader()
         hh.setSectionResizeMode(_COL_NAME, QHeaderView.Stretch)
         hh.setSectionResizeMode(_COL_LOC, QHeaderView.Fixed)
-        self._table.setColumnWidth(_COL_LOC, 64)
+        self._table.setColumnWidth(_COL_LOC, 80)
         for i in range(_COL_STAT_START, _COL_STAT_START + _N_STATS):
             hh.setSectionResizeMode(i, QHeaderView.Fixed)
             self._table.setColumnWidth(i, 36)
@@ -550,14 +550,11 @@ class AutoScoringView(QWidget):
             name_item.setData(Qt.UserRole, id(cat))
             self._table.setItem(row, _COL_NAME, name_item)
 
-            # Location
-            raw_room = getattr(cat, 'room', '') or ''
-            loc_text = ROOM_DISPLAY.get(raw_room, raw_room or '\u2014')
-            if getattr(cat, 'status', '') == 'Adventure':
-                loc_text = 'Adv.'
-            loc_item = QTableWidgetItem(loc_text)
-            loc_item.setTextAlignment(Qt.AlignCenter)
-            self._table.setItem(row, _COL_LOC, loc_item)
+            # Room
+            room_display = ROOM_DISPLAY.get(cat.room, cat.room or '\u2014')
+            room_item = QTableWidgetItem(room_display)
+            room_item.setTextAlignment(Qt.AlignCenter)
+            self._table.setItem(row, _COL_LOC, room_item)
 
             # Stat columns
             for si, sn in enumerate(_STAT_NAMES):
