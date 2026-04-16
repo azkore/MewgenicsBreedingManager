@@ -7,7 +7,7 @@ _src_dir = os.path.join(_proj_root, "src")
 sys.path.insert(0, _src_dir)
 sys.path.insert(0, _proj_root)
 
-from mewgenics_manager import _donation_candidate_base_reason, _is_donation_candidate
+from mewgenics.utils.cat_analysis import _donation_candidate_base_reason, _is_donation_candidate
 
 
 def _make_cat(*, disorders=None, base_stats=None, aggression=0.2, must_breed=False):

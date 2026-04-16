@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import logging
 from dataclasses import dataclass
 from typing import Optional, Sequence
@@ -57,6 +58,7 @@ class PairFactors:
     lover_bonus: float
     quality: float
     stat_priority_bonus: float = 0.0
+    game_compat: float = 0.0
 
 
 def pair_key(a: Cat, b: Cat) -> tuple[int, int]:
@@ -141,6 +143,132 @@ def personality_score(cats: list[Cat], prefer_low_aggression: bool, prefer_high_
     if prefer_high_libido:
         score += sum(trait_or_default(c.libido) for c in cats) / n
     return score
+
+
+# ---------------------------------------------------------------------------
+# Game compatibility formula
+# ---------------------------------------------------------------------------
+
+def _sexuality_mult(cat: Cat, same_sex: bool) -> float:
+    """Compute the sexuality multiplier for one cat in a pairing.
+
+    Uses the raw sexuality coefficient (0=straight, 0.5=bi, 1=gay):
+      - Opposite-sex: cos(0.5 * pi * coeff)
+      - Same-sex:     sin(0.5 * pi * coeff)
+    """
+    coeff = getattr(cat, "sexuality_raw", None)
+    if coeff is None:
+        coeff = {"straight": 0.05, "bi": 0.5, "gay": 0.95}.get(
+            getattr(cat, "sexuality", "straight"), 0.05
+        )
+    coeff = max(0.0, min(1.0, float(coeff)))
+    half_pi = 0.5 * math.pi
+    return math.sin(half_pi * coeff) if same_sex else math.cos(half_pi * coeff)
+
+
+def game_compatibility(a: Cat, b: Cat, comfort: float = 0.0) -> float:
+    """Estimate the game's compatibility score for a pair.
+
+    Formula: 0.15 * father_charisma * mother_libido * lover_mult * sexuality_mult
+    The game picks father/mother roles at pairing time; we compute for both
+    role assignments and return the higher one (the game shuffles randomly,
+    but both orderings are attempted across breeding rounds).
+
+    Returns a value in [0, ~inf).  The game rejects pairs with compat < 0.05.
+    """
+    ga = (getattr(a, "gender", "?") or "?").strip().lower()
+    gb = (getattr(b, "gender", "?") or "?").strip().lower()
+
+    # ? gender cats: sexuality multiplier is 1.0 (no effect)
+    if ga == "?" or gb == "?":
+        same_sex = False  # neutral, sexuality_mult = 1.0 for ? cats
+        sex_mult_a = 1.0 if ga == "?" else _sexuality_mult(a, same_sex)
+        sex_mult_b = 1.0 if gb == "?" else _sexuality_mult(b, same_sex)
+    else:
+        same_sex = ga == gb
+        sex_mult_a = _sexuality_mult(a, same_sex)
+        sex_mult_b = _sexuality_mult(b, same_sex)
+
+    # Lover multiplier: default lover_coeff = 0.25
+    # If no lover: lover_mult = 1
+    # If partner IS lover: lover_mult = 1 + lover_coeff
+    # If partner is NOT lover: lover_mult = 1 - lover_coeff
+    # We don't have lover_coeff in the save, so approximate:
+    #   mutual lovers → 1.25, has lover but not this partner → 0.75, no lover → 1.0
+    def _lover_mult(mother: Cat, father: Cat) -> float:
+        lovers = getattr(mother, "lovers", [])
+        if not lovers:
+            return 1.0
+        if father in lovers:
+            return 1.25  # default lover_coeff
+        return 0.75  # penalised
+
+    def _compat(father: Cat, mother: Cat) -> float:
+        cha = father.total_stats.get("CHA", 1)
+        lib = trait_or_default(mother.libido)
+        lm = _lover_mult(mother, father)
+        sm = sex_mult_a if father is a else sex_mult_b
+        sm_other = sex_mult_b if father is a else sex_mult_a
+        # The game multiplies sexuality_mult from the mother's perspective
+        return 0.15 * cha * lib * lm * sm_other
+
+    c1 = _compat(a, b)  # a as father, b as mother
+    c2 = _compat(b, a)  # b as father, a as mother
+    return max(c1, c2)
+
+
+def breeding_success_chance(compat: float, comfort: float = 0.0) -> float:
+    """Probability that a breeding attempt succeeds (both rolls pass).
+
+    Each roll passes with probability: compat * sqrt(1 + 0.1 * comfort)
+    Both rolls: compat^2 * (1 + 0.1 * comfort)
+    Auto-fail when comfort < -10.
+    """
+    if comfort < -10:
+        return 0.0
+    per_roll = compat * math.sqrt(max(0.0, 1.0 + 0.1 * comfort))
+    per_roll = max(0.0, min(1.0, per_roll))
+    return per_roll * per_roll
+
+
+# ---------------------------------------------------------------------------
+# Ability / passive / disorder inheritance chances
+# ---------------------------------------------------------------------------
+
+def ability_inheritance_chances(stimulation: float) -> dict[str, float]:
+    """Return inheritance probabilities based on stimulation.
+
+    Keys: first_active, second_active, passive
+    Values: probability [0, 1]
+    """
+    stim = float(stimulation)
+    return {
+        "first_active": min(1.0, max(0.0, 0.20 + 0.025 * stim)),
+        "second_active": min(1.0, max(0.0, 0.02 + 0.005 * stim)),
+        "passive": min(1.0, max(0.0, 0.05 + 0.01 * stim)),
+    }
+
+
+def disorder_inheritance_chances(a: Cat, b: Cat) -> dict[str, object]:
+    """Return disorder inheritance info for a pair.
+
+    Each parent independently has a 15% chance of passing one random disorder.
+    Returns dict with parent disorders and combined probabilities.
+    """
+    disorders_a = getattr(a, "disorders", None) or []
+    disorders_b = getattr(b, "disorders", None) or []
+    # Chance of inheriting at least one disorder from parents
+    chance_from_a = 0.15 if disorders_a else 0.0
+    chance_from_b = 0.15 if disorders_b else 0.0
+    chance_none = (1.0 - chance_from_a) * (1.0 - chance_from_b)
+    chance_any = 1.0 - chance_none
+    return {
+        "disorders_a": disorders_a,
+        "disorders_b": disorders_b,
+        "chance_from_a": chance_from_a,
+        "chance_from_b": chance_from_b,
+        "chance_any": chance_any,
+    }
 
 
 def is_direct_family_pair(a: Cat, b: Cat, parent_key_map: dict[int, set[int]]) -> bool:
@@ -272,10 +400,13 @@ def evaluate_pair(
     cache=None,
     parent_key_map: Optional[dict[int, set[int]]] = None,
     pair_eval_cache: Optional[dict] = None,
-) -> tuple[bool, str, float]:
+    compat_threshold: float = 0.05,
+) -> tuple[bool, str, float, float]:
     """
-    Unified pair evaluation. Returns (can_breed, reason, risk_pct).
+    Unified pair evaluation. Returns (can_breed, reason, risk_pct, game_compat).
 
+    game_compat is the game's compatibility score; pairs below compat_threshold
+    are rejected early (before the expensive COI calculation).
     Pass parent_key_map to enable direct-family checking.
     """
     if pair_eval_cache is not None:
@@ -285,6 +416,11 @@ def evaluate_pair(
             return cached
 
     ok, reason = can_breed(a, b)
+
+    # Cheap compatibility check — reject before expensive COI/risk calc
+    compat = game_compatibility(a, b) if ok else 0.0
+    if ok and compat < compat_threshold:
+        ok, reason = False, f"Very low compatibility ({compat:.3f})"
 
     if ok and parent_key_map is not None and is_direct_family_pair(a, b, parent_key_map):
         ok, reason = False, "Direct family pair"
@@ -307,7 +443,7 @@ def evaluate_pair(
     else:
         risk = 0.0
 
-    result = (ok, reason, risk)
+    result = (ok, reason, risk, compat)
     if pair_eval_cache is not None:
         pair_eval_cache[pair_key(a, b)] = result
     return result
@@ -337,7 +473,7 @@ def score_pair(
     lover_key_map = lover_key_map or {}
     planner_traits = planner_traits or ()
 
-    compatible, reason, risk = evaluate_pair(
+    compatible, reason, risk, compat = evaluate_pair(
         a,
         b,
         hater_key_map=hater_key_map,
@@ -380,6 +516,10 @@ def score_pair(
         quality = (projection.avg_expected + complementarity_bonus) * (1.0 - risk / 200.0)
         quality -= variance_penalty
         quality += personality_bonus + trait_bonus + stat_priority_bonus
+        # Scale by compatibility — pairs less likely to breed in-game score lower
+        if compat > 0:
+            compat_factor = min(1.0, compat / 0.40)  # full credit at compat >= 0.40
+            quality *= (0.5 + 0.5 * compat_factor)   # floor at 50% for low-compat pairs
         if getattr(a, "must_breed", False) or getattr(b, "must_breed", False):
             quality += must_breed_bonus
             must_breed_total = must_breed_bonus
@@ -402,4 +542,5 @@ def score_pair(
         must_breed_bonus=must_breed_total,
         lover_bonus=lover_total,
         quality=quality,
+        game_compat=compat,
     )

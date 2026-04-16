@@ -2,13 +2,13 @@
 from typing import Optional
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QScrollArea,
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QScrollArea,
     QGridLayout, QPushButton, QSpinBox, QSizePolicy,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
     QDialog, QToolButton, QMenu,
 )
 from PySide6.QtCore import Qt, Signal, QTimer, QItemSelectionModel
-from PySide6.QtGui import QColor, QBrush, QFont, QPixmap
+from PySide6.QtGui import QColor, QBrush, QFont, QFontMetrics, QPixmap
 
 from save_parser import (
     Cat, STAT_NAMES,
@@ -18,7 +18,11 @@ from save_parser import (
     _inheritance_candidates,
     _malady_breakdown,
 )
-from breeding import pair_projection, score_pair as score_pair_factors
+from breeding import (
+    pair_projection, score_pair as score_pair_factors,
+    game_compatibility, breeding_success_chance,
+    ability_inheritance_chances, disorder_inheritance_chances,
+)
 from mewgenics.constants import (
     STAT_COLORS, PAIR_COLORS,
     COL_BL, COL_MB,
@@ -30,7 +34,7 @@ from mewgenics.utils.config import _load_app_config, _save_app_config
 from mewgenics.utils.cat_analysis import _cat_base_sum, _pair_breakpoint_analysis
 from mewgenics.utils.calibration import _trait_label_from_value, _trait_level_color
 from mewgenics.utils.abilities import (
-    _mutation_display_name, _ability_tip,
+    _mutation_display_name, _ability_tip, _ability_upgraded_tip, _strip_tier,
     _ability_effect_lines, _mutation_effect_lines,
     _mutation_effect_components,
     _trait_inheritance_probabilities,
@@ -42,7 +46,7 @@ from mewgenics.utils.ability_icons import (
 from mewgenics.utils.game_data import _GPAK_PATH
 from mewgenics.utils.tags import _game_tag_color, _game_tag_tooltip
 from mewgenics.utils.styling import (
-    _chip, _defect_chip, _sec, _vsep, _hsep,
+    _chip, _upgraded_chip, _defect_chip, _sec, _vsep, _hsep,
     _detail_text_block, _enforce_min_font_in_widget_tree,
 )
 
@@ -59,70 +63,113 @@ def _wrapped_chip_block(items, tooltip_fn=None, display_fn=None, max_per_row: in
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(5)
         for item in items[start:start + max_per_row]:
-            if isinstance(item, tuple):
+            is_upgraded = False
+            if isinstance(item, tuple) and len(item) == 3:
+                text, tip, is_upgraded = item
+                tip = tip or (tooltip_fn(text) if tooltip_fn else "")
+            elif isinstance(item, tuple):
                 text, tip = item
                 tip = tip or (tooltip_fn(text) if tooltip_fn else "")
             else:
                 text = display_fn(item) if display_fn else item
                 tip = tooltip_fn(item) if tooltip_fn else ""
-            row.addWidget(_chip(text, tip))
+            chip = _upgraded_chip(text, tip) if is_upgraded else _chip(text, tip)
+            row.addWidget(chip)
         row.addStretch()
         layout.addLayout(row)
     return box
 
 
 class ChipRow(QWidget):
-    def __init__(self, items, tooltip_fn=None, display_fn=None, icon_fn=None, defect: bool = False, icon_size: int = 16):
+    # Icon-bearing chips render the icon stacked ABOVE the text, with the
+    # icon sized to match the label's width (with a sane minimum). Previously
+    # we clamped to 48px which made long labels like "BasicMelee" render
+    # with the icon noticeably narrower than the text.
+    _STACKED_ICON_MIN = 48
+
+    def __init__(self, items, tooltip_fn=None, display_fn=None, icon_fn=None, defect: bool = False, icon_size: int | None = None):
         super().__init__()
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(5)
+        row.setSpacing(8)
+
+        text_font = QFont()
+        text_font.setPixelSize(11)
+        metrics = QFontMetrics(text_font)
+
+        # Pre-compute a uniform icon size: the widest label wins, then
+        # every chip uses the same square so they all line up.
+        resolved: list[tuple[str, str, bool]] = []  # (text, tip, is_upgraded)
         for item in items:
-            if isinstance(item, tuple):
+            is_upgraded = False
+            if isinstance(item, tuple) and len(item) == 3:
+                text, tip, is_upgraded = item
+                tip = tip or (tooltip_fn(text) if tooltip_fn else "")
+            elif isinstance(item, tuple):
                 text, tip = item
                 tip = tip or (tooltip_fn(text) if tooltip_fn else "")
             else:
                 text = display_fn(item) if display_fn else item
                 tip = tooltip_fn(item) if tooltip_fn else ""
+            resolved.append((str(text), tip, bool(is_upgraded)))
+        uniform_size = self._STACKED_ICON_MIN
+        for text, _, _u in resolved:
+            uniform_size = max(uniform_size, metrics.horizontalAdvance(text))
+
+        for idx, item in enumerate(items):
+            text, tip, is_upgraded = resolved[idx]
+
             pixmap = None
             if icon_fn is not None:
                 try:
-                    pixmap = icon_fn(item if not isinstance(item, tuple) else item[0], icon_size)
+                    pixmap = icon_fn(item if not isinstance(item, tuple) else item[0], uniform_size)
                 except Exception:
                     pixmap = None
+
             if pixmap is not None and not pixmap.isNull():
                 chip = QFrame()
                 chip.setObjectName("abilityChip")
                 chip.setStyleSheet(
                     "QFrame#abilityChip { background:#252545; color:#ccc; border-radius:6px;"
-                    " padding:2px 7px; font-size:11px; }"
+                    " padding:4px 7px; font-size:11px; }"
                     if not defect else
                     "QFrame#abilityChip { background:#3a1a1a; color:#e0a0a0; border-radius:6px;"
-                    " padding:2px 7px; font-size:11px; }"
+                    " padding:4px 7px; font-size:11px; }"
                 )
-                chip_row = QHBoxLayout(chip)
-                chip_row.setContentsMargins(0, 0, 0, 0)
-                chip_row.setSpacing(4)
+                chip_col = QVBoxLayout(chip)
+                chip_col.setContentsMargins(0, 0, 0, 0)
+                chip_col.setSpacing(2)
                 icon_lbl = QLabel()
-                icon_lbl.setPixmap(pixmap)
-                icon_lbl.setFixedSize(icon_size, icon_size)
+                _dpr = getattr(QApplication.instance(), "devicePixelRatio", lambda: 1.0)()
+                _phys = int(uniform_size * _dpr)
+                _scaled = pixmap.scaled(_phys, _phys, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                _scaled.setDevicePixelRatio(_dpr)
+                icon_lbl.setPixmap(_scaled)
+                icon_lbl.setFixedSize(uniform_size, uniform_size)
+                icon_lbl.setAlignment(Qt.AlignCenter)
                 icon_lbl.setStyleSheet("background:transparent;")
                 text_lbl = QLabel(text)
+                text_lbl.setAlignment(Qt.AlignCenter)
+                text_lbl.setFixedWidth(uniform_size)
                 text_lbl.setStyleSheet(
                     "background:transparent; color:#ccc; font-size:11px;"
                     if not defect else
                     "background:transparent; color:#e0a0a0; font-size:11px;"
                 )
-                chip_row.addWidget(icon_lbl)
-                chip_row.addWidget(text_lbl)
-                chip_row.addStretch()
+                chip_col.addWidget(icon_lbl, 0, Qt.AlignHCenter)
+                chip_col.addWidget(text_lbl, 0, Qt.AlignHCenter)
                 if tip:
                     chip.setToolTip(tip)
                     icon_lbl.setToolTip(tip)
                     text_lbl.setToolTip(tip)
-                row.addWidget(chip)
+                row.addWidget(chip, 0, Qt.AlignTop)
             else:
-                row.addWidget(_defect_chip(text, tip) if defect else _chip(text, tip))
+                if defect:
+                    row.addWidget(_defect_chip(text, tip), 0, Qt.AlignTop)
+                elif is_upgraded:
+                    row.addWidget(_upgraded_chip(text, tip), 0, Qt.AlignTop)
+                else:
+                    row.addWidget(_chip(text, tip), 0, Qt.AlignTop)
         row.addStretch()
 
 
@@ -508,16 +555,27 @@ class CatDetailPanel(QWidget):
         if cat.abilities or cat.passive_abilities or cat.disorders:
             root.addWidget(_vsep())
             ab = QVBoxLayout(); ab.setSpacing(4)
+            passive_tiers = getattr(cat, "passive_tiers", {})
             ab.addWidget(_sec("ABILITIES"))
-            ab.addWidget(ChipRow(cat.abilities, tooltip_fn=_ability_tip, icon_fn=_ability_icon_pixmap))
+            ability_items = [
+                (base if tier == 1 else f"{base}+",
+                 _ability_upgraded_tip(name),
+                 tier > 1)
+                for name in cat.abilities
+                for base, tier in [_strip_tier(name)]
+            ]
+            ab.addWidget(ChipRow(ability_items, icon_fn=_ability_icon_pixmap))
             if cat.passive_abilities:
                 ab.addWidget(_sec("PASSIVE"))
-                ab.addWidget(ChipRow(
-                    cat.passive_abilities,
-                    tooltip_fn=_ability_tip,
-                    display_fn=lambda n: f"● {_mutation_display_name(n)}",
-                    icon_fn=_passive_icon_pixmap,
-                ))
+                passive_items = [
+                    (f"● {_mutation_display_name(name)}" if tier == 1
+                     else f"● {_mutation_display_name(name)}+",
+                     _ability_upgraded_tip(name, passive_tier=tier),
+                     tier > 1)
+                    for name in cat.passive_abilities
+                    for tier in [passive_tiers.get(name, 1)]
+                ]
+                ab.addWidget(ChipRow(passive_items, icon_fn=_passive_icon_pixmap))
             if cat.disorders:
                 ab.addWidget(_sec("DISORDERS"))
                 ab.addWidget(ChipRow(
@@ -652,8 +710,8 @@ class CatDetailPanel(QWidget):
         stim_lbl.setStyleSheet(_META_STYLE)
         hdr.addWidget(stim_lbl)
         stim_box = QSpinBox()
-        stim_box.setRange(0, 100)
-        stim_box.setValue(max(0, min(100, int(self._pair_stimulation))))
+        stim_box.setRange(-100, 200)
+        stim_box.setValue(max(-100, min(200, int(self._pair_stimulation))))
         stim_box.setFixedWidth(64)
         stim_box.setStyleSheet(
             "QSpinBox { background:#0d0d1c; color:#ccc; border:1px solid #2a2a4a;"
@@ -833,13 +891,23 @@ class CatDetailPanel(QWidget):
         for cat in (a, b):
             if cat.abilities or cat.passive_abilities or cat.disorders:
                 ab_col.addWidget(QLabel(f"{cat.name}:", styleSheet="color:#555; font-size:10px;"))
-                ability_items = [(ab, _ability_tip(ab)) for ab in cat.abilities]
+                _pt = getattr(cat, "passive_tiers", {})
+                ability_items = [
+                    (base if tier == 1 else f"{base}+",
+                     _ability_upgraded_tip(ab),
+                     tier > 1)
+                    for ab in cat.abilities
+                    for base, tier in [_strip_tier(ab)]
+                ]
                 ability_items.extend(
-                    (f"● {_mutation_display_name(pa)}", _ability_tip(pa))
+                    (f"● {_mutation_display_name(pa)}" if _pt.get(pa, 1) == 1
+                     else f"● {_mutation_display_name(pa)}+",
+                     _ability_upgraded_tip(pa, passive_tier=_pt.get(pa, 1)),
+                     _pt.get(pa, 1) > 1)
                     for pa in cat.passive_abilities
                 )
                 ability_items.extend(
-                    (f"⚠ {_mutation_display_name(d)}", _ability_tip(d))
+                    (f"⚠ {_mutation_display_name(d)}", _ability_tip(d), False)
                     for d in cat.disorders
                 )
                 ab_col.addWidget(_wrapped_chip_block(ability_items, max_per_row=4))
@@ -892,14 +960,26 @@ class CatDetailPanel(QWidget):
         inh_note.setWordWrap(True)
         inh.addWidget(inh_note)
 
-        active_label = QLabel("Active spell candidates", styleSheet="color:#555; font-size:10px;")
+        # ── Ability inheritance chances ──
+        ab_chances = ability_inheritance_chances(stim)
+        active_pct = ab_chances["first_active"] * 100
+        active2_pct = ab_chances["second_active"] * 100
+        passive_pct = ab_chances["passive"] * 100
+
+        active_label = QLabel(
+            f"Active spell candidates  ({active_pct:.0f}% first, {active2_pct:.0f}% second)",
+            styleSheet="color:#555; font-size:10px;",
+        )
         inh.addWidget(active_label)
         if active_candidates:
             inh.addWidget(_wrapped_chip_block(active_candidates, max_per_row=5))
         else:
             inh.addWidget(QLabel("No active ability candidates.", styleSheet=_META_STYLE))
 
-        passive_label = QLabel("Passive candidates", styleSheet="color:#555; font-size:10px;")
+        passive_label = QLabel(
+            f"Passive candidates  ({passive_pct:.0f}% chance)",
+            styleSheet="color:#555; font-size:10px;",
+        )
         inh.addWidget(passive_label)
         if passive_candidates:
             inh.addWidget(_wrapped_chip_block(passive_candidates, max_per_row=4))
@@ -918,6 +998,47 @@ class CatDetailPanel(QWidget):
                 tip_text = f"[{cat_label}] {detail}\n{_ability_tip(display)}" if _ability_tip(display) else f"[{cat_label}] {detail}"
                 prob_chips.append((chip_text, tip_text))
             inh.addWidget(_wrapped_chip_block(prob_chips, max_per_row=5))
+
+        # ── Compatibility estimate ──
+        compat = game_compatibility(a, b)
+        compat_row = QHBoxLayout()
+        compat_row.setSpacing(8)
+        compat_row.addWidget(QLabel("Compatibility:", styleSheet="color:#555; font-size:10px;"))
+        compat_val = f"{compat:.2f}"
+        if compat < 0.05:
+            compat_bg = "#6a2a2a"
+            compat_note = "will not breed"
+        elif compat < 0.15:
+            compat_bg = "#5a4a2a"
+            compat_note = "low"
+        elif compat < 0.40:
+            compat_bg = "#3a3a2a"
+            compat_note = "moderate"
+        else:
+            compat_bg = "#2a3a2a"
+            compat_note = "high"
+        compat_chip = _chip(f"{compat_val} ({compat_note})")
+        compat_chip.setStyleSheet(
+            f"QLabel {{ background:{compat_bg}; color:#ddd; border-radius:6px;"
+            f" padding:2px 7px; font-size:11px; }}")
+        compat_row.addWidget(compat_chip)
+        success = breeding_success_chance(compat)
+        if success > 0:
+            success_chip = _chip(f"~{success*100:.1f}% success/attempt")
+            success_chip.setStyleSheet(
+                "QLabel { background:#1a2a3a; color:#8ab; border-radius:6px;"
+                " padding:2px 7px; font-size:11px; }")
+            compat_row.addWidget(success_chip)
+        compat_tip = QLabel("(?)")
+        compat_tip.setStyleSheet("color:#555; font-size:10px;")
+        compat_tip.setToolTip(
+            "Game formula: 0.15 × CHA × Libido × Lover × Sexuality\n"
+            "Pairs below 0.05 are rejected by the game.\n"
+            "Success chance = compat² × (1 + 0.1 × comfort)"
+        )
+        compat_row.addWidget(compat_tip)
+        compat_row.addStretch()
+        inh.addLayout(compat_row)
 
         # ── Risk breakdown ──
         coi = kinship_coi(a, b)
@@ -939,15 +1060,34 @@ class CatDetailPanel(QWidget):
                 f" padding:2px 7px; font-size:11px; }}")
             return c
 
-        risk_row.addWidget(_risk_chip(f"Disorder {disorder_ch*100:.1f}%", disorder_ch))
+        risk_row.addWidget(_risk_chip(f"Inbred disorder {disorder_ch*100:.1f}%", disorder_ch))
         risk_row.addWidget(_risk_chip(f"Part defect {part_defect_ch*100:.1f}%", part_defect_ch))
         risk_row.addWidget(_risk_chip(f"Combined {combined_ch*100:.1f}%", combined_ch))
+
+        # ── Disorder inheritance from parents ──
+        dis_info = disorder_inheritance_chances(a, b)
+        if dis_info["chance_any"] > 0:
+            dis_chips: list[str] = []
+            if dis_info["disorders_a"]:
+                dis_chips.append(f"15% from {a.name} ({', '.join(dis_info['disorders_a'])})")
+            if dis_info["disorders_b"]:
+                dis_chips.append(f"15% from {b.name} ({', '.join(dis_info['disorders_b'])})")
+            risk_row.addWidget(QLabel("|", styleSheet="color:#333; font-size:10px;"))
+            for dt in dis_chips:
+                dc = _chip(dt)
+                dc.setStyleSheet(
+                    "QLabel { background:#4a3a2a; color:#dda; border-radius:6px;"
+                    " padding:2px 7px; font-size:11px; }")
+                risk_row.addWidget(dc)
+
         disorder_tip = QLabel("(?)")
         disorder_tip.setStyleSheet("color:#555; font-size:10px;")
-        disorder_tip.setToolTip(_tr(
-            "cat_detail.disorder_risk.tooltip",
-            default="Disorder: base 2%, scales above 0.20 CoI\nPart defect: 0 below 0.05 CoI, then 1.5x CoI\nCombined: chance of at least one occurring",
-        ))
+        disorder_tip.setToolTip(
+            "Inbred disorder: base 2%, scales above 0.20 CoI\n"
+            "Part defect: 0 below 0.05 CoI, then 1.5× CoI\n"
+            "Combined: chance of at least one inbred issue\n"
+            "Parent disorders: 15% chance from each parent independently"
+        )
         risk_row.addWidget(disorder_tip)
         risk_row.addStretch()
         inh.addLayout(risk_row)
@@ -1164,9 +1304,13 @@ class LineageDialog(QDialog):
         # ── Generation label ─────────────────────────────────────────────
         def gen_row_label(text):
             lbl = QLabel(text)
+            # letter-spacing is not a Qt QSS property — apply via QFont.
             lbl.setStyleSheet(
-                "color:#333; font-size:9px; font-weight:bold; letter-spacing:1px;"
+                "color:#333; font-size:9px; font-weight:bold;"
                 " min-width:90px;")
+            f = lbl.font()
+            f.setLetterSpacing(QFont.AbsoluteSpacing, 1.0)
+            lbl.setFont(f)
             lbl.setAlignment(Qt.AlignVCenter | Qt.AlignRight)
             return lbl
 

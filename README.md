@@ -1,8 +1,8 @@
 # Mewgenics Breeding Manager
 
-A high-performance, Python-based tool for optimizing breeding operations in Mewgenics. It extracts data directly from your save files and helps you compare pairings, optimize room layouts, and plan long-term lines to maximize strong offspring while minimizing inbreeding risk.
+A Python desktop tool for managing your Mewgenics cats. Reads your save file directly, scores every cat for breeding priority, optimizes room layouts, and helps plan multi-generation lines — all while tracking lineage, inbreeding risk, and trait inheritance.
 
-Current release: `v5.4.0`
+Current release: `v5.7.1`
 
 If you'd like to support the project, you can [here](https://ko-fi.com/frankieg33).
 
@@ -20,18 +20,46 @@ If you'd like to support the project, you can [here](https://ko-fi.com/frankieg3
 
 ![Perfect 7 Planner](Sceenshots/Perfect%207%20Planner.png)
 
-## Core Features
+## Features
 
-- Load your save file and keep your full roster, lineage, and relationships in one place
-- Compare pairings with inheritance odds, expected offspring stats, and risk
-- Optimize room layouts with movement-aware scoring
-- Plan long-term perfect-stat lines with the Perfect 7 planner
-- Read ability and mutation text from `resources.gpak` when available
-- Cat sprite rendering with DefinedShape extraction from GPAK
+### Cat Sorting
+
+Two views for evaluating which cats to keep, breed, or cull:
+
+- **Automatic Scoring** — assigns a breed priority score to every cat based on configurable weights: stat rarity, genetic safety, trait ratings, personality, age, and relationships. Includes heatmap mode, scope filtering by room, and 5 independent profiles for different strategies.
+- **Manual Scoring** — assign point values to individual stats, mutations, and traits, then sort by total. Great for targeted goals like "high STR melee cats" or "collect all rare mutations."
+- Shared trait rating profiles — rate abilities as Top Priority, Desirable, or Undesirable. Ratings sync between both scoring views.
+
+### Breeding & Genetics
+
+- Compare any pair with inheritance odds, expected offspring stats, and inbreeding risk
+- Full ancestry tracking — generation depth, shared ancestors, coefficient of inbreeding
+- Mating Pair Search finds safe breeding partners with compatibility scoring
+- Breeding Partners grid shows all pair combinations at a glance
+
+### Room Optimizer
+
+- Assigns cats to rooms to maximize breeding outcomes
+- Movement-aware scoring accounts for relocation cost
+- Configurable room capacity, type (breeding/fallback/general), and stimulation
+- Avoids trait loss from high-Evolution or high-Health rooms
+- Routes kittens to fallback rooms until they're old enough to breed
+
+### Perfect 7 Planner
+
+- Plans multi-generation lines toward all-7 stat cats
+- Simulated annealing solver finds optimal breeding chains
+- Foundation pair selection with depth control
+
+### Other Tools
+
+- Family Tree browser with in-game cat sprite rendering
+- Mutation & Disorder Planner for targeting specific traits
+- Furniture Viewer showing per-room stat effects
+- Live save file watching — auto-refreshes when the game saves
+- Ability and mutation descriptions from `resources.gpak`
 
 ## Install
-
-This project uses `pip` and `requirements.txt`.
 
 ```bash
 git clone https://github.com/frankieg33/MewgenicsBreedingManager
@@ -40,19 +68,25 @@ pip install -r requirements.txt
 python src/mewgenics_manager.py
 ```
 
-The app will automatically look for `resources.gpak` in common Steam install paths, the app's configured save root, or in the current working directory.
+On Windows you can also run `run.bat` which auto-installs dependencies on first run.
+
+The app looks for `resources.gpak` in common Steam paths, the configured save root, and the working directory. If it can't find it, you'll be prompted to browse for it.
 
 ## Build
 
 ```bash
+# Windows
 build.bat
+
+# Linux
+build.sh
 ```
 
-On Linux, use `build.sh`.
+Produces a standalone executable via PyInstaller.
 
 ## Requirements
 
-- Python 3.14
+- Python 3.14+
 - PySide6
 - lz4
 - openpyxl
@@ -67,50 +101,67 @@ On Linux, use `build.sh`.
 
 ## Release Notes
 
-### v5.4.0
+### v5.7.1
 
-- Improved tooltip coverage across all views with full localization support
-- Updated onboarding tutorial with cat sprite rendering and shape extraction info
-- Updated What's New dialog for v5.4.0 release content
-- Added new locale keys for tooltips and dialogs across all 4 languages (en, zh_CN, ru, pl)
-- Added tests for shape extraction, localization, configuration, and dialog modules
-- Wrapped hardcoded tooltips in `_tr()` across breeding partners, calibration, family tree, room priority, furniture, safe breeding, and cat detail views
+Stability release. Fixes the ~10% crash reported against v5.4.8 that also affected v5.7.0, in which the application would crash when the game wrote to its save while the manager was open (a day passing, a new cat being added, breeding, etc.).
 
-### v5.3.1
+- Closed four independent race / exception gaps in the auto-refresh path:
+  - `SaveLoadWorker.run()` now catches every exception and emits a `failed` signal instead of letting the QThread die silently (which had stranded the loading overlay and the `_save_load_worker` reference forever)
+  - `QuickRoomRefreshWorker` carries a *generation token*; `MainWindow._on_room_patch` drops stale signals from superseded workers and wraps the body in a try/except that falls back to a reload instead of aborting the event loop
+  - `load_save` / cache cleanup no longer call `QThread.terminate()` on in-flight workers (the textbook crash recipe while the thread was mid-SQLite / mid-parse) — superseded workers are discarded by identity check in their finished slots and allowed to finish naturally
+  - `QFileSystemWatcher` bursts are debounced with a 250 ms single-shot timer so simultaneous writes from the game collapse into one refresh
+- New `retry_transient` helper retries only genuinely transient I/O errors (`sqlite3.OperationalError`, `sqlite3.DatabaseError`, `OSError`, `EOFError`) from the partial-write window; real bugs propagate immediately instead of wasting ~350 ms re-running a doomed parse
+- `_on_save_load_failed` only schedules a self-heal retry for transient errors, capped at 3 consecutive attempts so a permanently-broken save cannot spin a busy loop
 
-- Added automatic DefinedShape extraction from `resources.gpak` for cat sprite rendering
-- Bundled `DefinedShapes.zip` (16.5 MB) so cloners can render cat sprites without the game installed
-- Startup extraction chain: cached PNGs (instant) -> ZIP (~3 s) -> GPAK (~25 s)
-- Replaced `.rar` distribution with `.zip` for cross-platform compatibility
-- New module: `utils/shape_extractor.py` — SWF shape parsing and Qt-based rendering
+16 regression tests cover each fix in isolation.
 
-### v5.2.0
+### v5.7.0
 
-- Added class-specific mutation trees for `Best Pairs`, `Melee`, `Ranged`, and `Magic`, with per-room mode scoring in the room optimizer
-- Moved class stat-priority editing into the room distributor with dedicated class stats controls and recommended reset actions
-- Updated mutation-planner trait visibility with clearer effects, softer wanted/avoid coloring, and cleaner mutation descriptions
-- Kept Perfect 7 Planner tied to `Best Pairs` mutations only so its imports stay predictable
-- Refined persistence, migration, and UI coverage for the new mutation-class workflow
+- New **Automatic Scoring** view — ranks every cat with a breed priority score based on stat rarity (7rare), genetic safety risk, trait ratings, personality (libido, aggression, sexuality), age, love/hate relationships, and stat sum percentile. Configurable weights, heatmap mode, scope filtering by room, and 5 independent profiles
+- New **Trait Ratings** system — rate abilities and mutations as Top Priority, Desirable, Neutral, or Undesirable. Ratings are shared between Automatic and Manual Scoring views via 5-slot profiles with JSON persistence
+- Manual Scoring profile dropdown — switch between trait rating profiles directly from the Manual Scoring config panel
+- Stats Overview dialog — popup showing stat distribution across all cats
+- Background scoring thread — heavy computation runs off the main thread so the UI stays responsive
+- Pre-computed scope data — eliminates redundant O(N*S) per-cat work for stat counts, trait counts, and scope stats
+- Lazy view computation — Automatic Scoring only computes when the view is visible; scores are cached until cat data changes
+- Startup splash screen with progress indicator during shape extraction and save loading
+- Comprehensive tooltips for all Automatic Scoring weights, options, display modes, and score columns
+- Updated onboarding tutorial with Cat Sorting walkthrough (Automatic and Manual Scoring)
 
-### v5.0.0
+### v5.6.2
 
-- Full codebase refactoring: split monolithic `mewgenics_manager.py` (~19k lines) into a structured `mewgenics/` package
-- New package layout: `utils/`, `models/`, `workers/`, `views/`, `panels/`, `dialogs` — 30+ focused modules
-- Entry point (`mewgenics_manager.py`) is now a thin wrapper for backwards compatibility
-- No feature changes or behavior differences — pure structural refactor
-- Updated PyInstaller spec with all new submodule imports
+- Tier-2 ability support — upgraded passive abilities parsed from save, shown with "+" suffix and green-tinted chips (cherry-picked from byronaltice fork)
+- GPAK ability descriptions preferred over hardcoded lookup; multi-language text extraction with BOM-aware decoding
+- Generic mutation disambiguation — mutations with identical names now append their stat description
+- Tooltip detail deduplication when detail already appears in display name
+- Eager view loading — all views build at startup and receive cat data immediately, eliminating tab-switch freezes
 
-### v4.4.1
+### v5.6.0
 
-- Follow-up release for the same planner, optimizer, localization, and test updates shipped in `v4.4.0`
-- Keeps the shared optimizer search settings, deeper room optimizer controls, breeding partner improvements, and planner persistence updates in sync with the latest release line
+- Game-accurate compatibility formula (`0.15 * CHA * libido * lover_mult * sexuality_mult`) displayed as a color-coded chip with per-attempt success % in the pair detail panel
+- Ability inheritance chances (stimulation-based: first active, second active, passive) shown inline with candidate labels
+- Disorder inheritance (15% per parent + inbred disorder roll based on COI) shown as chips in the risk row
+- Compatibility integrated into optimizer pipeline — pairs below 5% are rejected early (performance win), quality scores scale with compatibility factor
+- Stimulation inheritance weight unclamped to allow negative values per wiki mechanics
+- Soft warnings instead of hard blocks for edge-case sexuality pairings; only hard-blocks when both cats have near-zero compatibility
+- ? gender cats bypass sexuality scoring entirely (issue #75)
+- Manual Scoring: added disorder selectors, cross-cat mutation disambiguation, QCheckBox state fix, filter buttons, undesired mutation persistence fix
 
-### v4.4.0
+### v5.5.0
 
-- Added shared optimizer search settings so the room optimizer and Perfect 7 planner use the same simulated annealing controls
-- Expanded the room optimizer with deeper search options, clearer setup/configuration tabs, and improved room-related tooltips
-- Improved the breeding partners view to distinguish mutual and one-way love links
-- Refined the mutation planner so cats are shown alongside selected traits instead of being buried behind room filters
-- Updated the saved UI defaults and persistence behavior for the new planner and optimizer settings
-- Expanded localization coverage for the new settings, labels, and status messages
-- Added and updated tests around planner persistence, optimizer behavior, trait labels, and UI interactions
+- New Manual Scoring view — assign configurable point weights to stats, desired/undesirable mutations, inbredness, libido, aggression, passives, spells, and sexuality, then sort and filter cats by total score
+- Instant view switching when cat data hasn't changed — generation counter skips redundant rebuilds
+- Lazy data propagation — only the visible view receives cat data updates
+
+### v5.4.9
+
+- Lowered optimizer bitmask DP threshold from 24 to 22 cats per room
+- Rewrote `_kinship()` from recursive to iterative stack-based evaluation
+- Replaced O(V * Depth) generation depth computation with O(V) memoized DFS
+- Fixed room button rebuild, quick room refresh re-filtering, and broken test imports
+
+### v5.4.8
+
+- Fixed room config bleeding between save files
+- Room Optimizer routes kittens to fallback rooms
+- Room Optimizer avoids placing cats with desired mutations into trait-loss rooms

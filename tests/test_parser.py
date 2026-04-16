@@ -467,17 +467,26 @@ class TestCanBreed:
         ok, _ = can_breed(a, b)
         assert ok
 
-    def test_opposite_gender_gay_rejected(self):
+    def test_opposite_gender_gay_warned(self):
+        """One gay cat in opposite-sex pair: allowed but with low-compat warning."""
         a = _make_cat(db_key=1, gender="male", sexuality="gay")
         b = _make_cat(db_key=2, gender="female", sexuality="straight")
         ok, reason = can_breed(a, b)
+        assert ok
+        assert "gay" in reason.lower()
+
+    def test_opposite_gender_both_gay_rejected(self):
+        a = _make_cat(db_key=1, gender="male", sexuality="gay")
+        b = _make_cat(db_key=2, gender="female", sexuality="gay")
+        ok, reason = can_breed(a, b)
         assert not ok
 
-    def test_bi_same_gender_rejected_against_straight(self):
+    def test_bi_same_gender_warned_against_straight(self):
+        """Bi + straight same-sex: allowed but with low-compat warning."""
         a = _make_cat(db_key=1, gender="male", sexuality="bi")
         b = _make_cat(db_key=2, gender="male", sexuality="straight")
         ok, reason = can_breed(a, b)
-        assert not ok
+        assert ok
         assert "straight" in reason.lower()
 
     def test_bi_opposite_gender_allowed(self):
@@ -577,11 +586,22 @@ class TestAncestry:
 
         broken = _break_pedigree_cycles([cat_a, cat_b])
 
+        # The iterative DFS cycle-breaker nulls exactly one of the two
+        # back-pointing edges (which one is an implementation detail of the
+        # traversal order — the invariant is that the cycle is gone and
+        # exactly one repair was recorded). Assert the invariant, not the
+        # specific edge chosen.
         assert broken == 1
-        assert cat_a.parent_a is None
-        assert cat_a.pedigree_was_repaired is True
-        assert cat_a.pedigree_cycle_breaks == 1
-        assert cat_b.parent_a is cat_a
+        nulled = [cat for cat in (cat_a, cat_b) if cat.parent_a is None]
+        preserved = [cat for cat in (cat_a, cat_b) if cat.parent_a is not None]
+        assert len(nulled) == 1 and len(preserved) == 1
+        (broken_cat,) = nulled
+        assert broken_cat.pedigree_was_repaired is True
+        assert broken_cat.pedigree_cycle_breaks == 1
+        # The preserved edge still points at the other cat (cycle severed,
+        # not the preserved side).
+        (kept_cat,) = preserved
+        assert kept_cat.parent_a is broken_cat
 
     def test_parse_save_keeps_orphan_pedigree_entries_parentless(self):
         cats, errors, rooms = parse_save(os.path.join(_proj_root, "tools", "saves", "23.sav"))
@@ -735,10 +755,14 @@ class TestBreedingHelpers:
         assert not is_hater_conflict(a, b, hater_map)
 
     def test_is_lover_conflict_when_avoiding(self):
+        # Design decision: is_lover_conflict() always returns False. Lover
+        # exclusivity is enforced at the room-assignment level by
+        # room_optimizer/optimizer.py::_filter_lover_exclusivity() rather
+        # than at pair evaluation time. See CLAUDE.md "Known Design Decisions".
         lover_map = {1: {3}, 2: set()}  # cat 1 loves cat 3, not cat 2
         a = _make_cat(db_key=1, name="A")
         b = _make_cat(db_key=2, name="B")
-        assert is_lover_conflict(a, b, lover_map, avoid_lovers=True)
+        assert not is_lover_conflict(a, b, lover_map, avoid_lovers=True)
 
     def test_no_lover_conflict_when_not_avoiding(self):
         lover_map = {1: {3}, 2: set()}
@@ -791,7 +815,7 @@ class TestBreedingHelpers:
         b = _make_cat(db_key=2, name="B", gender="female")
         hater_map = {1: set(), 2: set()}
         lover_map = {1: set(), 2: set()}
-        ok, reason, risk = evaluate_pair(
+        ok, reason, risk, _compat = evaluate_pair(
             a, b,
             hater_key_map=hater_map,
             lover_key_map=lover_map,
@@ -807,7 +831,7 @@ class TestBreedingHelpers:
         lover_map = {1: set(), 2: set()}
         cache_dict: dict = {}
         # First call
-        ok1, _, _ = evaluate_pair(
+        ok1, _, _, _ = evaluate_pair(
             a, b,
             hater_key_map=hater_map,
             lover_key_map=lover_map,
@@ -817,7 +841,7 @@ class TestBreedingHelpers:
         assert ok1
         assert len(cache_dict) == 1
         # Second call should use cache
-        ok2, _, _ = evaluate_pair(
+        ok2, _, _, _ = evaluate_pair(
             a, b,
             hater_key_map=hater_map,
             lover_key_map=lover_map,

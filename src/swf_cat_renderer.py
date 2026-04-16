@@ -20,6 +20,7 @@ _SWF_DATABASE_DIR = Path(__file__).parent / "CatAssets" / "swf_database"
 # Persistent on-disk caches. These are intentionally not deleted on shutdown.
 _PART_CACHE_DIR = Path(__file__).parent / "CatAssets" / "part_cache"
 _THUMBNAIL_CACHE_DIR = Path(__file__).parent / "CatAssets" / "thumbnail_cache"
+_FACE_CACHE_DIR = Path(__file__).parent / "CatAssets" / "face_cache"
 
 _SYMBOL_CLASS_MAP: dict[str, int] = {}
 _SYMBOL_CLASS_LOADED = False
@@ -30,7 +31,16 @@ _TEXTURED_LAYER_BYTES_CACHE: dict[tuple[int, int, str], Optional[bytes]] = {}
 _TINTED_TEXTURE_CACHE: dict[tuple[int, str], Optional[bytes]] = {}
 
 DEFAULT_TREE_THUMBNAIL_SIZE = 192
-THUMBNAIL_CACHE_VERSION = 13
+# Bump whenever the render pipeline, tint math, palette lookup, or the
+# bundled DefinedShapes set changes in a way that would alter pixel output.
+# This invalidates the thumbnail cache AND is embedded into the on-disk
+# part/texture cache filenames so stale artifacts from older renders do not
+# survive an upgrade. v15: DefinedShapes.zip regenerated from JPEXS FFDEC
+# (replacing the buggy Qt shape parser that produced wrong output for
+# ~35% of shapes — missing outlines, flat fills, wrong colors).
+THUMBNAIL_CACHE_VERSION = 15
+# Same version number as a string, used for part/texture cache filenames.
+_PART_CACHE_VERSION = f"v{THUMBNAIL_CACHE_VERSION}"
 PART_RENDER_CANVAS_W = 570
 PART_RENDER_CANVAS_H = 580
 
@@ -225,6 +235,13 @@ def _render_texture_frame(texture_id: int, palette_row: int = 0) -> Optional[byt
                         layer = _get_nested_shape(layer, db)
                         char_id = layer.get("characterId")
                     data = _render_shape(char_id)
+                    if not data:
+                        # Some DefinedShape PNGs are missing from the
+                        # extracted cache (unrenderable tag variants). Skip
+                        # this texture layer rather than aborting the whole
+                        # texture, so cats still get their remaining tint
+                        # layers instead of rendering as solid black.
+                        continue
                     im = Image.open(io.BytesIO(data)).convert("RGBA")
                     relative_x, relative_y = 0,0
                     matrix = og_layer.get("matrix", {})
@@ -263,9 +280,11 @@ def _render_shape(character_id: int) -> Optional[bytes]:
     if cache_key in _LAYER_IMAGE_CACHE:
         return _LAYER_IMAGE_CACHE[cache_key]
 
-    # Load directly from DefinedShapes folder (no need to copy to part_cache)
-    defined_shapes_dir = Path(__file__).parent / "CatAssets" / "DefinedShapes"
-    shape_path = defined_shapes_dir / f"{character_id}.png"
+    # Load from the persistent DefinedShapes cache directory. This lives
+    # outside the PyInstaller bundle in frozen mode — see
+    # mewgenics.utils.shape_extractor.defined_shapes_dir() for why.
+    from mewgenics.utils.shape_extractor import defined_shapes_dir as _defined_shapes_dir
+    shape_path = _defined_shapes_dir() / f"{character_id}.png"
     
     if shape_path.exists():
         try:
@@ -355,7 +374,7 @@ def _get_tinted_texture_png(
         return _TINTED_TEXTURE_CACHE[cache_key]
 
     _PART_CACHE_DIR.mkdir(exist_ok=True)
-    disk_path = _PART_CACHE_DIR / f"texture_{cache_key[0]}_{cache_key[1]}.png"
+    disk_path = _PART_CACHE_DIR / f"texture_{_PART_CACHE_VERSION}_{cache_key[0]}_{cache_key[1]}.png"
     if disk_path.exists():
         data = disk_path.read_bytes()
         _TINTED_TEXTURE_CACHE[cache_key] = data
@@ -435,13 +454,14 @@ def _create_part(part_name: str, frame_id: int, texture_data: Optional[bytes] = 
                 basebounds = get_shape_bounds(base, db)
                 basecanvas = Image.new("RGBA", (int(basebounds[2]), int(basebounds[3])), (0,0,0,0))
                 data = _render_shape(char_id)
-                im = Image.open(io.BytesIO(data)).convert("RGBA")
-                basecanvas.alpha_composite(im, (0, 0))
-                if texture is not None and texture_data is not None:
-                    texture_image = Image.open(io.BytesIO(texture_data)).convert("RGBA")
-                    basecanvas = _replace_canvas_pixels_with_texture(
-                    basecanvas, texture_image,
-                    preserve_dark=20)      
+                if data:
+                    im = Image.open(io.BytesIO(data)).convert("RGBA")
+                    basecanvas.alpha_composite(im, (0, 0))
+                    if texture is not None and texture_data is not None:
+                        texture_image = Image.open(io.BytesIO(texture_data)).convert("RGBA")
+                        basecanvas = _replace_canvas_pixels_with_texture(
+                        basecanvas, texture_image,
+                        preserve_dark=20)
         if outline is not None:
             char_id = outline.get("characterId")
             if char_id:
@@ -451,10 +471,17 @@ def _create_part(part_name: str, frame_id: int, texture_data: Optional[bytes] = 
                 bounds = get_shape_bounds(outline, db)
                 canvas = Image.new("RGBA", (int(bounds[2]), int(bounds[3])), (0,0,0,0))
                 data = _render_shape(char_id)
-                im = Image.open(io.BytesIO(data)).convert("RGBA")
-                relative_x, relative_y = calculate_layer_position_within_outline(bounds, basebounds[0], basebounds[1], False)
-                canvas.alpha_composite(basecanvas, (int(relative_x), int(relative_y)))
-                canvas.alpha_composite(im, (0, 0))
+                if data:
+                    im = Image.open(io.BytesIO(data)).convert("RGBA")
+                    # basebounds can be None if the base layer's shape PNG was
+                    # missing — fall back to the outline's own origin so the
+                    # base composite still lines up instead of crashing on
+                    # `basebounds[0]`.
+                    bbx = basebounds[0] if basebounds is not None else 0
+                    bby = basebounds[1] if basebounds is not None else 0
+                    relative_x, relative_y = calculate_layer_position_within_outline(bounds, bbx, bby, False)
+                    canvas.alpha_composite(basecanvas, (int(relative_x), int(relative_y)))
+                    canvas.alpha_composite(im, (0, 0))
         if details is not None and len(details) > 0:
             for detail in details:
                 detail_base = detail
@@ -464,6 +491,8 @@ def _create_part(part_name: str, frame_id: int, texture_data: Optional[bytes] = 
                         detail = _get_nested_shape(detail, db)
                         char_id = detail.get("characterId")
                     data = _render_shape(char_id)
+                    if not data:
+                        continue
                     im = Image.open(io.BytesIO(data)).convert("RGBA")
                     relative_x, relative_y = 0, 0
                     matrix = detail_base.get("matrix", {})
@@ -530,7 +559,7 @@ def render_cat_part(slot: str, part_id: int, size: int = 128, texture_data: Opti
         if cache_key in _TEXTURED_LAYER_BYTES_CACHE:
             return _TEXTURED_LAYER_BYTES_CACHE[cache_key]
         _PART_CACHE_DIR.mkdir(exist_ok=True)
-        disk_path = _PART_CACHE_DIR / f"part_{sprite_chid}_{part_id}_{texture_digest}.png"
+        disk_path = _PART_CACHE_DIR / f"part_{_PART_CACHE_VERSION}_{sprite_chid}_{part_id}_{texture_digest}.png"
         if disk_path.exists():
             cached = disk_path.read_bytes()
             _TEXTURED_LAYER_BYTES_CACHE[cache_key] = cached
@@ -543,8 +572,16 @@ def render_cat_part(slot: str, part_id: int, size: int = 128, texture_data: Opti
         logger.warning("[SWF] Failed to render part %s[%d]", part_name, part_id)
         return None
     
-    # Cache based on what was actually rendered
-    if not has_texture_layer:
+    # Cache based on whether the caller actually supplied texture data.
+    # `has_texture_layer` reports whether the part *definition* contains a
+    # texture layer — not whether we applied one. When `texture_data` is
+    # None the render path skips the texture-replace pass, producing a
+    # plain untextured PNG that belongs in the "untextured-v1" cache.
+    # The previous version crashed here with
+    # `_texture_cache_digest(None) → TypeError` whenever the fallback
+    # render path (line ~829 in render_cat_thumbnail) rendered a layered
+    # part without texture, which is why thumbnails were silently failing.
+    if not (use_texture and has_texture_layer):
         cache_key = (sprite_chid, part_id, "untextured-v1")
         _LAYER_IMAGE_CACHE[cache_key] = rendered
         logger.debug("[SWF] Cached non-textured part %s[%d]", part_name, part_id)
@@ -1035,4 +1072,82 @@ def render_cat_thumbnail(cat, size: int = DEFAULT_TREE_THUMBNAIL_SIZE) -> Option
     data = buf.getvalue()
     disk_path.write_bytes(data)
     _THUMBNAIL_BYTES_CACHE[cache_key] = data
+    return data
+
+
+_FACE_BYTES_CACHE: dict[tuple, bytes] = {}
+
+
+def render_cat_face_thumbnail(cat, size: int = 64) -> Optional[bytes]:
+    """Render a trimmed cat thumbnail that fills the target square.
+
+    Renders the full cat at high resolution, trims transparent padding,
+    and scales the content to fill *size* × *size*.
+
+    Returns PNG bytes or None.
+    """
+    signature = _thumbnail_signature(cat)
+    if not signature:
+        return None
+
+    cache_key = (signature, size, "face")
+    if cache_key in _FACE_BYTES_CACHE:
+        return _FACE_BYTES_CACHE[cache_key]
+
+    _FACE_CACHE_DIR.mkdir(exist_ok=True)
+    digest = hashlib.sha1(signature.encode("utf-8")).hexdigest()
+    disk_path = _FACE_CACHE_DIR / f"{digest}_{size}.png"
+    if disk_path.exists():
+        data = disk_path.read_bytes()
+        _FACE_BYTES_CACHE[cache_key] = data
+        return data
+
+    # Render at a large size so we have enough pixel data to crop from.
+    source_size = max(size * 4, 512)
+    full_png = render_cat_thumbnail(cat, size=source_size)
+    if not full_png:
+        return None
+
+    try:
+        full = Image.open(io.BytesIO(full_png)).convert("RGBA")
+    except Exception:
+        return None
+
+    # Find the actual cat content bounding box (ignoring transparent buffer).
+    content_bbox = full.getbbox()
+    if not content_bbox:
+        return None
+
+    cx0, cy0, cx1, cy1 = content_bbox
+
+    # Crop to content bounds (trimming transparent buffer).
+    head = full.crop((cx0, cy0, cx1, cy1))
+
+    # Auto-trim any remaining transparent edges.
+    bbox = head.getbbox()
+    if bbox:
+        head = head.crop(bbox)
+
+    if head.width < 1 or head.height < 1:
+        return None
+
+    # Scale to fill the target square, preserving aspect ratio.
+    scale = max(size / head.width, size / head.height)
+    new_w = int(head.width * scale)
+    new_h = int(head.height * scale)
+    head = head.resize((new_w, new_h), Image.LANCZOS)
+
+    # Center-crop to exactly size × size.
+    left = (new_w - size) // 2
+    top = (new_h - size) // 2
+    head = head.crop((left, top, left + size, top + size))
+
+    buf = io.BytesIO()
+    head.save(buf, format="PNG")
+    data = buf.getvalue()
+    try:
+        disk_path.write_bytes(data)
+    except Exception:
+        pass
+    _FACE_BYTES_CACHE[cache_key] = data
     return data

@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPixmap
 
+from mewgenics.utils.gpak import extract_entry as _gpak_extract_entry
+
 
 _ABILITY_SWF_NAME = "swfs/ability_icons.swf"
 _ABILITY_SPRITE_ID = 1346
@@ -72,26 +74,7 @@ def _normalize_key(value: str) -> str:
 def _gpak_entry_bytes(gpak_path: str | None, target_name: str) -> bytes | None:
     if not gpak_path:
         return None
-    try:
-        with open(gpak_path, "rb") as f:
-            count = struct.unpack("<I", f.read(4))[0]
-            entries = []
-            for _ in range(count):
-                name_len = struct.unpack("<H", f.read(2))[0]
-                name = f.read(name_len).decode("utf-8", errors="replace")
-                size = struct.unpack("<I", f.read(4))[0]
-                entries.append((name, size))
-            dir_end = f.tell()
-
-            offset = dir_end
-            for name, size in entries:
-                if name == target_name:
-                    f.seek(offset)
-                    return f.read(size)
-                offset += size
-    except Exception:
-        return None
-    return None
+    return _gpak_extract_entry(gpak_path, target_name)
 
 
 def _swf_rect_size(data: bytes, offset: int) -> int:
@@ -503,7 +486,9 @@ def _shape_pixmap(symbol_id: int, size: int) -> QPixmap | None:
     definition = _DEFINITIONS.get(symbol_id)
     if definition is None:
         return None
-    cache_key = (definition.code, str(symbol_id), int(size))
+    from PySide6.QtWidgets import QApplication
+    dpr = getattr(QApplication.instance(), "devicePixelRatio", lambda: 1.0)()
+    cache_key = (definition.code, str(symbol_id), int(size), dpr)
     cached = _RENDER_CACHE.get(cache_key)
     if cached is not None:
         return cached
@@ -518,7 +503,8 @@ def _shape_pixmap(symbol_id: int, size: int) -> QPixmap | None:
     if not contours:
         return None
 
-    pix = QPixmap(size, size)
+    phys = int(size * dpr)
+    pix = QPixmap(phys, phys)
     pix.fill(Qt.transparent)
     painter = QPainter(pix)
     painter.setRenderHint(QPainter.Antialiasing)
@@ -537,13 +523,13 @@ def _shape_pixmap(symbol_id: int, size: int) -> QPixmap | None:
         painter.end()
         return None
 
-    pad = max(1.0, size * 0.08)
+    pad = max(1.0, phys * 0.08)
     scale = min(
-        (size - 2 * pad) / target_bounds.width(),
-        (size - 2 * pad) / target_bounds.height(),
+        (phys - 2 * pad) / target_bounds.width(),
+        (phys - 2 * pad) / target_bounds.height(),
     )
-    dx = (size - target_bounds.width() * scale) * 0.5
-    dy = (size - target_bounds.height() * scale) * 0.5
+    dx = (phys - target_bounds.width() * scale) * 0.5
+    dy = (phys - target_bounds.height() * scale) * 0.5
 
     painter.translate(dx - target_bounds.left() * scale, dy - target_bounds.top() * scale)
     painter.scale(scale, scale)
@@ -554,6 +540,7 @@ def _shape_pixmap(symbol_id: int, size: int) -> QPixmap | None:
         painter.drawPath(path)
 
     painter.end()
+    pix.setDevicePixelRatio(dpr)
     _RENDER_CACHE[cache_key] = pix
     return pix
 

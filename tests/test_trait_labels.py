@@ -20,7 +20,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QAbstractItemView, QHeaderView
 
-from mewgenics_manager import CalibrationView, _CALIBRATION_TRAIT_OPTIONS, _trait_label_from_value
+from mewgenics.views.calibration import CalibrationView, _CALIBRATION_TRAIT_OPTIONS, _trait_label_from_value
 
 
 @pytest.fixture(scope="module")

@@ -104,6 +104,11 @@ class RoomOptimizerStatPrioritiesPanel(QWidget):
     def _trait_count_for_mode(self, mode: str) -> int:
         return len((self._profiles.get(mode, {}) or {}).get("traits", []) or [])
 
+    def _trait_names_for_mode(self, mode: str) -> list[str]:
+        """Return the display names of the selected mutation traits for a mode."""
+        traits = (self._profiles.get(mode, {}) or {}).get("traits", []) or []
+        return [str(t.get("display") or t.get("key") or "?") for t in traits if isinstance(t, dict)]
+
     def _clear_card_layout(self, layout: QVBoxLayout):
         while layout.count():
             child = layout.takeAt(0)
@@ -118,9 +123,11 @@ class RoomOptimizerStatPrioritiesPanel(QWidget):
         self._clear_card_layout(list_layout)
 
         order = self._order_for_mode(mode)
-        summary_text = f"{self._trait_count_for_mode(mode)} mutation traits in this tree."
-        if order:
-            summary_text += f"  Current order: {' > '.join(order)}"
+        trait_names = self._trait_names_for_mode(mode)
+        if trait_names:
+            summary_text = ", ".join(trait_names)
+        else:
+            summary_text = "No mutations selected."
         section["summary"].setText(summary_text)
 
         for index, stat in enumerate(order):
@@ -246,6 +253,9 @@ class RoomOptimizerView(QWidget):
             "room_optimizer.toggle.prefer_low_aggression": "Prefer Low Aggression",
             "room_optimizer.toggle.prefer_high_libido": "Prefer High Libido",
             "room_optimizer.toggle.maximize_throughput": "Maximize Throughput",
+            "room_optimizer.toggle.ignore_stat_priority": "Ignore Class Stat Priorities",
+            "room_optimizer.toggle.send_kittens_to_fallback": "Kittens to Fallback",
+            "room_optimizer.toggle.avoid_trait_loss": "Avoid Trait Loss",
             "room_optimizer.toggle.use_sa": "More Depth",
         }
         state = _tr("common.on", default="On") if btn.isChecked() else _tr("common.off", default="Off")
@@ -458,6 +468,8 @@ class RoomOptimizerView(QWidget):
         self._session_state: dict = _load_planner_state_value("room_optimizer_state", {})
         self._restoring_session_state = False
         self._pending_initial_restore_run = False
+        self._pending_cache_recalc = False
+        self._pending_cache_recalc_sa = False
         self._selected_room_data: Optional[dict] = None
 
         root = QVBoxLayout(self)
@@ -665,6 +677,85 @@ class RoomOptimizerView(QWidget):
         )
         self._maximize_throughput_checkbox.toggled.connect(lambda _: self._save_session_state())
         self._setup_controls_layout.addWidget(self._maximize_throughput_checkbox)
+
+        # "Ignore Class Stat Priorities" — skips the per-mode stat priority
+        # scoring bonus entirely. Useful when chasing all-7s, where no stat
+        # is more valuable than any other.
+        self._ignore_stat_priority_checkbox = QPushButton()
+        self._ignore_stat_priority_checkbox.setCheckable(True)
+        self._ignore_stat_priority_checkbox.setChecked(_saved_optimizer_flag("ignore_stat_priority", False))
+        self._ignore_stat_priority_checkbox.setToolTip(
+            _tr(
+                "room_optimizer.tooltip.ignore_stat_priority",
+                default="Disable class stat prioritization when scoring pairs. Use this when chasing all-7 stat lines.",
+            )
+        )
+        self._ignore_stat_priority_checkbox.setStyleSheet(
+            "QPushButton { background:#1a1a32; color:#aaa; border:1px solid #2a2a4a; "
+            "border-radius:4px; padding:6px 12px; font-size:11px; }"
+            "QPushButton:checked { background:#4a3a1f; color:#f6e2c1; border:1px solid #8a6f3a; }"
+            "QPushButton:hover { background:#252545; color:#ddd; }"
+        )
+        self._bind_persistent_toggle(
+            self._ignore_stat_priority_checkbox,
+            "room_optimizer.toggle.ignore_stat_priority",
+            "ignore_stat_priority",
+        )
+        self._ignore_stat_priority_checkbox.toggled.connect(lambda _: self._save_session_state())
+        self._setup_controls_layout.addWidget(self._ignore_stat_priority_checkbox)
+
+        # Kittens can't breed in-game (day 0 / day 1). When enabled, the
+        # optimizer routes them to fallback rooms instead of wasting
+        # breeding-room capacity on them.
+        self._send_kittens_checkbox = QPushButton()
+        self._send_kittens_checkbox.setCheckable(True)
+        self._send_kittens_checkbox.setChecked(_saved_optimizer_flag("send_kittens_to_fallback", False))
+        self._send_kittens_checkbox.setToolTip(
+            _tr(
+                "room_optimizer.tooltip.send_kittens_to_fallback",
+                default="Route kittens (age 0-1) to fallback rooms since they can't breed yet. Eternal-youth cats are unaffected.",
+            )
+        )
+        self._send_kittens_checkbox.setStyleSheet(
+            "QPushButton { background:#1a1a32; color:#aaa; border:1px solid #2a2a4a; "
+            "border-radius:4px; padding:6px 12px; font-size:11px; }"
+            "QPushButton:checked { background:#4a3a1f; color:#f6e2c1; border:1px solid #8a6f3a; }"
+            "QPushButton:hover { background:#252545; color:#ddd; }"
+        )
+        self._bind_persistent_toggle(
+            self._send_kittens_checkbox,
+            "room_optimizer.toggle.send_kittens_to_fallback",
+            "send_kittens_to_fallback",
+        )
+        self._send_kittens_checkbox.toggled.connect(lambda _: self._save_session_state())
+        self._setup_controls_layout.addWidget(self._send_kittens_checkbox)
+
+        # Avoid placing cats carrying desired mutations into high-Evolution
+        # rooms, and cats carrying desired disorders into high-Health rooms —
+        # those room effects can strip the desired traits away.
+        self._avoid_trait_loss_checkbox = QPushButton()
+        self._avoid_trait_loss_checkbox.setCheckable(True)
+        self._avoid_trait_loss_checkbox.setChecked(_saved_optimizer_flag("avoid_trait_loss", False))
+        self._avoid_trait_loss_checkbox.setToolTip(
+            _tr(
+                "room_optimizer.tooltip.avoid_trait_loss",
+                default="Avoid placing cats with desired mutations into high-Evolution rooms, and cats with desired disorders into high-Health rooms (those effects can strip the traits).",
+            )
+        )
+        self._avoid_trait_loss_checkbox.setStyleSheet(
+            "QPushButton { background:#1a1a32; color:#aaa; border:1px solid #2a2a4a; "
+            "border-radius:4px; padding:6px 12px; font-size:11px; }"
+            "QPushButton:checked { background:#4a3a1f; color:#f6e2c1; border:1px solid #8a6f3a; }"
+            "QPushButton:hover { background:#252545; color:#ddd; }"
+        )
+        self._bind_persistent_toggle(
+            self._avoid_trait_loss_checkbox,
+            "room_optimizer.toggle.avoid_trait_loss",
+            "avoid_trait_loss",
+        )
+        self._avoid_trait_loss_checkbox.toggled.connect(lambda _: self._save_session_state())
+        self._setup_controls_layout.addWidget(self._avoid_trait_loss_checkbox)
+
         self._setup_controls_layout.addStretch(1)
 
         self._setup_info_panel = QWidget()
@@ -722,8 +813,22 @@ class RoomOptimizerView(QWidget):
         )
         self._bind_persistent_toggle(self._deep_optimize_btn, "room_optimizer.toggle.use_sa", "use_sa")
         self._deep_optimize_btn.toggled.connect(lambda _: self._save_session_state())
+
+        self._cancel_btn = QPushButton()
+        self._cancel_btn.setText(_tr("room_optimizer.cancel_btn", default="Cancel"))
+        self._cancel_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self._cancel_btn.setStyleSheet(
+            "QPushButton { background:#5a1f1f; color:#f7f2f2; border:1px solid #8f3f3f; "
+            "border-radius:4px; padding:6px 14px; font-size:11px; font-weight:bold; }"
+            "QPushButton:hover { background:#732626; }"
+            "QPushButton:pressed { background:#4b1818; }"
+        )
+        self._cancel_btn.clicked.connect(self._cancel_optimization)
+        self._cancel_btn.setVisible(False)
+
         self._import_planner_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self._top_actions_layout.addWidget(self._optimize_btn)
+        self._top_actions_layout.addWidget(self._cancel_btn)
         self._top_actions_layout.addWidget(self._deep_optimize_btn)
         self._top_actions_layout.addWidget(self._import_planner_btn)
         self._top_actions_layout.addStretch(1)
@@ -930,9 +1035,19 @@ class RoomOptimizerView(QWidget):
                 return
         if self._pending_initial_restore_run and alive_count >= 2:
             self._pending_initial_restore_run = False
-            self._calculate_optimal_distribution(use_sa=bool(self._session_state.get("use_sa", False)))
+            use_sa = bool(self._session_state.get("use_sa", False))
+            if self._cache is None:
+                self._pending_cache_recalc = True
+                self._pending_cache_recalc_sa = use_sa
+            else:
+                self._calculate_optimal_distribution(use_sa=use_sa)
         elif self._auto_recalculate and self._session_state.get("has_run") and alive_count >= 2:
-            self._calculate_optimal_distribution(use_sa=bool(self._session_state.get("use_sa", False)))
+            use_sa = bool(self._session_state.get("use_sa", False))
+            if self._cache is None:
+                self._pending_cache_recalc = True
+                self._pending_cache_recalc_sa = use_sa
+            else:
+                self._calculate_optimal_distribution(use_sa=use_sa)
 
     def set_available_rooms(self, rooms: list[str]):
         ordered = [room for room in ROOM_DISPLAY.keys() if room in set(rooms)]
@@ -997,6 +1112,11 @@ class RoomOptimizerView(QWidget):
 
     def set_cache(self, cache: Optional['BreedingCache']):
         self._cache = cache
+        if cache is not None and self._pending_cache_recalc:
+            self._pending_cache_recalc = False
+            use_sa = self._pending_cache_recalc_sa
+            self._pending_cache_recalc_sa = False
+            self._calculate_optimal_distribution(use_sa=use_sa)
 
     def set_auto_recalculate(self, enabled: bool):
         self._auto_recalculate = bool(enabled)
@@ -1006,6 +1126,7 @@ class RoomOptimizerView(QWidget):
         self._room_priority_panel.set_save_path(save_path)
         self._restore_session_state()
         self._pending_initial_restore_run = bool(self._session_state.get("has_run", False))
+        self._pending_cache_recalc = False
         if refresh_existing and self._cats:
             self.set_cats(self._cats, self._excluded_keys)
             return
@@ -1093,6 +1214,9 @@ class RoomOptimizerView(QWidget):
             "prefer_low_aggression": bool(self._prefer_low_aggression_checkbox.isChecked()),
             "prefer_high_libido": bool(self._prefer_high_libido_checkbox.isChecked()),
             "maximize_throughput": bool(self._maximize_throughput_checkbox.isChecked()),
+            "ignore_stat_priority": bool(self._ignore_stat_priority_checkbox.isChecked()),
+            "send_kittens_to_fallback": bool(self._send_kittens_checkbox.isChecked()) if hasattr(self, "_send_kittens_checkbox") else False,
+            "avoid_trait_loss": bool(self._avoid_trait_loss_checkbox.isChecked()) if hasattr(self, "_avoid_trait_loss_checkbox") else False,
             "bottom_tab_index": int(self._bottom_tabs.currentIndex()) if hasattr(self, "_bottom_tabs") else 2,
         })
         if use_sa is not None:
@@ -1162,6 +1286,11 @@ class RoomOptimizerView(QWidget):
             self._prefer_low_aggression_checkbox.setChecked(bool(state.get("prefer_low_aggression", self._prefer_low_aggression_checkbox.isChecked())))
             self._prefer_high_libido_checkbox.setChecked(bool(state.get("prefer_high_libido", self._prefer_high_libido_checkbox.isChecked())))
             self._maximize_throughput_checkbox.setChecked(bool(state.get("maximize_throughput", self._maximize_throughput_checkbox.isChecked())))
+            self._ignore_stat_priority_checkbox.setChecked(bool(state.get("ignore_stat_priority", self._ignore_stat_priority_checkbox.isChecked())))
+            if hasattr(self, "_send_kittens_checkbox"):
+                self._send_kittens_checkbox.setChecked(bool(state.get("send_kittens_to_fallback", self._send_kittens_checkbox.isChecked())))
+            if hasattr(self, "_avoid_trait_loss_checkbox"):
+                self._avoid_trait_loss_checkbox.setChecked(bool(state.get("avoid_trait_loss", self._avoid_trait_loss_checkbox.isChecked())))
             self._deep_optimize_btn.setChecked(bool(state.get("use_sa", False)))
             if hasattr(self, "_bottom_tabs"):
                 tab_index = state.get("bottom_tab_index", self._bottom_tabs.currentIndex())
@@ -1205,6 +1334,11 @@ class RoomOptimizerView(QWidget):
             self._prefer_low_aggression_checkbox.setChecked(True)
             self._prefer_high_libido_checkbox.setChecked(True)
             self._maximize_throughput_checkbox.setChecked(False)
+            self._ignore_stat_priority_checkbox.setChecked(False)
+            if hasattr(self, "_send_kittens_checkbox"):
+                self._send_kittens_checkbox.setChecked(False)
+            if hasattr(self, "_avoid_trait_loss_checkbox"):
+                self._avoid_trait_loss_checkbox.setChecked(False)
             self._deep_optimize_btn.setChecked(False)
             if hasattr(self, "_bottom_tabs"):
                 self._bottom_tabs.setCurrentIndex(3)
@@ -1335,6 +1469,7 @@ class RoomOptimizerView(QWidget):
             )
         )
         self._optimize_btn.setText(_tr("room_optimizer.optimize_btn"))
+        self._cancel_btn.setText(_tr("room_optimizer.cancel_btn", default="Cancel"))
         self._set_mode_button_text(self._mode_toggle_btn.isChecked())
         RoomOptimizerView._set_toggle_button_label(self._deep_optimize_btn, "room_optimizer.toggle.use_sa")
         self._deep_optimize_btn.setEnabled(True)
@@ -1359,6 +1494,30 @@ class RoomOptimizerView(QWidget):
         RoomOptimizerView._set_toggle_button_label(self._prefer_high_libido_checkbox, "room_optimizer.toggle.prefer_high_libido")
         RoomOptimizerView._set_toggle_button_label(self._maximize_throughput_checkbox, "room_optimizer.toggle.maximize_throughput")
         self._maximize_throughput_checkbox.setToolTip(_tr("room_optimizer.tooltip.maximize_throughput"))
+        if hasattr(self, "_ignore_stat_priority_checkbox"):
+            RoomOptimizerView._set_toggle_button_label(self._ignore_stat_priority_checkbox, "room_optimizer.toggle.ignore_stat_priority")
+            self._ignore_stat_priority_checkbox.setToolTip(
+                _tr(
+                    "room_optimizer.tooltip.ignore_stat_priority",
+                    default="Disable class stat prioritization when scoring pairs. Use this when chasing all-7 stat lines.",
+                )
+            )
+        if hasattr(self, "_send_kittens_checkbox"):
+            RoomOptimizerView._set_toggle_button_label(self._send_kittens_checkbox, "room_optimizer.toggle.send_kittens_to_fallback")
+            self._send_kittens_checkbox.setToolTip(
+                _tr(
+                    "room_optimizer.tooltip.send_kittens_to_fallback",
+                    default="Route kittens (age 0-1) to fallback rooms since they can't breed yet. Eternal-youth cats are unaffected.",
+                )
+            )
+        if hasattr(self, "_avoid_trait_loss_checkbox"):
+            RoomOptimizerView._set_toggle_button_label(self._avoid_trait_loss_checkbox, "room_optimizer.toggle.avoid_trait_loss")
+            self._avoid_trait_loss_checkbox.setToolTip(
+                _tr(
+                    "room_optimizer.tooltip.avoid_trait_loss",
+                    default="Avoid placing cats with desired mutations into high-Evolution rooms, and cats with desired disorders into high-Health rooms (those effects can strip the traits).",
+                )
+            )
         if hasattr(self, "_shared_search_note"):
             self._shared_search_note.setText(_tr(
                 "menu.settings.optimizer_search_settings.summary",
@@ -1391,6 +1550,7 @@ class RoomOptimizerView(QWidget):
 
     def _calculate_optimal_distribution(self, use_sa: bool = False):
         """Kick off background optimizer worker."""
+        self._pending_cache_recalc = False
         if self._optimizer_worker is not None and self._optimizer_worker.isRunning():
             return  # already running
 
@@ -1411,6 +1571,9 @@ class RoomOptimizerView(QWidget):
         sa_temperature = _saved_optimizer_search_temperature()
         sa_neighbors = _saved_optimizer_search_neighbors()
         maximize_throughput = bool(self._maximize_throughput_checkbox.isChecked()) if hasattr(self, "_maximize_throughput_checkbox") else False
+        ignore_stat_priority = bool(self._ignore_stat_priority_checkbox.isChecked()) if hasattr(self, "_ignore_stat_priority_checkbox") else False
+        send_kittens_to_fallback = bool(self._send_kittens_checkbox.isChecked()) if hasattr(self, "_send_kittens_checkbox") else False
+        avoid_trait_loss = bool(self._avoid_trait_loss_checkbox.isChecked()) if hasattr(self, "_avoid_trait_loss_checkbox") else False
         mode_family = self._mode_toggle_btn.isChecked()
 
         params = {
@@ -1421,6 +1584,9 @@ class RoomOptimizerView(QWidget):
             "prefer_low_aggression": self._prefer_low_aggression_checkbox.isChecked(),
             "prefer_high_libido": self._prefer_high_libido_checkbox.isChecked(),
             "maximize_throughput": maximize_throughput and not mode_family,
+            "ignore_stat_priority": ignore_stat_priority,
+            "send_kittens_to_fallback": send_kittens_to_fallback,
+            "avoid_trait_loss": avoid_trait_loss,
             "sa_temperature": sa_temperature,
             "sa_neighbors": sa_neighbors,
             "mode_family": mode_family,
@@ -1434,6 +1600,7 @@ class RoomOptimizerView(QWidget):
         self._save_session_state(has_run=True, use_sa=use_sa)
 
         self._optimize_btn.setEnabled(False)
+        self._cancel_btn.setVisible(True)
         self._summary.setText(_tr("room_optimizer.status.calculating"))
 
         worker = RoomOptimizerWorker(
@@ -1447,9 +1614,22 @@ class RoomOptimizerView(QWidget):
         self._optimizer_worker = worker
         worker.start()
 
+    def _cancel_optimization(self):
+        """Request cancellation of the running optimizer worker."""
+        if self._optimizer_worker is not None and self._optimizer_worker.isRunning():
+            self._optimizer_worker.requestInterruption()
+            self._summary.setText(_tr("room_optimizer.status.cancelling", default="Cancelling…"))
+            self._cancel_btn.setEnabled(False)
+
     def _on_optimizer_result(self, result: dict):
         self._optimizer_worker = None
         self._optimize_btn.setEnabled(True)
+        self._cancel_btn.setVisible(False)
+        self._cancel_btn.setEnabled(True)
+
+        if result.get("cancelled"):
+            self._summary.setText(_tr("room_optimizer.status.cancelled", default="Optimization cancelled."))
+            return
 
         if "error" in result:
             self._table.setRowCount(0)

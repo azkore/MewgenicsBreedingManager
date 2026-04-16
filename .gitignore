@@ -38,15 +38,24 @@ resources.gpak
 icons.zip
 tools/icons.zip
 
+# Worktrees
+.worktrees/
+
 # Repo-local scratch space
 tmp/
 pytest-cache-files-*/
 .pytest_cache/
 
 # Cat visual renderer caches (generated at runtime, do not commit)
+src/CatAssets/face_cache/*
+!src/CatAssets/face_cache/.gitkeep
 src/CatAssets/part_cache/*
 !src/CatAssets/part_cache/.gitkeep
 src/CatAssets/thumbnail_cache/*
 !src/CatAssets/thumbnail_cache/.gitkeep
 src/CatAssets/DefinedShapes/*.png
 !src/CatAssets/DefinedShapes/.gitkeep
+
+# SQLite WAL/SHM sidecars from swf_database at runtime
+*.db-shm
+*.db-wal

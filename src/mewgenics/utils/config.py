@@ -230,6 +230,17 @@ def _set_stat_icon_mode(enabled: bool):
     _save_app_config(data)
 
 
+def _saved_roster_visual_mode(default: bool = False) -> bool:
+    data = _load_app_config()
+    return _coerce_bool(data.get("roster_visual_mode"), default)
+
+
+def _set_roster_visual_mode(enabled: bool):
+    data = _load_app_config()
+    data["roster_visual_mode"] = bool(enabled)
+    _save_app_config(data)
+
+
 # ── Tag color palette persistence ──────────────────────────────────────────
 
 def _normalize_tag_color_hex(value, default: str = "") -> str:
@@ -397,6 +408,22 @@ def _saved_room_optimizer_auto_recalc(default: bool = False) -> bool:
 
 def _set_room_optimizer_auto_recalc(enabled: bool):
     _set_optimizer_flag("room_optimizer_auto_recalc", enabled)
+
+
+def _saved_auto_scoring_auto_calc(default: bool = False) -> bool:
+    return _saved_optimizer_flag("auto_scoring_auto_calc", default)
+
+
+def _set_auto_scoring_auto_calc(enabled: bool):
+    _set_optimizer_flag("auto_scoring_auto_calc", enabled)
+
+
+def _saved_manual_scoring_auto_calc(default: bool = True) -> bool:
+    return _saved_optimizer_flag("manual_scoring_auto_calc", default)
+
+
+def _set_manual_scoring_auto_calc(enabled: bool):
+    _set_optimizer_flag("manual_scoring_auto_calc", enabled)
 
 
 # ── UI state persistence ─────────────────────────────────────────────────────

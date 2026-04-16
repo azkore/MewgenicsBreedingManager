@@ -130,9 +130,14 @@ _ZOOM_STEP = 10
 
 _CHIP_STYLE = ("QLabel { background:#252545; color:#ccc; border-radius:6px;"
                " padding:2px 7px; font-size:11px; }")
+_CHIP_UPGRADED_STYLE = ("QLabel { background:#1a3028; color:#78d8a8; border-radius:6px;"
+                        " padding:2px 7px; font-size:11px; }")
 _DEFECT_CHIP_STYLE = ("QLabel { background:#3a1a1a; color:#e0a0a0; border-radius:6px;"
                       " padding:2px 7px; font-size:11px; }")
-_SEC_STYLE  = "color:#555; font-size:10px; font-weight:bold; letter-spacing:1px;"
+# NOTE: Qt Style Sheets do NOT support `letter-spacing` — it emits a
+# "Could not parse stylesheet" warning. Letter tracking is applied via
+# QFont.setLetterSpacing() in styling._sec() instead.
+_SEC_STYLE  = "color:#555; font-size:10px; font-weight:bold;"
 _NAME_STYLE = "color:#eee; font-size:13px; font-weight:bold;"
 _META_STYLE = "color:#777; font-size:11px;"
 _WARN_STYLE = "color:#e07050; font-size:11px; font-weight:bold;"

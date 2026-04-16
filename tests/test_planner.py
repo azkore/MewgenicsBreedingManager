@@ -53,6 +53,7 @@ def _make_cat(
         aggression=aggression,
         libido=libido,
         base_stats={stat: stat_seed for stat in STAT_NAMES},
+        total_stats={stat: stat_seed for stat in STAT_NAMES},
         haters=[],
         lovers=[],
     )
@@ -99,7 +100,7 @@ def test_evaluate_pair_allows_unrequited_love_when_avoid_lovers_is_on():
     cat_a = _make_cat(1, gender="male", sexuality="bi")
     cat_b = _make_cat(2, gender="female", sexuality="straight")
 
-    ok, reason, risk = evaluate_pair(
+    ok, reason, risk, _compat = evaluate_pair(
         cat_a,
         cat_b,
         hater_key_map={1: set(), 2: set()},
@@ -116,7 +117,7 @@ def test_evaluate_pair_allows_mutual_lovers_when_avoid_lovers_is_on():
     cat_a = _make_cat(1, gender="male", sexuality="bi")
     cat_b = _make_cat(2, gender="female", sexuality="straight")
 
-    ok, reason, risk = evaluate_pair(
+    ok, reason, risk, _compat = evaluate_pair(
         cat_a,
         cat_b,
         hater_key_map={1: set(), 2: set()},
@@ -134,7 +135,7 @@ def test_evaluate_pair_uses_cache_accessor_for_risk():
     cat_b = _make_cat(2, gender="female", sexuality="straight")
     cache = SimpleNamespace(ready=True, get_risk=lambda a, b: 17.25)
 
-    ok, reason, risk = evaluate_pair(
+    ok, reason, risk, _compat = evaluate_pair(
         cat_a,
         cat_b,
         hater_key_map={1: set(), 2: set()},

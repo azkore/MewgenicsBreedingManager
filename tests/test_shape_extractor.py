@@ -1,12 +1,9 @@
 """Tests for shape_extractor module."""
-import struct
 import sys
 import zipfile
 from pathlib import Path
 
 import pytest
-
-pytest.importorskip("PySide6")
 
 _proj_root = Path(__file__).resolve().parents[1]
 _src_dir = _proj_root / "src"
@@ -14,77 +11,11 @@ sys.path.insert(0, str(_src_dir))
 sys.path.insert(0, str(_proj_root))
 
 from mewgenics.utils.shape_extractor import (
-    _iterate_swf_tags,
     _extract_from_zip,
     _find_shapes_zip,
-    _DEFINED_SHAPES_DIR,
     _MIN_CACHED_SHAPES,
     ensure_defined_shapes,
 )
-
-
-def _make_minimal_fws() -> bytes:
-    """Build a minimal valid FWS (uncompressed SWF) with one End tag."""
-    # FWS signature + version 10 + file length (filled later)
-    header = bytearray(b"FWS\x0a\x00\x00\x00\x00")
-    # Minimal RECT: Nbits=0 -> 5 zero bits, padded to 1 byte
-    rect = bytes([0b00000_000])
-    # Frame rate (2 bytes) + frame count (2 bytes)
-    frame_info = b"\x00\x01\x01\x00"
-    # End tag: tag code 0, length 0 -> record header 0x0000
-    end_tag = struct.pack("<H", 0)
-    body = rect + frame_info + end_tag
-    # File length = 8 (header) + body
-    total = 8 + len(body)
-    struct.pack_into("<I", header, 4, total)
-    return bytes(header) + body
-
-
-def _make_fws_with_shape(char_id: int = 42) -> bytes:
-    """Build a FWS with one DefinedShape (tag code 2) containing *char_id*."""
-    header = bytearray(b"FWS\x0a\x00\x00\x00\x00")
-    rect = bytes([0b00000_000])
-    frame_info = b"\x00\x01\x01\x00"
-
-    # DefinedShape payload: just the character ID (2 bytes) — will be too
-    # short for _parse_shape to produce real contours, but enough to test
-    # iteration picks it up.
-    payload = struct.pack("<H", char_id)
-    tag_code = 2
-    rec = (tag_code << 6) | (len(payload) & 0x3F)
-    shape_tag = struct.pack("<H", rec) + payload
-
-    end_tag = struct.pack("<H", 0)
-    body = rect + frame_info + shape_tag + end_tag
-    total = 8 + len(body)
-    struct.pack_into("<I", header, 4, total)
-    return bytes(header) + body
-
-
-class TestIterateSwfTags:
-    def test_empty_data(self):
-        assert list(_iterate_swf_tags(b"")) == []
-
-    def test_bad_signature(self):
-        assert list(_iterate_swf_tags(b"XYZ\x0a" + b"\x00" * 20)) == []
-
-    def test_minimal_fws_yields_end_tag(self):
-        tags = list(_iterate_swf_tags(_make_minimal_fws()))
-        assert len(tags) == 1
-        code, payload = tags[0]
-        assert code == 0  # End tag
-
-    def test_fws_with_shape_tag(self):
-        data = _make_fws_with_shape(char_id=99)
-        tags = list(_iterate_swf_tags(data))
-        # Should have DefinedShape + End
-        codes = [t[0] for t in tags]
-        assert 2 in codes
-        # The shape payload should start with the char_id
-        for code, payload in tags:
-            if code == 2:
-                cid = struct.unpack_from("<H", payload, 0)[0]
-                assert cid == 99
 
 
 class TestExtractFromZip:
@@ -141,7 +72,7 @@ class TestEnsureDefinedShapes:
             "mewgenics.utils.shape_extractor._DEFINED_SHAPES_DIR", shapes_dir
         )
         # Should return without trying anything
-        ensure_defined_shapes(None)
+        ensure_defined_shapes()
         # No crash = success
 
     def test_extracts_from_zip_when_cache_empty(self, tmp_path, monkeypatch):
@@ -163,6 +94,6 @@ class TestEnsureDefinedShapes:
             tmp_path / "CatAssets",
         )
 
-        ensure_defined_shapes(None)
+        ensure_defined_shapes()
         extracted = sum(1 for f in shapes_dir.iterdir() if f.suffix == ".png")
         assert extracted >= _MIN_CACHED_SHAPES

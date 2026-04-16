@@ -92,29 +92,51 @@ def _select_room_pairs_pure(
     if not candidate_pairs:
         return (0.0, 0)
 
-    # Bitmask DP for best non-overlapping matching
-    @lru_cache(maxsize=None)
-    def _best(mask: int) -> tuple[int, float, float, tuple[tuple[int, int], ...]]:
-        if mask.bit_count() < 2:
-            return (0, 0.0, 0.0, ())
-        first_bit = mask & -mask
-        first_idx = first_bit.bit_length() - 1
-        best = _best(mask ^ (1 << first_idx))
-        for second_idx in range(first_idx + 1, n):
-            if not (mask & (1 << second_idx)):
-                continue
-            cp = candidate_pairs.get((first_idx, second_idx))
-            if cp is None:
-                continue
-            q, r = cp
-            remainder = _best(mask ^ (1 << first_idx) ^ (1 << second_idx))
-            cand = (remainder[0] + 1, remainder[1] + q, remainder[2] + r,
-                    ((first_idx, second_idx),) + remainder[3])
-            if (cand[0], cand[1], -cand[2]) > (best[0], best[1], -best[2]):
-                best = cand
-        return best
+    # Maximum cats in a room before falling back to greedy pair selection.
+    # Must match the value in optimizer.py — duplicated here because this
+    # module runs in ProcessPoolExecutor workers without importing optimizer.
+    _MAX_DP_CATS = 22
 
-    count, total_q, _, _ = _best((1 << n) - 1)
+    if n <= _MAX_DP_CATS:
+        # Exact bitmask DP — optimal but exponential in room size.
+        @lru_cache(maxsize=None)
+        def _best(mask: int) -> tuple[int, float, float, tuple[tuple[int, int], ...]]:
+            if mask.bit_count() < 2:
+                return (0, 0.0, 0.0, ())
+            first_bit = mask & -mask
+            first_idx = first_bit.bit_length() - 1
+            best = _best(mask ^ (1 << first_idx))
+            for second_idx in range(first_idx + 1, n):
+                if not (mask & (1 << second_idx)):
+                    continue
+                cp = candidate_pairs.get((first_idx, second_idx))
+                if cp is None:
+                    continue
+                q, r = cp
+                remainder = _best(mask ^ (1 << first_idx) ^ (1 << second_idx))
+                cand = (remainder[0] + 1, remainder[1] + q, remainder[2] + r,
+                        ((first_idx, second_idx),) + remainder[3])
+                if (cand[0], cand[1], -cand[2]) > (best[0], best[1], -best[2]):
+                    best = cand
+            return best
+
+        count, total_q, _, _ = _best((1 << n) - 1)
+    else:
+        # Greedy fallback for large rooms — O(P log P) instead of O(2^N).
+        sorted_candidates = sorted(
+            candidate_pairs.items(),
+            key=lambda item: (-item[1][0], item[1][1]),  # -quality, +risk
+        )
+        used_indices: set[int] = set()
+        total_q = 0.0
+        count = 0
+        for (i, j), (q, r) in sorted_candidates:
+            if i not in used_indices and j not in used_indices:
+                total_q += q
+                count += 1
+                used_indices.add(i)
+                used_indices.add(j)
+
     return (total_q, count)
 
 
@@ -343,12 +365,16 @@ def run_parallel_sa(
     sa_cooling_rate: float,
     sa_neighbors_per_temp: int,
     n_chains: int = 0,
+    cancel_check=None,
 ) -> dict[int, str]:
     """Run multiple SA chains in parallel and return the best result.
 
     ``n_chains=0`` (default) auto-detects ``min(cpu_count, 4)``.
     ``n_chains=1`` runs a single chain in-process (no subprocess overhead).
+    *cancel_check* is an optional callable; when it returns True the solver
+    returns the best result found so far.
     """
+    _cancelled = cancel_check or (lambda: False)
     if n_chains <= 0:
         n_chains = _DEFAULT_SA_CHAINS
 
@@ -375,6 +401,9 @@ def run_parallel_sa(
         sa_neighbors_per_temp=sa_neighbors_per_temp,
     )
 
+    if _cancelled():
+        return dict(initial_state)
+
     if n_chains == 1:
         best_state, _ = _sa_chain(**kwargs, seed=0)
         return best_state
@@ -388,6 +417,11 @@ def run_parallel_sa(
             for i in range(n_chains)
         }
         for future in as_completed(futures):
+            if _cancelled():
+                for f in futures:
+                    f.cancel()
+                pool.shutdown(wait=False, cancel_futures=True)
+                break
             try:
                 state, score = future.result()
                 if score > best_score:
@@ -425,6 +459,17 @@ def _p7p_sa_chain(
 
     neighbors_per_temp = max(1, int(sa_neighbors))
 
+    # Pre-build index: cat_key -> set of pair_indices that involve that cat.
+    # _candidate_pool previously did an O(P) linear scan per call; with this
+    # index it becomes O(|used_cats| * avg_pairs_per_cat) — critical for large
+    # rosters where P can be in the tens of thousands.
+    _cat_to_pairs: dict[int, set[int]] = {}
+    for p in pair_data:
+        pid = p["pair_index"]
+        _cat_to_pairs.setdefault(p["cat_a_key"], set()).add(pid)
+        _cat_to_pairs.setdefault(p["cat_b_key"], set()).add(pid)
+    _all_pair_ids: set[int] = set(pair_by_id.keys())
+
     def _state_key(ids: list[int]) -> list[int]:
         return sorted(ids)
 
@@ -445,15 +490,10 @@ def _p7p_sa_chain(
         return used
 
     def _candidate_pool(blocked: set[int], used_cats: set[int]) -> list[int]:
-        cands: list[int] = []
-        for p in pair_data:
-            pid = p["pair_index"]
-            if pid in blocked:
-                continue
-            if {p["cat_a_key"], p["cat_b_key"]} & used_cats:
-                continue
-            cands.append(pid)
-        return cands
+        excluded = set(blocked)
+        for cat_key in used_cats:
+            excluded.update(_cat_to_pairs.get(cat_key, set()))
+        return list(_all_pair_ids - excluded)
 
     def _neighbor(ids: list[int]) -> list[int] | None:
         if not ids:

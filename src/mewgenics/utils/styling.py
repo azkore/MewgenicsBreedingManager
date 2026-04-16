@@ -6,10 +6,10 @@ from PySide6.QtWidgets import (
     QWidget, QLabel, QFrame, QVBoxLayout, QPushButton,
     QTableWidget, QTableView, QHeaderView,
 )
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QFont
 
 from mewgenics.constants import (
-    _CHIP_STYLE, _DEFECT_CHIP_STYLE, _SEC_STYLE, _DETAIL_TEXT_STYLE, _SIDEBAR_BTN,
+    _CHIP_STYLE, _CHIP_UPGRADED_STYLE, _DEFECT_CHIP_STYLE, _SEC_STYLE, _DETAIL_TEXT_STYLE, _SIDEBAR_BTN,
 )
 
 
@@ -85,6 +85,14 @@ def _chip(text: str, tooltip: str = "") -> QLabel:
     return lbl
 
 
+def _upgraded_chip(text: str, tooltip: str = "") -> QLabel:
+    lbl = QLabel(text)
+    lbl.setStyleSheet(_CHIP_UPGRADED_STYLE)
+    if tooltip:
+        lbl.setToolTip(tooltip)
+    return lbl
+
+
 def _defect_chip(text: str, tooltip: str = "") -> QLabel:
     lbl = QLabel(text)
     lbl.setStyleSheet(_DEFECT_CHIP_STYLE)
@@ -96,6 +104,12 @@ def _defect_chip(text: str, tooltip: str = "") -> QLabel:
 def _sec(text: str) -> QLabel:
     lbl = QLabel(text)
     lbl.setStyleSheet(_SEC_STYLE)
+    # Qt QSS doesn't support letter-spacing; apply tracking via QFont so
+    # section headers keep their spaced-out look without emitting
+    # "Could not parse stylesheet" warnings on every construction.
+    font = lbl.font()
+    font.setLetterSpacing(QFont.AbsoluteSpacing, 1.0)
+    lbl.setFont(font)
     return lbl
 
 

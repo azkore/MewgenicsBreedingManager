@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 from collections import deque
 
-from visual_mutation_catalog import load_visual_mutation_names
+from visual_mutation_catalog import load_visual_mutation_names, VISUAL_MUTATION_NAMES
 
 logger = logging.getLogger("mewgenics.parser")
 
@@ -338,28 +338,94 @@ class GameData:
 # Populated at runtime via set_visual_mut_data() from the main module.
 _VISUAL_MUT_DATA: dict[str, dict[int, tuple[str, str]]] = {}
 
+# Mutation names that map to multiple body parts in the catalog — these must
+# always be disambiguated with a slot label even when a cat only has one.
+_name_to_parts: dict[str, set[str]] = {}
+for (_cat_part, _mid), _mname in VISUAL_MUTATION_NAMES.items():
+    _name_to_parts.setdefault(_mname, set()).add(_cat_part)
+_GLOBALLY_AMBIGUOUS_MUTATION_NAMES: frozenset[str] = frozenset(
+    n for n, parts in _name_to_parts.items() if len(parts) > 1
+)
+del _name_to_parts, _cat_part, _mid, _mname
+
 
 def set_visual_mut_data(data: dict[str, dict[int, tuple[str, str]]]):
     """Update the visual mutation lookup data (called after gpak loading)."""
-    global _VISUAL_MUT_DATA
+    global _VISUAL_MUT_DATA, _GLOBALLY_AMBIGUOUS_MUTATION_NAMES
     _VISUAL_MUT_DATA = data
+    # Extend ambiguous set with GPAK names that appear across categories
+    gpak_name_cats: dict[str, set[str]] = {}
+    for category, muts in data.items():
+        for mid, (name, _desc) in muts.items():
+            name = str(name).strip()
+            if name:
+                gpak_name_cats.setdefault(name, set()).add(category)
+    gpak_ambiguous = frozenset(n for n, cats in gpak_name_cats.items() if len(cats) > 1)
+    _GLOBALLY_AMBIGUOUS_MUTATION_NAMES = _GLOBALLY_AMBIGUOUS_MUTATION_NAMES | gpak_ambiguous
 
 
 def _load_gpak_text_strings(file_obj, file_offsets: dict[str, tuple[int, int]]) -> dict[str, str]:
-    """Read the embedded text table from a resources.gpak file."""
+    """Read every CSV text table from a resources.gpak file into one dict.
+
+    Game CSVs are multi-column ``KEY,en,pl,ru,zh_CN`` files — the previous
+    implementation used ``line.split(',', 1)`` which stored every localized
+    column as one concatenated value, so mutation descriptions rendered as
+    ``"Blue Fur,Fur Azul,Синий Мех,藍毛"`` with every language glued
+    together. That then confused downstream consumers that tried to recover
+    the English text by splitting on commas, which cropped any English
+    description that legitimately contained a comma (e.g. "+2 STR, -1 DEX").
+
+    The fix: parse each CSV with :class:`csv.DictReader`, read only the
+    ``en`` column (falling back to the first non-KEY, non-notes column when
+    ``en`` is missing). Legacy single-value files that have no header row
+    fall back to the old split-on-first-comma behaviour so 2-column key/value
+    tables still work.
+    """
     game_strings: dict[str, str] = {}
     for fname, (offset, size) in file_offsets.items():
         if not fname.endswith(".csv"):
             continue
         file_obj.seek(offset)
-        text = file_obj.read(size).decode("utf-8", errors="replace")
+        text = file_obj.read(size).decode("utf-8-sig", errors="replace")
+
+        # Try structured CSV parsing first.
+        parsed_any = False
+        try:
+            reader = csv.DictReader(io.StringIO(text))
+            fieldnames = reader.fieldnames or []
+            if fieldnames and "KEY" in fieldnames:
+                value_columns = [c for c in fieldnames if c not in ("KEY", "notes")]
+                preferred = "en" if "en" in value_columns else (value_columns[0] if value_columns else None)
+                for row in reader:
+                    key = (row.get("KEY") or "").strip()
+                    if not key:
+                        continue
+                    value = ""
+                    if preferred:
+                        value = (row.get(preferred) or "").strip()
+                    if not value:
+                        for column in value_columns:
+                            candidate = (row.get(column) or "").strip()
+                            if candidate:
+                                value = candidate
+                                break
+                    if value:
+                        game_strings[key] = _extract_primary_language_text(html.unescape(value))
+                        parsed_any = True
+        except Exception:
+            parsed_any = False
+
+        if parsed_any:
+            continue
+
+        # Legacy fallback — headerless 2-column "key,value" file.
         for line in text.splitlines():
             parts = line.split(",", 1)
             if len(parts) != 2:
                 continue
             key, value = parts[0].strip(), parts[1].strip()
-            if key:
-                game_strings[key] = value
+            if key and value:
+                game_strings[key] = _extract_primary_language_text(html.unescape(value))
     return game_strings
 
 
@@ -389,15 +455,18 @@ def _load_gpak_csv_strings(
             continue
         value = (row.get(value_column) or "").strip()
         if not value:
+            # Fall back to the first non-key, non-notes column with a value.
+            # (The previous implementation had mis-indented break/if that
+            # abandoned the outer row iteration after the first fallback hit.)
             for column in reader.fieldnames:
                 if column in {key_column, "notes"}:
                     continue
                 candidate = (row.get(column) or "").strip()
-            if candidate:
-                value = candidate
-                break
+                if candidate:
+                    value = candidate
+                    break
         if value:
-            values[key] = html.unescape(value)
+            values[key] = _extract_primary_language_text(html.unescape(value))
     return values
 
 
@@ -482,7 +551,50 @@ def _resolve_game_string(value: str, game_strings: dict[str, str]) -> str:
         if next_value is None:
             break
         current = next_value.strip()
-    return current
+    return _extract_primary_language_text(current)
+
+
+def _extract_primary_language_text(value: str) -> str:
+    """Return the primary-language segment from packed localized strings."""
+    text = str(value or "").replace("\u00a0", " ").strip()
+    if not text:
+        return ""
+
+    # Common packed format where languages are concatenated with triple bars.
+    if "|||" in text:
+        first = text.split("|||", 1)[0].strip()
+        return first or text
+
+    lang_token = r"(?:en(?:[-_](?:us|gb))?|english|ru|russian|pl|polish|zh(?:[-_]cn)?|chinese|ja|japanese|ko|korean)"
+    token_prefix = re.compile(rf"^\s*(?:\[{lang_token}\]|{lang_token})\s*[:=\-]\s*", flags=re.IGNORECASE)
+    token_anywhere = re.compile(rf"(?:^|\s*[|/;]\s*)(?:\[{lang_token}\]|{lang_token})\s*[:=\-]\s*", flags=re.IGNORECASE)
+
+    if token_anywhere.search(text):
+        chunks = [chunk.strip() for chunk in re.split(r"\s*[|/;]\s*", text) if chunk.strip()]
+        parsed: list[tuple[str, str]] = []
+        for chunk in chunks:
+            match = re.match(
+                rf"^\s*(?:\[(?P<btag>{lang_token})\]|(?P<tag>{lang_token}))\s*[:=\-]\s*(?P<body>.+)$",
+                chunk,
+                flags=re.IGNORECASE,
+            )
+            if not match:
+                continue
+            tag = (match.group("btag") or match.group("tag") or "").strip().lower()
+            body = (match.group("body") or "").strip()
+            if body:
+                parsed.append((tag, body))
+        if parsed:
+            for tag, body in parsed:
+                if tag.startswith("en") or tag == "english":
+                    return body
+            return parsed[0][1]
+
+    if token_prefix.match(text):
+        cleaned = token_prefix.sub("", text, count=1).strip()
+        return cleaned or text
+
+    return text
 
 
 def _parse_mutation_gon(
@@ -847,11 +959,18 @@ def _read_visual_mutation_entries(table: list[int]) -> list[dict[str, object]]:
             continue
 
         part_label = _VISUAL_MUTATION_PART_LABELS.get(group_key, slot_label)
+        is_defect = (700 <= mutation_id <= 706) or mutation_id == 0xFFFF_FFFE
         display_name = ""
         detail = ""
         source = "generic"
         catalog_name = fallback_names.get((fallback_part, mutation_id))
         gpak_info = _VISUAL_MUT_DATA.get(gpak_category, {}).get(mutation_id)
+        # Skip base/default part IDs — real mutations have gpak_info or a
+        # catalog entry, or the special "missing part" sentinel. Low IDs
+        # (< 300) without a lookup are the cat's base sprite selection,
+        # not a mutation, and must not appear in the mutation chip list.
+        if gpak_info is None and catalog_name is None and mutation_id != 0xFFFF_FFFE:
+            continue
         if gpak_info:
             raw_name, stat_desc = gpak_info
             raw_name = str(raw_name).strip()
@@ -863,7 +982,8 @@ def _read_visual_mutation_entries(table: list[int]) -> list[dict[str, object]]:
                 display_name = str(catalog_name).strip()
                 source = f"catalog:{fallback_part}"
             else:
-                display_name = f"{part_label} Mutation"
+                base = f"{part_label} Mutation"
+                display_name = f"{base} {stat_desc}" if stat_desc else base
                 source = f"generic:{gpak_category}"
         elif catalog_name:
             display_name = str(catalog_name).strip()
@@ -874,7 +994,9 @@ def _read_visual_mutation_entries(table: list[int]) -> list[dict[str, object]]:
             else:
                 display_name = f"{part_label} {mutation_id}"
 
-        is_defect = (700 <= mutation_id <= 706) or mutation_id == 0xFFFF_FFFE
+        if is_defect:
+            # Defects are shown in-game as part-level defect labels.
+            display_name = f"{part_label} Birth Defect"
 
         display_name = str(display_name).strip() or f"{slot_label} {mutation_id}"
         if logger.isEnabledFor(logging.DEBUG) and (verbose_logs or not _is_synthetic_visual_mutation_name(display_name, part_label, slot_label, mutation_id)):
@@ -899,6 +1021,71 @@ def _read_visual_mutation_entries(table: list[int]) -> list[dict[str, object]]:
             "is_defect": is_defect,
         })
     return entries
+
+
+# Regex used to extract per-stat deltas from a mutation/defect detail string
+# like "+1 LCK", "-1 SPD, +2 LCK" or "+2 CON, -1 DEX". Only the 7 core stats
+# are recognized — things like "+1 Range" or "+1 Charge" are deliberately
+# ignored because they don't feed into the Total Stats sum.
+_MUTATION_STAT_ALIASES: dict[str, str] = {
+    "STR": "STR", "STRENGTH": "STR",
+    "DEX": "DEX", "DEXTERITY": "DEX",
+    "CON": "CON", "CONSTITUTION": "CON",
+    "INT": "INT", "INTELLIGENCE": "INT",
+    "SPD": "SPD", "SPEED": "SPD",
+    "CHA": "CHA", "CHARISMA": "CHA",
+    "LCK": "LCK", "LUCK": "LCK",
+}
+_MUTATION_STAT_RE = re.compile(
+    r"(?P<sign>[+-])\s*(?P<value>\d+)\s*"
+    r"(?P<label>" + "|".join(sorted(_MUTATION_STAT_ALIASES, key=len, reverse=True)) + r")\b",
+    re.IGNORECASE,
+)
+
+
+def _parse_mutation_stat_delta(detail: str) -> dict[str, int]:
+    """Parse stat deltas from a mutation/defect detail string.
+
+    Returns {stat: delta} with stat ∈ STAT_NAMES. Non-stat effects such as
+    "+1 Range", "+1 Reach" or free-form text are ignored. Examples::
+
+        '+1 LCK'            -> {'LCK': 1}
+        '-1 SPD, +2 LCK'    -> {'SPD': -1, 'LCK': 2}
+        '+1 Range'          -> {}
+    """
+    if not detail:
+        return {}
+    deltas: dict[str, int] = {}
+    for match in _MUTATION_STAT_RE.finditer(str(detail)):
+        key = _MUTATION_STAT_ALIASES.get(match.group("label").upper())
+        if not key:
+            continue
+        try:
+            amount = int(match.group("sign") + match.group("value"))
+        except Exception:
+            continue
+        deltas[key] = deltas.get(key, 0) + amount
+    return deltas
+
+
+def _mutation_stat_bonus_from_entries(entries: list[dict[str, object]]) -> dict[str, int]:
+    """Sum mutation stat deltas across all unique visual mutations.
+
+    Paired body parts (e.g. ``arm_L`` + ``arm_R``) that share the same
+    mutation id represent a single mutation affecting both slots and are
+    therefore counted once, matching how the UI merges them into one chip.
+    """
+    bonus: dict[str, int] = {name: 0 for name in STAT_NAMES}
+    seen: set[tuple[str, int]] = set()
+    for entry in entries or []:
+        key = (str(entry.get("group_key") or ""), int(entry.get("mutation_id") or 0))
+        if key in seen:
+            continue
+        seen.add(key)
+        deltas = _parse_mutation_stat_delta(str(entry.get("detail") or ""))
+        for stat, delta in deltas.items():
+            bonus[stat] = bonus.get(stat, 0) + delta
+    return bonus
 
 
 def _is_synthetic_visual_mutation_name(display_name: str, part_label: str, slot_label: str, mutation_id: int) -> bool:
@@ -945,7 +1132,7 @@ def _visual_mutation_chip_items(entries: list[dict[str, object]]) -> list[tuple[
         kind = "Birth Defect" if is_defect else "Mutation"
         id_str = "-2" if mutation_id == 0xFFFF_FFFE else str(mutation_id)
         tooltip = f"{title_label} {kind} (ID {id_str})\n{name}"
-        if detail:
+        if detail and detail not in name:
             tooltip = f"{tooltip}\n{detail}"
         if len(slot_labels) > 1:
             tooltip = f"{tooltip}\nAffects: {', '.join(slot_labels)}"
@@ -964,7 +1151,7 @@ def _visual_mutation_chip_items(entries: list[dict[str, object]]) -> list[tuple[
     chip_items: list[tuple[str, str, bool]] = []
     for group in groups:
         text = str(group["text"])
-        if text_counts[text] > 1:
+        if text_counts[text] > 1 or text in _GLOBALLY_AMBIGUOUS_MUTATION_NAMES:
             text = f"{text} ({' / '.join(group['slot_labels'])})"
         chip_items.append((text, str(group["tooltip"]), bool(group["is_defect"])))
     return chip_items
@@ -999,7 +1186,7 @@ def _appearance_preview_text(a_names: list[str], b_names: list[str]) -> str:
 
 
 def _stimulation_inheritance_weight(stimulation: float) -> float:
-    stim = max(0.0, min(100.0, float(stimulation)))
+    stim = float(stimulation)
     return (1.0 + 0.01 * stim) / (2.0 + 0.01 * stim)
 
 
@@ -1348,9 +1535,21 @@ class Cat:
         self.stat_mod  = [r.i32() for _ in range(7)]
         self.stat_sec  = [r.i32() for _ in range(7)]
 
+        # Visual mutations grant stat bonuses described in their detail
+        # string (e.g. "+2 CON, -1 DEX"). The game applies these on top of
+        # stat_base/stat_mod/stat_sec at the character-sheet level — the
+        # save file does not roll them into any of those three fields — so
+        # we parse the deltas from visual_mutation_entries and fold them
+        # into total_stats here. base_stats is deliberately left alone: it
+        # represents the cat's unmodified birth stats used for breeding
+        # math, which mutations do not change.
+        self.mutation_stat_bonus = _mutation_stat_bonus_from_entries(visual_entries)
+
         self.base_stats  = {n: self.stat_base[i] for i, n in enumerate(STAT_NAMES)}
-        self.total_stats = {n: self.stat_base[i] + self.stat_mod[i] + self.stat_sec[i]
-                            for i, n in enumerate(STAT_NAMES)}
+        self.total_stats = {
+            n: self.stat_base[i] + self.stat_mod[i] + self.stat_sec[i] + self.mutation_stat_bonus.get(n, 0)
+            for i, n in enumerate(STAT_NAMES)
+        }
         self.parsed_stats = dict(self.base_stats)
 
         # Personality stats (age, aggression, libido, inbredness).
@@ -1429,8 +1628,11 @@ class Cat:
                 if _valid_str(ri):
                     passives.append(ri)
 
+            passive_tiers: dict[str, int] = {}
             try:
-                r.u32()   # passive1 tier — discard
+                passive1_tier = r.u32()
+                if passives:
+                    passive_tiers[passives[0]] = passive1_tier
             except Exception:
                 logger.debug("Cat %s: passive1 tier read failed", cat_key, exc_info=True)
 
@@ -1448,12 +1650,15 @@ class Cat:
                     else:
                         disorders.append(item)
                 try:
-                    r.u32()
+                    slot_tier = r.u32()
+                    if tail_idx == 0 and item is not None and _IDENT_RE.match(item) and _valid_str(item):
+                        passive_tiers[item] = slot_tier
                 except Exception:
                     logger.debug("Cat %s: tail slot %d tier read failed", cat_key, tail_idx, exc_info=True)
                     break
 
             self.passive_abilities = passives
+            self.passive_tiers = passive_tiers
             self.disorders = disorders
             self.equipment = []
 
@@ -1475,6 +1680,7 @@ class Cat:
             self.equipment = [s for s in [r.str() for _ in range(4)] if _valid_str(s)]
 
             self.passive_abilities = []
+            self.passive_tiers = {}
             self.disorders = []
             first = r.str()
             if _valid_str(first):
@@ -1539,6 +1745,20 @@ class Cat:
     @property
     def can_move(self) -> bool:
         return self.status == "In House"
+
+    @property
+    def has_adventured(self) -> bool:
+        """Return True if this cat has been on at least one adventure.
+
+        Adventure leveling writes non-zero values to ``stat_mod`` (per-stat
+        int32 deltas). A freshly-hatched cat has all zeros; any cat that
+        has levelled at least once will have at least one positive entry.
+        The game's accessible-cat hash table leaves retired cats as
+        "accessible", so the Adv Ready column needs this extra filter to
+        avoid marking retirees as ready.
+        """
+        stat_mod = getattr(self, "stat_mod", None) or []
+        return any(int(x) != 0 for x in stat_mod)
 
     @property
     def short_name(self) -> str:
@@ -1796,28 +2016,81 @@ def _coi_from_contribs(
 _KINSHIP_CYCLE = object()  # sentinel for cycle detection
 
 
-def _kinship(a: Optional['Cat'], b: Optional['Cat'],
+def _kinship(start_a: Optional['Cat'], start_b: Optional['Cat'],
              memo: dict[tuple[int, int], float]) -> float:
     """
     Memoised kinship coefficient between two cats.
+    Converted to iterative stack-based evaluation to avoid RecursionError.
     """
-    if a is None or b is None:
+    if start_a is None or start_b is None:
         return 0.0
-    ia, ib = id(a), id(b)
-    key = (ia, ib) if ia <= ib else (ib, ia)
-    cached = memo.get(key)
-    if cached is not None:
-        return 0.0 if cached is _KINSHIP_CYCLE else cached
-    memo[key] = _KINSHIP_CYCLE  # mark in-progress to detect cycles
-    if a is b:
-        result = (1.0 + _kinship(a.parent_a, a.parent_b, memo)) / 2.0
-    else:
-        if a.generation > b.generation:
-            result = (_kinship(a.parent_a, b, memo) + _kinship(a.parent_b, b, memo)) / 2.0
+
+    stack = [(start_a, start_b, False)]
+
+    while stack:
+        a, b, processed = stack.pop()
+        
+        ia, ib = id(a), id(b)
+        key = (ia, ib) if ia <= ib else (ib, ia)
+
+        if processed:
+            # Both sides evaluated. Compute local value
+            if a is b:
+                ka = 0.0
+                if a.parent_a and a.parent_b:
+                    pak = (id(a.parent_a), id(a.parent_b)) if id(a.parent_a) <= id(a.parent_b) else (id(a.parent_b), id(a.parent_a))
+                    v = memo.get(pak)
+                    if v is not None and v is not _KINSHIP_CYCLE: ka = v
+                memo[key] = (1.0 + ka) / 2.0
+            elif a.generation > b.generation:
+                k1, k2 = 0.0, 0.0
+                if a.parent_a:
+                    k1k = (id(a.parent_a), id(b)) if id(a.parent_a) <= id(b) else (id(b), id(a.parent_a))
+                    v = memo.get(k1k)
+                    if v is not None and v is not _KINSHIP_CYCLE: k1 = v
+                if a.parent_b:
+                    k2k = (id(a.parent_b), id(b)) if id(a.parent_b) <= id(b) else (id(b), id(a.parent_b))
+                    v = memo.get(k2k)
+                    if v is not None and v is not _KINSHIP_CYCLE: k2 = v
+                memo[key] = (k1 + k2) / 2.0
+            else:
+                k1, k2 = 0.0, 0.0
+                if b.parent_a:
+                    k1k = (id(a), id(b.parent_a)) if id(a) <= id(b.parent_a) else (id(b.parent_a), id(a))
+                    v = memo.get(k1k)
+                    if v is not None and v is not _KINSHIP_CYCLE: k1 = v
+                if b.parent_b:
+                    k2k = (id(a), id(b.parent_b)) if id(a) <= id(b.parent_b) else (id(b.parent_b), id(a))
+                    v = memo.get(k2k)
+                    if v is not None and v is not _KINSHIP_CYCLE: k2 = v
+                memo[key] = (k1 + k2) / 2.0
+            continue
+
+        cached = memo.get(key)
+        if cached is not None:
+            continue
+
+        memo[key] = _KINSHIP_CYCLE
+        stack.append((a, b, True))
+
+        if a is b:
+            if a.parent_a and a.parent_b:
+                stack.append((a.parent_a, a.parent_b, False))
+        elif a.generation > b.generation:
+            if a.parent_a:
+                stack.append((a.parent_a, b, False))
+            if a.parent_b:
+                stack.append((a.parent_b, b, False))
         else:
-            result = (_kinship(a, b.parent_a, memo) + _kinship(a, b.parent_b, memo)) / 2.0
-    memo[key] = result
-    return result
+            if b.parent_a:
+                stack.append((a, b.parent_a, False))
+            if b.parent_b:
+                stack.append((a, b.parent_b, False))
+
+    ska, skb = id(start_a), id(start_b)
+    skey = (ska, skb) if ska <= skb else (skb, ska)
+    v = memo.get(skey)
+    return 0.0 if v is None or v is _KINSHIP_CYCLE else v
 
 
 def kinship_coi(a: Optional['Cat'], b: Optional['Cat'],
@@ -1886,35 +2159,45 @@ def get_grandparents(cat: Cat) -> list[Cat]:
 
 
 def can_breed(a: Cat, b: Cat) -> tuple[bool, str]:
-    """Return (ok, reason). reason is non-empty only when ok is False."""
+    """Return (ok, reason). reason is non-empty only when ok is False.
+
+    The game uses a continuous sexuality_mult rather than hard-blocking:
+      - Male-female: sexuality_mult = cos(0.5*pi * sexuality_coeff)
+      - Same-sex:    sexuality_mult = sin(0.5*pi * sexuality_coeff)
+    Even 'straight' cats (coeff ~0.05) have a small nonzero sin value, so
+    same-sex breeding is technically possible with enough charisma.  We still
+    flag near-zero compatibility as a *warning* rather than a hard block.
+    """
     if a is b:
         return False, "Cannot pair a cat with itself"
     ga = (a.gender or "?").strip().lower()
     gb = (b.gender or "?").strip().lower()
 
-    # Sexuality check
-    sa = (getattr(a, "sexuality", None) or "straight").lower()
-    sb = (getattr(b, "sexuality", None) or "straight").lower()
-
     if ga == "?" or gb == "?":
         return True, ""
 
-    if ga != "?" and gb != "?":
-        same_gender = ga == gb
-        if same_gender:
-            # Same-sex pairs need both cats to allow same-sex breeding.
-            if sa == "straight" or sb == "straight":
-                if sa == "straight":
-                    return False, f"{a.name} is straight — needs opposite-gender partner"
-                return False, f"{b.name} is straight — needs opposite-gender partner"
-            return True, ""
-
-        # Opposite-sex pairs need both cats to allow opposite-sex breeding.
-        if sa == "gay" or sb == "gay":
-            if sa == "gay":
-                return False, f"{a.name} is gay — needs same-gender partner"
-            return False, f"{b.name} is gay — needs same-gender partner"
+    same_gender = ga == gb
+    if same_gender:
+        sa = (getattr(a, "sexuality", None) or "straight").lower()
+        sb = (getattr(b, "sexuality", None) or "straight").lower()
+        if sa == "straight" and sb == "straight":
+            return False, f"Both cats are straight — very low same-sex compatibility"
+        if sa == "straight":
+            return True, f"{a.name} is straight — very low same-sex compatibility"
+        if sb == "straight":
+            return True, f"{b.name} is straight — very low same-sex compatibility"
         return True, ""
+
+    # Opposite-sex pair
+    sa = (getattr(a, "sexuality", None) or "straight").lower()
+    sb = (getattr(b, "sexuality", None) or "straight").lower()
+    if sa == "gay" and sb == "gay":
+        return False, f"Both cats are gay — very low opposite-sex compatibility"
+    if sa == "gay":
+        return True, f"{a.name} is gay — very low opposite-sex compatibility"
+    if sb == "gay":
+        return True, f"{b.name} is gay — very low opposite-sex compatibility"
+    return True, ""
 
 
 def _is_hater_pair(a: 'Cat', b: 'Cat') -> bool:
@@ -2249,31 +2532,37 @@ def parse_save(path: str) -> SaveData:
             if parent is not None and cat not in parent.children:
                 parent.children.append(cat)
 
-    # Compute generation depth (iterative; handles cycles)
+    # Compute generation depth (O(V) using explicit stack DFS)
     for c in cats:
-        c.generation = 0 if (c.parent_a is None and c.parent_b is None) else -1
+        c.generation = -1
 
-    for _ in range(len(cats) + 1):
-        changed = False
-        for c in cats:
-            pa_g = c.parent_a.generation if c.parent_a is not None else -1
-            pb_g = c.parent_b.generation if c.parent_b is not None else -1
+    def _calc_gen(start_cat):
+        if start_cat.generation >= 0:
+            return
+        
+        stack = [(start_cat, False)]
+        while stack:
+            c, children_processed = stack.pop()
+            
+            if children_processed:
+                pa_g = c.parent_a.generation if c.parent_a is not None else -1
+                pb_g = c.parent_b.generation if c.parent_b is not None else -1
+                
+                # If both parents are missing/broken in the graph, it's a stray (gen 0).
+                if c.parent_a is None and c.parent_b is None:
+                    c.generation = 0
+                else:
+                    g = max(pa_g, pb_g) + 1
+                    c.generation = g if (pa_g >= 0 or pb_g >= 0) else 0
+                continue
+                
+            stack.append((c, True))
+            for p in (c.parent_a, c.parent_b):
+                if p is not None and p.generation < 0:
+                    stack.append((p, False))
 
-            if pa_g >= 0 or pb_g >= 0:
-                g = max(pa_g, pb_g) + 1
-                if c.generation != g:
-                    c.generation = g
-                    changed = True
-
-        if not changed:
-            break
-
-    # Cats whose generation couldn't be resolved (both parents missing/broken)
-    # default to generation 0 (stray). This is intentional — the iterative
-    # algorithm above converges for valid pedigrees; stragglers are strays.
     for c in cats:
-        if c.generation < 0:
-            c.generation = 0
+        _calc_gen(c)
 
     return SaveData(
         cats=cats,
