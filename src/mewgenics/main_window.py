@@ -2170,7 +2170,7 @@ class MainWindow(QMainWindow):
         self._furniture_view = FurnitureView(self)
         self._furniture_view.hide()
         self._content_vb.addWidget(self._furniture_view, 1)
-        self._push_cats_to_view_if_loaded("furniture", self._furniture_view)
+        # FurnitureView uses set_context(), not set_cats() — pushed in _on_save_loaded
 
     def _ensure_calibration_view(self):
         if self._calibration_view is not None:
@@ -2179,7 +2179,7 @@ class MainWindow(QMainWindow):
         self._calibration_view.calibrationChanged.connect(self._on_calibration_changed)
         self._calibration_view.hide()
         self._content_vb.addWidget(self._calibration_view, 1)
-        self._push_cats_to_view_if_loaded("calibration", self._calibration_view)
+        # CalibrationView uses set_context(), not set_cats() — pushed in _on_save_loaded
 
     def _build_all_views(self):
         """Build all secondary views eagerly during init."""
