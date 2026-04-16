@@ -810,10 +810,10 @@ class WhatsNewDialog(QDialog):
         )
 
         default_highlights = highlights or [
-            "New Automatic Scoring view — ranks every cat with a configurable breed priority score based on stat rarity, genetic risk, trait ratings, personality, and more. Includes heatmap, scope filtering, and 5 weight profiles.",
-            "Shared Trait Ratings — rate abilities and mutations as Top Priority, Desirable, or Undesirable. Ratings are shared between Automatic and Manual Scoring views via 5-slot profiles.",
-            "Background scoring — heavy computation runs in a background thread so the UI stays responsive even with large rosters.",
-            "Performance optimization — pre-computed scope data eliminates redundant O(N\u00d7S) work; scores are cached and only recomputed when you open the view.",
+            "Fixed the ~10% crash when the game wrote to its save while the manager was open — closes four independent race / exception gaps in the auto-refresh path (SaveLoadWorker failure handling, quick-refresh stale-signal generation token, superseded-worker identity checks replacing QThread.terminate(), and fileChanged burst debouncing).",
+            "Save-load failures now surface a status-bar error instead of hanging the loading overlay; transient I/O races self-heal automatically while permanently-broken saves stop after a capped retry so they can't spin a busy loop.",
+            "Quick room refresh and SaveLoadWorker retry transient SQLite / OS errors from the game's atomic-rename partial-write window (sqlite3.OperationalError, EOFError, etc.) while letting real bugs propagate immediately.",
+            "QFileSystemWatcher bursts are now debounced (250 ms) so a single save write produces exactly one refresh instead of racing multiple workers against each other.",
         ]
 
         root = QVBoxLayout(self)
@@ -830,7 +830,7 @@ class WhatsNewDialog(QDialog):
         body.setHtml(
             f"""
             <div style="line-height:1.5;">
-              <p>New Automatic Scoring view with breed priority ranking, shared trait rating profiles, and background-threaded computation for large rosters.</p>
+              <p>Stability release — fixes the ~10% crash when the game writes to its save while the manager is open. No UI or feature changes.</p>
               <ul>{bullets}</ul>
               <p><a href="https://github.com/frankieg33/MewgenicsBreedingManager/releases">View releases on GitHub</a></p>
             </div>

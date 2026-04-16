@@ -2,7 +2,7 @@
 
 A Python desktop tool for managing your Mewgenics cats. Reads your save file directly, scores every cat for breeding priority, optimizes room layouts, and helps plan multi-generation lines — all while tracking lineage, inbreeding risk, and trait inheritance.
 
-Current release: `v5.7.0`
+Current release: `v5.7.1`
 
 If you'd like to support the project, you can [here](https://ko-fi.com/frankieg33).
 
@@ -100,6 +100,20 @@ Produces a standalone executable via PyInstaller.
 - Original idea and reference from frankieg33
 
 ## Release Notes
+
+### v5.7.1
+
+Stability release. Fixes the ~10% crash reported against v5.4.8 that also affected v5.7.0, in which the application would crash when the game wrote to its save while the manager was open (a day passing, a new cat being added, breeding, etc.).
+
+- Closed four independent race / exception gaps in the auto-refresh path:
+  - `SaveLoadWorker.run()` now catches every exception and emits a `failed` signal instead of letting the QThread die silently (which had stranded the loading overlay and the `_save_load_worker` reference forever)
+  - `QuickRoomRefreshWorker` carries a *generation token*; `MainWindow._on_room_patch` drops stale signals from superseded workers and wraps the body in a try/except that falls back to a reload instead of aborting the event loop
+  - `load_save` / cache cleanup no longer call `QThread.terminate()` on in-flight workers (the textbook crash recipe while the thread was mid-SQLite / mid-parse) — superseded workers are discarded by identity check in their finished slots and allowed to finish naturally
+  - `QFileSystemWatcher` bursts are debounced with a 250 ms single-shot timer so simultaneous writes from the game collapse into one refresh
+- New `retry_transient` helper retries only genuinely transient I/O errors (`sqlite3.OperationalError`, `sqlite3.DatabaseError`, `OSError`, `EOFError`) from the partial-write window; real bugs propagate immediately instead of wasting ~350 ms re-running a doomed parse
+- `_on_save_load_failed` only schedules a self-heal retry for transient errors, capped at 3 consecutive attempts so a permanently-broken save cannot spin a busy loop
+
+16 regression tests cover each fix in isolation.
 
 ### v5.7.0
 
