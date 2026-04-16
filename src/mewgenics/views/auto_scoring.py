@@ -22,7 +22,7 @@ from save_parser import Cat, STAT_NAMES, risk_percent, can_breed
 from mewgenics.utils.localization import _tr
 from mewgenics.utils.trait_ratings import TraitRatings
 from mewgenics.scoring.engine import (
-    BREED_PRIORITY_WEIGHTS, WEIGHT_UI_ROWS, SCORE_COLUMNS,
+    BREED_PRIORITY_WEIGHTS, WEIGHT_UI_ROWS, WEIGHT_TOOLTIPS, SCORE_COLUMNS,
     TRAIT_RATING_OPTIONS, ScoreResult, ability_base, is_basic_trait,
 )
 from mewgenics.scoring.helpers import (
@@ -201,6 +201,7 @@ class AutoScoringView(QWidget):
         prof_row = QHBoxLayout()
         prof_row.setSpacing(6)
         self._profile_combo = QComboBox()
+        self._profile_combo.setToolTip("Switch between 5 independent weight/trait profiles.\nEach profile saves its own weights, scope, and trait ratings.")
         for i in range(1, 6):
             self._profile_combo.addItem(f"Profile {i}", i)
         self._profile_combo.currentIndexChanged.connect(self._on_profile_changed)
@@ -213,6 +214,7 @@ class AutoScoringView(QWidget):
         disp_row.setSpacing(6)
         disp_row.addWidget(QLabel("Mode:"))
         self._display_combo = QComboBox()
+        self._display_combo.setToolTip("Score: show sub-scores per category.\nValues: show raw values (risk %, stat sum, etc.).\nBoth: show both in each cell.")
         self._display_combo.addItems(["Score", "Values", "Both"])
         self._display_combo.currentIndexChanged.connect(self._on_display_changed)
         disp_row.addWidget(self._display_combo, 1)
@@ -221,9 +223,11 @@ class AutoScoringView(QWidget):
         heat_row = QHBoxLayout()
         heat_row.setSpacing(6)
         self._chk_heatmap = QCheckBox("Heatmap")
+        self._chk_heatmap.setToolTip("Color-code score cells from red (negative) through green (positive).\nMakes it easy to spot strengths and weaknesses at a glance.")
         self._chk_heatmap.stateChanged.connect(self._on_heatmap_toggled)
         heat_row.addWidget(self._chk_heatmap)
         self._heat_algo_combo = QComboBox()
+        self._heat_algo_combo.setToolTip("Column: colors are relative to the best/worst in each column.\nRow: colors are relative to the best/worst across each cat's own scores.")
         self._heat_algo_combo.addItems(["Column", "Row"])
         self._heat_algo_combo.currentIndexChanged.connect(self._on_heat_algo_changed)
         heat_row.addWidget(self._heat_algo_combo)
@@ -231,17 +235,20 @@ class AutoScoringView(QWidget):
         vb.addLayout(heat_row)
 
         self._chk_show_stats = QCheckBox("Show stat columns")
+        self._chk_show_stats.setToolTip("Show or hide the 7 base stat columns (STR, DEX, etc.) in the table.")
         self._chk_show_stats.setChecked(True)
         self._chk_show_stats.stateChanged.connect(self._on_show_stats_toggled)
         vb.addWidget(self._chk_show_stats)
 
         self._btn_stats_overview = QPushButton("Current Stats...")
+        self._btn_stats_overview.setToolTip("Open a popup showing stat distribution across all cats.\nUseful for understanding how rare each stat value is.")
         self._btn_stats_overview.clicked.connect(self._open_stats_overview)
         vb.addWidget(self._btn_stats_overview)
 
         # ── Scope ──
         vb.addWidget(self._section_label("SCOPE"))
         self._chk_all_cats = QCheckBox("All Cats")
+        self._chk_all_cats.setToolTip("Include all alive cats in the scoring scope.\nUncheck to select specific rooms instead.")
         self._chk_all_cats.setChecked(True)
         self._chk_all_cats.stateChanged.connect(self._on_scope_changed)
         vb.addWidget(self._chk_all_cats)
@@ -253,15 +260,19 @@ class AutoScoringView(QWidget):
         # ── Options ──
         vb.addWidget(self._section_label("OPTIONS"))
         self._chk_hide_kittens = QCheckBox("Hide kittens")
+        self._chk_hide_kittens.setToolTip("Hide cats younger than 1 year from the table.\nKittens can't breed yet, so they add noise to the list.")
         self._chk_hide_kittens.stateChanged.connect(self._on_option_changed)
         vb.addWidget(self._chk_hide_kittens)
         self._chk_hide_oos = QCheckBox("Hide out-of-scope")
+        self._chk_hide_oos.setToolTip("Hide cats that aren't in any selected scope room.\nUseful for focusing only on cats you're actively breeding.")
         self._chk_hide_oos.stateChanged.connect(self._on_option_changed)
         vb.addWidget(self._chk_hide_oos)
         self._chk_use_current = QCheckBox("Use current stats")
+        self._chk_use_current.setToolTip("Score using current total stats (including room/furniture buffs)\ninstead of base stats. Useful for seeing effective breeding power.")
         self._chk_use_current.stateChanged.connect(self._on_option_changed)
         vb.addWidget(self._chk_use_current)
         self._chk_add_mutation = QCheckBox("Add mutation stats")
+        self._chk_add_mutation.setToolTip("Include stat bonuses from visual mutations (e.g. Conjoined Body +2 CON)\non top of the stat values used for scoring.")
         self._chk_add_mutation.stateChanged.connect(self._on_option_changed)
         vb.addWidget(self._chk_add_mutation)
 
@@ -291,6 +302,9 @@ class AutoScoringView(QWidget):
             spin.setDecimals(1)
             spin.setValue(self._weights.get(key, 0.0))
             spin.setFixedWidth(70)
+            tip = WEIGHT_TOOLTIPS.get(key)
+            if tip:
+                spin.setToolTip(tip)
             spin.valueChanged.connect(self._on_weight_changed)
             self._weight_spins[key] = spin
             row.addWidget(spin)
@@ -299,6 +313,7 @@ class AutoScoringView(QWidget):
         # ── Filters ──
         vb.addWidget(self._section_label("FILTERS"))
         self._btn_filters = QPushButton("Edit Filters...")
+        self._btn_filters.setToolTip("Open the filter dialog to hide cats by tier, gender, room,\nscore range, or other criteria. Active filters are shown below.")
         self._btn_filters.clicked.connect(self._open_filter_dialog)
         vb.addWidget(self._btn_filters)
         self._filter_summary = QLabel("No active filters")
@@ -345,6 +360,34 @@ class AutoScoringView(QWidget):
         hh.setSectionResizeMode(_COL_TOTAL, QHeaderView.Fixed)
         self._table.setColumnWidth(_COL_TOTAL, 56)
 
+        # Header tooltips for score columns
+        _col_tips = {
+            "Sum":    "Stat sum percentile bonus",
+            "Age":    "Age penalty (over threshold)",
+            "7rare":  "Rarity bonus per stat at 7",
+            "7cnt":   "Bonus for multiple stats at 7",
+            "7sub":   "Penalty if 7-set is dominated by another cat",
+            "CHA":    "CHA penalty (CHA 4 = 1x, CHA \u2264 3 = 2x)",
+            "Sex":    "Sexuality preference (gay/bi)",
+            "Lib":    "Libido bonus/penalty (high/low)",
+            "Gender": "Unknown gender (?) bonus",
+            "Gene":   "Genetic safety risk/bonus",
+            "Aggro":  "Aggression bonus/penalty (low/high)",
+            "\U0001f4a5\U0001f52d":  "Hate relationships in scope",
+            "\U0001f4a5\U0001f3e0":  "Hate relationships in same room",
+            "\U0001f497\U0001f52d":  "Love relationships in scope",
+            "\U0001f497\U0001f3e0":  "Love relationships in same room",
+            "Trait":  "Trait rating score (top priority/desirable/undesirable)",
+            "Score":  "Total breed priority score (sum of all sub-scores)",
+        }
+        for ci, (col_name, _) in enumerate(SCORE_COLUMNS):
+            header_item = self._table.horizontalHeaderItem(_COL_SCORE_START + ci)
+            if header_item and col_name in _col_tips:
+                header_item.setToolTip(_col_tips[col_name])
+        total_header = self._table.horizontalHeaderItem(_COL_TOTAL)
+        if total_header:
+            total_header.setToolTip(_col_tips["Score"])
+
         self._table.currentCellChanged.connect(self._on_row_selected)
         vb.addWidget(self._table)
 
@@ -378,7 +421,9 @@ class AutoScoringView(QWidget):
         )
 
         self._ability_list = QListWidget()
+        self._ability_list.setToolTip("Double-click a trait to cycle its rating:\nTop Priority > Desirable > Neutral > Undecided > Undesirable")
         self._mutation_list = QListWidget()
+        self._mutation_list.setToolTip("Double-click a mutation to cycle its rating.\nRatings are shared with the Manual Scoring view via profiles.")
         self._trait_tabs.addTab(self._ability_list, "Abilities")
         self._trait_tabs.addTab(self._mutation_list, "Mutations")
         self._ability_list.itemDoubleClicked.connect(self._on_trait_double_clicked)
@@ -388,18 +433,21 @@ class AutoScoringView(QWidget):
         # Score breakdown
         vb.addWidget(self._section_label("SCORE BREAKDOWN"))
         self._breakdown_list = QListWidget()
+        self._breakdown_list.setToolTip("Detailed score breakdown for the selected cat.\nShows which weights contributed how many points.")
         self._breakdown_list.setMaximumHeight(200)
         vb.addWidget(self._breakdown_list)
 
         # Children
         vb.addWidget(self._section_label("CHILDREN IN SCOPE"))
         self._children_list = QListWidget()
+        self._children_list.setToolTip("Children of the selected cat that are in the current scope.\nUseful for tracking lineage coverage.")
         self._children_list.setMaximumHeight(120)
         vb.addWidget(self._children_list)
 
         # Top risks
         vb.addWidget(self._section_label("TOP BREEDING RISKS"))
         self._risk_list = QListWidget()
+        self._risk_list.setToolTip("Highest genetic risk pairings for the selected cat.\nShows the worst-case partners by inbreeding risk %.")
         self._risk_list.setMaximumHeight(120)
         vb.addWidget(self._risk_list)
 

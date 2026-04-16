@@ -810,10 +810,10 @@ class WhatsNewDialog(QDialog):
         )
 
         default_highlights = highlights or [
-            "Tier-2 ability support — upgraded passive abilities are parsed from the save and shown with a \"+\" suffix and green-tinted chips in the table and detail panel.",
-            "Improved localization — GPAK descriptions preferred over hardcoded ability lookup, multi-language text extraction, and BOM-aware decoding for GPAK strings.",
-            "Generic mutation disambiguation — mutations with identical names now append their stat description to distinguish them.",
-            "Eager view loading — all views build at startup and receive cat data immediately, eliminating tab-switch freezes.",
+            "New Automatic Scoring view — ranks every cat with a configurable breed priority score based on stat rarity, genetic risk, trait ratings, personality, and more. Includes heatmap, scope filtering, and 5 weight profiles.",
+            "Shared Trait Ratings — rate abilities and mutations as Top Priority, Desirable, or Undesirable. Ratings are shared between Automatic and Manual Scoring views via 5-slot profiles.",
+            "Background scoring — heavy computation runs in a background thread so the UI stays responsive even with large rosters.",
+            "Performance optimization — pre-computed scope data eliminates redundant O(N\u00d7S) work; scores are cached and only recomputed when you open the view.",
         ]
 
         root = QVBoxLayout(self)
@@ -830,7 +830,7 @@ class WhatsNewDialog(QDialog):
         body.setHtml(
             f"""
             <div style="line-height:1.5;">
-              <p>Tier-2 ability parsing, localization improvements, mutation disambiguation, and eager view loading for instant tab switching.</p>
+              <p>New Automatic Scoring view with breed priority ranking, shared trait rating profiles, and background-threaded computation for large rosters.</p>
               <ul>{bullets}</ul>
               <p><a href="https://github.com/frankieg33/MewgenicsBreedingManager/releases">View releases on GitHub</a></p>
             </div>
@@ -912,7 +912,37 @@ class OnboardingDialog(QDialog):
             """,
         ))
         self._stack.addWidget(self._make_page(
-            "5. Cat Sprites",
+            "5. Cat Sorting &mdash; Automatic Scoring",
+            """
+            <p>The <b>Automatic Scoring</b> view ranks every cat with a breed priority score
+            based on configurable weights. Open it from the <b>Cat Sorting</b> section in the sidebar.</p>
+            <ul>
+              <li><b>Scope:</b> Choose which rooms to include. Scores adjust based on what&apos;s in scope &mdash;
+                  a rare stat-7 is worth more if fewer scope cats share it.</li>
+              <li><b>Weights:</b> Tune how much each factor matters &mdash; stat rarity, genetic risk,
+                  libido, aggression, trait ratings, and more. Hover any weight for a description.</li>
+              <li><b>Trait Ratings:</b> Double-click abilities or mutations in the right panel to rate them
+                  as Top Priority, Desirable, or Undesirable. Cats owning rare top-priority traits score higher.</li>
+              <li><b>Profiles:</b> Save up to 5 independent weight/trait setups. Profiles are shared
+                  with Manual Scoring so you can switch approaches instantly.</li>
+              <li><b>Heatmap:</b> Toggle color-coding to spot strengths and weaknesses at a glance.</li>
+            </ul>
+            """,
+        ))
+        self._stack.addWidget(self._make_page(
+            "6. Cat Sorting &mdash; Manual Scoring",
+            """
+            <p>The <b>Manual Scoring</b> view lets you assign point values to individual stats,
+            mutations, disorders, and personality traits, then sort by total score.</p>
+            <ul>
+              <li>Great for specific breeding goals like &ldquo;I need high STR melee cats&rdquo;.</li>
+              <li>Switch between per-mutation weights or blanket desired/undesired mode.</li>
+              <li>Shares trait rating profiles with Automatic Scoring &mdash; changes sync both ways.</li>
+            </ul>
+            """,
+        ))
+        self._stack.addWidget(self._make_page(
+            "7. Cat Sprites",
             """
             <p>The Family Tree view can render in-game cat portraits using sprite data
             from the game&apos;s <code>resources.gpak</code>.</p>

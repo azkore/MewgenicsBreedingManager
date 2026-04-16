@@ -47,6 +47,38 @@ BREED_PRIORITY_WEIGHTS: dict[str, float] = {
     "cha_low":             0.0,
 }
 
+# ── Weight tooltips ──────────────────────────────────────────────────────────
+
+WEIGHT_TOOLTIPS: dict[str, str] = {
+    "stat_sum":              "Points for total stat sum percentile among scope cats.\nTop 10% = full weight, top 25% = weight-1, top 50% = weight-2.",
+    "age_penalty":           "Penalty applied to cats older than the age threshold.\nScales with how far over the threshold they are.",
+    "age_threshold":         "Age at which the age penalty starts applying.\nCats at or below this age get no penalty.",
+    "stat_7":                "Points for each stat at 7. Rarer stats in scope score higher.\nA sole owner of a 7-stat gets double points.",
+    "stat_7_threshold":      "How many scope cats can share a 7 before the bonus starts diminishing.\nBelow this count = full points; above = divided proportionally.",
+    "stat_7_count":          "Bonus per stat that the cat has at 7.\nRewards cats with multiple maxed stats.",
+    "seven_sub":             "Penalty when a cat's set of 7-stats is strictly dominated\nby another scope cat (the other has all the same 7s and more).",
+    "seven_sub_threshold":   "How many dominating cats it takes to reach the full 7-Sub penalty.\nPartial penalty below this count.",
+    "cha_low":               "Penalty for low CHA. CHA=4 gets 1x weight, CHA 3 or below gets 2x.\nCHA affects breeding compatibility chance.",
+    "gay_pref":              "Score adjustment for gay cats.\nPositive = prefer, negative = penalize, 0 = ignore.",
+    "bi_pref":               "Score adjustment for bi cats.\nPositive = prefer, negative = penalize, 0 = ignore.",
+    "high_libido":           "Bonus for cats with high libido (>= 0.7).\nHigh libido increases breeding success chance.",
+    "low_libido":            "Penalty for cats with low libido (< 0.3).\nLow libido decreases breeding success chance.",
+    "unknown_gender":        "Bonus for cats with unknown gender (?).\nThese cats can breed with any gender.",
+    "no_children":           "Penalty scaled by average genetic risk with breedable scope partners.\nHigher risk = more penalty. Uses the threshold and scale below.",
+    "zero_risk_bonus":       "Bonus for cats whose average genetic risk is at or below the threshold.\nRewards genetically safe breeders.",
+    "gene_risk_threshold":   "Genetic risk percentage below which a cat is considered 'safe'.\nRisk above this triggers the penalty; at or below triggers the bonus.",
+    "gene_risk_penalty_scale": "How aggressively genetic risk above the threshold is penalized.\nHigher = steeper penalty curve.",
+    "high_aggression":       "Penalty for cats with high aggression (>= 0.7).\nHigh aggression cats may fight instead of breed.",
+    "low_aggression":        "Bonus for cats with low aggression (< 0.3).\nLow aggression cats are calmer breeders.",
+    "rivalry":               "Penalty for each hate relationship with a cat in scope.\nApplies to both hating and being hated.",
+    "rivalry_room":          "Penalty for each hate relationship with a cat in the same room.\nMore targeted than the scope-wide rivalry penalty.",
+    "love_interest":         "Bonus if this cat has a lover in scope.\nLover pairs get a breeding compatibility multiplier.",
+    "love_interest_room":    "Bonus if this cat has a lover in the same room.\nRoommates who love each other breed more often.",
+    "trait_top_priority":    "Points for each ability/mutation you rated 'Top Priority'.\nDivided by how many scope cats share the trait; sole owners get 2x.",
+    "trait_desirable":       "Points for each ability/mutation you rated 'Desirable'.\nDivided by scope count; sole owners get 2x.",
+    "trait_undesirable":     "Flat penalty for each ability/mutation you rated 'Undesirable'.\nNot divided — every holder gets the same penalty.",
+}
+
 # ── Weight editor UI rows ────────────────────────────────────────────────────
 
 WEIGHT_UI_ROWS: list[tuple[str | None, str | tuple | None]] = [
