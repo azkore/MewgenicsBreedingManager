@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QTabWidget, QListWidget, QListWidgetItem, QDialog, QGridLayout,
     QDoubleSpinBox, QSpinBox,
 )
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal, QThread
 from PySide6.QtGui import QColor
 
 from save_parser import Cat, STAT_NAMES, risk_percent, can_breed
@@ -52,6 +52,41 @@ _COL_TOTAL = _COL_SCORE_START + _N_SCORE_COLS
 _TOTAL_COLS = _COL_TOTAL + 1
 
 
+class _ScoringWorker(QThread):
+    """Runs the heavy scoring computation off the main thread."""
+    finished = Signal(object)  # emits the result tuple
+
+    def __init__(self, alive, cats, scope_cats, scope_set,
+                 use_current_stats, add_mutation_stats,
+                 ma_ratings, weights):
+        super().__init__()
+        self._alive = alive
+        self._cats = cats
+        self._scope_cats = scope_cats
+        self._scope_set = scope_set
+        self._use_current_stats = use_current_stats
+        self._add_mutation_stats = add_mutation_stats
+        self._ma_ratings = ma_ratings
+        self._weights = dict(weights)
+
+    def run(self):
+        hated_by_map, _ = build_relationship_maps(self._cats)
+        seven_sets, scope_7_sets = compute_seven_sets(
+            self._alive, self._scope_set,
+            use_current_stats=self._use_current_stats,
+            add_mutation_stats=self._add_mutation_stats,
+            stat_names=_STAT_NAMES,
+        )
+        result = compute_all_scores(
+            self._alive, self._scope_cats, self._scope_set,
+            seven_sets, scope_7_sets, hated_by_map,
+            self._ma_ratings, _STAT_NAMES, self._weights,
+            use_current_stats=self._use_current_stats,
+            add_mutation_stats=self._add_mutation_stats,
+        )
+        self.finished.emit((result, seven_sets, scope_7_sets))
+
+
 class AutoScoringView(QWidget):
     """Automatic cat scoring view with scope, weights, heatmap, and filters."""
 
@@ -82,6 +117,7 @@ class AutoScoringView(QWidget):
         self._trait_ratings: Optional[TraitRatings] = None
         self._suppress_recompute = False
         self._stale = False  # True when cats changed but _recompute() was deferred
+        self._scoring_worker: _ScoringWorker | None = None
 
         # Scoring state
         self._weights: dict[str, float] = dict(BREED_PRIORITY_WEIGHTS)
@@ -436,23 +472,30 @@ class AutoScoringView(QWidget):
         if self._trait_ratings:
             ma_ratings = dict(self._trait_ratings.ratings)
 
-        hated_by_map, _ = build_relationship_maps(self._cats)
-        seven_sets, scope_7_sets = compute_seven_sets(
-            self._alive, self._scope_set,
-            use_current_stats=self._use_current_stats,
-            add_mutation_stats=self._add_mutation_stats,
-            stat_names=_STAT_NAMES,
+        # Cancel any in-flight worker
+        if self._scoring_worker is not None:
+            self._scoring_worker.finished.disconnect()
+            self._scoring_worker = None
+
+        self._status_label.setText("Computing scores...")
+
+        worker = _ScoringWorker(
+            self._alive, self._cats, self._scope_cats, self._scope_set,
+            self._use_current_stats, self._add_mutation_stats,
+            ma_ratings, self._weights,
         )
+        worker.finished.connect(self._on_scoring_done)
+        self._scoring_worker = worker
+        worker.start()
+
+    def _on_scoring_done(self, payload):
+        """Handle completed scoring from the background worker."""
+        self._scoring_worker = None
+        (results_tuple, seven_sets, scope_7_sets) = payload
 
         (self._results, self._cat_sub_counts, all_scores_sorted,
          all_scope_gene_risks, all_scope_children, max_7_count,
-         scope_stat_sums, pair_risk_cache) = compute_all_scores(
-            self._alive, self._scope_cats, self._scope_set,
-            seven_sets, scope_7_sets, hated_by_map,
-            ma_ratings, _STAT_NAMES, self._weights,
-            use_current_stats=self._use_current_stats,
-            add_mutation_stats=self._add_mutation_stats,
-        )
+         scope_stat_sums, pair_risk_cache) = results_tuple
 
         # Heatmap norms
         col_max_abs, row_max_abs, score_max_abs = compute_heatmap_norms(

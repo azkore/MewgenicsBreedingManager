@@ -170,6 +170,54 @@ def ability_base(name: str) -> str:
 
 # ── Main scoring function ────────────────────────────────────────────────────
 
+def precompute_scope_data(
+    scope_cats: list,
+    stat_names: list[str],
+    use_current_stats: bool = False,
+    add_mutation_stats: bool = False,
+) -> dict:
+    """Pre-compute shared scope data once for all scoring calls.
+
+    Returns a dict with keys: scope_stats, scope_set, scope_base_traits,
+    stat_7_counts, trait_counts.
+    """
+    scope_stats = {
+        id(c): get_cat_stats(c, use_current_stats, add_mutation_stats)
+        for c in scope_cats
+    }
+    scope_set = {id(c) for c in scope_cats}
+
+    # Per-stat count of scope cats with that stat at 7
+    stat_7_counts: dict[str, int] = {}
+    for sn in stat_names:
+        stat_7_counts[sn] = sum(
+            1 for cid, st in scope_stats.items() if st.get(sn) == 7
+        )
+
+    # Trait sets per scope cat + aggregate counts
+    scope_base_traits: dict[int, set[str]] = {
+        id(c): (
+            {ability_base(a) for a in
+             list(c.abilities) + list(c.passive_abilities) + list(getattr(c, 'disorders', []))}
+            | set(c.mutations)
+            | set(getattr(c, 'defects', []))
+        )
+        for c in scope_cats
+    }
+    trait_counts: dict[str, int] = {}
+    for traits in scope_base_traits.values():
+        for t in traits:
+            trait_counts[t] = trait_counts.get(t, 0) + 1
+
+    return {
+        "scope_stats": scope_stats,
+        "scope_set": scope_set,
+        "scope_base_traits": scope_base_traits,
+        "stat_7_counts": stat_7_counts,
+        "trait_counts": trait_counts,
+    }
+
+
 def compute_breed_priority_score(
     cat,
     scope_cats: list,
@@ -184,6 +232,7 @@ def compute_breed_priority_score(
     use_current_stats: bool = False,
     add_mutation_stats: bool = False,
     can_breed_fn=None,
+    _precomputed: dict | None = None,
 ) -> ScoreResult:
     """Compute breed priority score for an individual cat.
 
@@ -202,18 +251,46 @@ def compute_breed_priority_score(
         use_current_stats: Use total_stats instead of base_stats.
         add_mutation_stats: Add mutation stat bonuses on top.
         can_breed_fn: Callable(cat, cat) -> (bool, list). Defaults to can_breed.
+        _precomputed: Output of precompute_scope_data() for O(1) lookups.
     """
     _w = weights if weights is not None else BREED_PRIORITY_WEIGHTS
     _display = mutation_display_name or (lambda n: n)
     _can_breed = can_breed_fn or can_breed
     _cat_stats = get_cat_stats(cat, use_current_stats, add_mutation_stats)
-    _scope_stats = {id(c): get_cat_stats(c, use_current_stats, add_mutation_stats)
-                    for c in scope_cats}
+
+    # Use pre-computed data when available; fall back to per-call computation.
+    if _precomputed is not None:
+        _scope_stats = _precomputed["scope_stats"]
+        scope_set = _precomputed["scope_set"]
+        _scope_base_traits = _precomputed["scope_base_traits"]
+        _stat_7_counts = _precomputed["stat_7_counts"]
+        _trait_counts = _precomputed["trait_counts"]
+    else:
+        _scope_stats = {id(c): get_cat_stats(c, use_current_stats, add_mutation_stats)
+                        for c in scope_cats}
+        scope_set = {id(c) for c in scope_cats}
+        _scope_base_traits = {
+            id(c): (
+                {ability_base(a) for a in
+                 list(c.abilities) + list(c.passive_abilities) + list(getattr(c, 'disorders', []))}
+                | set(c.mutations)
+                | set(getattr(c, 'defects', []))
+            )
+            for c in scope_cats
+        }
+        _stat_7_counts = {
+            sn: sum(1 for cid, st in _scope_stats.items() if st.get(sn) == 7)
+            for sn in stat_names
+        }
+        _trait_counts = {}
+        for traits in _scope_base_traits.values():
+            for t in traits:
+                _trait_counts[t] = _trait_counts.get(t, 0) + 1
+
     breakdown: list[tuple[str, float]] = []
     subtotals: dict[str, float] = {}
     for key in BREED_PRIORITY_WEIGHTS:
         subtotals[key] = 0.0
-    scope_set = {id(c) for c in scope_cats}
     _cat_in_scope = id(cat) in scope_set
 
     # ── Unknown gender bonus ──────────────────────────────────────────────
@@ -255,8 +332,7 @@ def compute_breed_priority_score(
     _STAT7_BASE = _w["stat_7"]
     for stat_name in stat_names:
         if _cat_stats.get(stat_name) == 7:
-            n_scope = sum(1 for c in scope_cats
-                         if _scope_stats[id(c)].get(stat_name) == 7)
+            n_scope = _stat_7_counts.get(stat_name, 0)
             n = n_scope if _cat_in_scope else n_scope + 1
             if n == 1:
                 w = _w["stat_7"] * 2
@@ -280,15 +356,6 @@ def compute_breed_priority_score(
             subtotals["stat_7_count"] = _7ct_pts
 
     # ── Trait scoring ─────────────────────────────────────────────────────
-    scope_base_traits: dict[int, set[str]] = {
-        id(c): (
-            {ability_base(a) for a in
-             list(c.abilities) + list(c.passive_abilities) + list(getattr(c, 'disorders', []))}
-            | set(c.mutations)
-            | set(getattr(c, 'defects', []))
-        )
-        for c in scope_cats
-    }
     _w_top = _w.get("trait_top_priority", 0.0)
     _w_des = _w.get("trait_desirable", 0.0)
     _w_und = _w.get("trait_undesirable", 0.0)
@@ -332,7 +399,7 @@ def compute_breed_priority_score(
     })
     for ma in all_ability_bases:
         rating = ma_ratings.get(ma)
-        n_scope = sum(1 for c in scope_cats if ma in scope_base_traits[id(c)])
+        n_scope = _trait_counts.get(ma, 0)
         n = max(1, n_scope if _cat_in_scope else n_scope + 1)
         _score_trait(_display(ma), rating, n)
 
@@ -340,7 +407,7 @@ def compute_breed_priority_score(
         if is_basic_trait(ma):
             continue
         rating = ma_ratings.get(ma)
-        n_scope = sum(1 for c in scope_cats if ma in scope_base_traits[id(c)])
+        n_scope = _trait_counts.get(ma, 0)
         n = max(1, n_scope if _cat_in_scope else n_scope + 1)
         _score_trait(ma, rating, n)
 
@@ -348,7 +415,7 @@ def compute_breed_priority_score(
         if is_basic_trait(ma):
             continue
         rating = ma_ratings.get(ma)
-        n_scope = sum(1 for c in scope_cats if ma in scope_base_traits[id(c)])
+        n_scope = _trait_counts.get(ma, 0)
         n = max(1, n_scope if _cat_in_scope else n_scope + 1)
         _score_trait(ma, rating, n)
 

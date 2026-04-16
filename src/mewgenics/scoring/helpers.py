@@ -11,7 +11,7 @@ from save_parser import STAT_NAMES
 from mewgenics.scoring.cat_stats import get_cat_stats
 from mewgenics.scoring.engine import (
     SCORE_COLUMNS, ScoreResult,
-    compute_breed_priority_score,
+    compute_breed_priority_score, precompute_scope_data,
 )
 
 
@@ -80,9 +80,14 @@ def compute_all_scores(
          all_scope_gene_risks, all_scope_children, max_7_count,
          scope_stat_sums, pair_risk_cache)
     """
+    # Pre-compute shared scope data once — avoids O(N*S) redundant work.
+    _precomputed = precompute_scope_data(
+        scope_cats, stat_names,
+        use_current_stats=use_current_stats,
+        add_mutation_stats=add_mutation_stats,
+    )
     scope_stat_sums = sorted(
-        sum(get_cat_stats(c, use_current_stats, add_mutation_stats).values())
-        for c in scope_cats
+        sum(st.values()) for st in _precomputed["scope_stats"].values()
     )
     pair_risk_cache: dict[tuple[int, int], float] = {}
 
@@ -101,6 +106,7 @@ def compute_all_scores(
             use_current_stats=use_current_stats,
             add_mutation_stats=add_mutation_stats,
             can_breed_fn=can_breed_fn,
+            _precomputed=_precomputed,
         )
         # 7-sub: penalize cats whose 7-set is strictly dominated by scope peers
         my_sevens = seven_sets.get(id(cat), frozenset())
