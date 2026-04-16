@@ -540,9 +540,9 @@ class AutoScoringView(QWidget):
                     add_mutation_stats=self._add_mutation_stats,
                 )
             ]
-            n_m = sum(1 for c in filtered if c.gender == "M")
-            n_f = sum(1 for c in filtered if c.gender == "F")
-            n_q = sum(1 for c in filtered if c.gender == "?")
+            n_m = sum(1 for c in filtered if c.gender_display == "M")
+            n_f = sum(1 for c in filtered if c.gender_display == "F")
+            n_q = sum(1 for c in filtered if c.gender_display == "?")
             total = len(filtered)
             total_room = len(room_cats)
             label = f"{display}  ({n_m}M {n_f}F"
@@ -557,7 +557,6 @@ class AutoScoringView(QWidget):
             cb.stateChanged.connect(self._on_scope_changed)
             self._room_checkboxes[rk] = cb
             self._scope_container.addWidget(cb)
-        self._sync_room_checkbox_enabled()
 
     def _compute_scope(self):
         """Determine which cats are in scope based on checkboxes and filters."""
@@ -1010,14 +1009,19 @@ class AutoScoringView(QWidget):
     def _on_scope_changed(self):
         if self._suppress_recompute:
             return
-        self._sync_room_checkbox_enabled()
+        # If a room checkbox was unchecked, auto-uncheck "All Cats"
+        sender = self.sender()
+        if sender is not self._chk_all_cats and not sender.isChecked():
+            self._chk_all_cats.blockSignals(True)
+            self._chk_all_cats.setChecked(False)
+            self._chk_all_cats.blockSignals(False)
+        # If "All Cats" was checked, re-check all room checkboxes
+        if sender is self._chk_all_cats and self._chk_all_cats.isChecked():
+            for cb in self._room_checkboxes.values():
+                cb.blockSignals(True)
+                cb.setChecked(True)
+                cb.blockSignals(False)
         self._mark_dirty(clear_results=True, cancel_running=True)
-
-    def _sync_room_checkbox_enabled(self):
-        """Grey out room checkboxes when 'All Cats' is checked."""
-        enabled = not self._chk_all_cats.isChecked()
-        for cb in self._room_checkboxes.values():
-            cb.setEnabled(enabled)
 
     def _on_option_changed(self):
         if self._suppress_recompute:
@@ -1148,7 +1152,6 @@ class AutoScoringView(QWidget):
             for rk, cb in self._room_checkboxes.items():
                 if rk in scope_state:
                     cb.setChecked(scope_state[rk])
-            self._sync_room_checkbox_enabled()
 
             # Filters
             filters_dict = opts.get("filters")
