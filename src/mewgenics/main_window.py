@@ -270,6 +270,11 @@ class MainWindow(QMainWindow):
         self._cache_worker: Optional[BreedingCacheWorker] = None
         self._save_load_worker: Optional[SaveLoadWorker] = None
         self._quick_refresh_worker: Optional[QuickRoomRefreshWorker] = None
+        # Stale-signal discriminator for `_on_room_patch`.  See
+        # `_start_quick_room_refresh` for why `quit()/wait()` alone
+        # cannot prevent a previous worker's queued signal from
+        # clobbering freshly-loaded state.
+        self._quick_refresh_generation: int = 0
         self._prev_parent_keys: dict[int, tuple] = {}
         self._accessible_cat_keys: set[int] = set()
         self._fight_club_layout_active: bool = False
@@ -335,7 +340,18 @@ class MainWindow(QMainWindow):
         self.statusBar().addPermanentWidget(self._cache_progress)
 
         self._watcher = QFileSystemWatcher(self)
-        self._watcher.fileChanged.connect(self._on_file_changed)
+        self._watcher.fileChanged.connect(self._on_file_changed_raw)
+        # Debounce file-watcher events.  The game often writes the save
+        # in a burst (multiple fileChanged events within a few ms), and
+        # each one used to start its own QuickRoomRefreshWorker, racing
+        # with the previous one still running — a major contributor to
+        # the ~10% crash rate reported against v5.4.8.  Coalesce bursts
+        # into a single refresh 250 ms after the last event.
+        self._file_change_timer = QTimer(self)
+        self._file_change_timer.setSingleShot(True)
+        self._file_change_timer.setInterval(250)
+        self._file_change_timer.timeout.connect(self._on_file_changed_debounced)
+        self._pending_changed_path: Optional[str] = None
 
         # Use initial_save if provided; otherwise only auto-load the saved default when allowed.
         save_to_load = initial_save if initial_save else (_saved_default_save() if use_saved_default else None)
@@ -3414,14 +3430,10 @@ class MainWindow(QMainWindow):
             }
             return
 
-        # Cancel any in-progress worker
-        if self._cache_worker is not None:
-            worker = self._cache_worker
-            self._cache_worker = None
-            worker.quit()
-            if not worker.wait(500):
-                worker.terminate()
-                worker.wait(100)
+        # Supersede any in-progress cache worker rather than calling
+        # terminate().  The stale worker's phase1_ready / finished_cache
+        # slots drop the result by identity check (`is self._cache_worker`).
+        self._cache_worker = None
 
         # Snapshot parent keys before clearing old cache (for incremental update)
         prev_cache = self._breeding_cache if not force_full else None
@@ -3464,9 +3476,13 @@ class MainWindow(QMainWindow):
             parent=self,
         )
         worker.progress.connect(self._on_cache_progress)
-        worker.phase1_ready.connect(self._on_phase1_ready)
-        worker.finished_cache.connect(self._on_cache_ready)
-        worker.finished.connect(lambda: self._cache_progress.hide())
+        worker.phase1_ready.connect(
+            lambda cache, w=worker: self._on_phase1_ready(cache, source_worker=w)
+        )
+        worker.finished_cache.connect(
+            lambda cache, w=worker: self._on_cache_ready(cache, source_worker=w)
+        )
+        worker.finished.connect(lambda w=worker: self._cache_progress.hide() if w is self._cache_worker else None)
         self._cache_worker = worker
         worker.start()
 
@@ -3489,8 +3505,13 @@ class MainWindow(QMainWindow):
         else:
             self.statusBar().showMessage(_tr("status.cache_missing"))
 
-    def _on_phase1_ready(self, cache: BreedingCache):
+    def _on_phase1_ready(self, cache: BreedingCache, source_worker: Optional[BreedingCacheWorker] = None):
         """Ancestry computed — push to table and Mating Pair Search so they're usable immediately."""
+        # Drop results from superseded workers (a newer load_save has
+        # started).  Without this check, a stale cache would overwrite
+        # the fresh one currently being computed.
+        if source_worker is not None and source_worker is not self._cache_worker:
+            return
         self._breeding_cache = cache
         self._source_model.set_breeding_cache(cache)
         if self._safe_breeding_view is not None:
@@ -3503,7 +3524,9 @@ class MainWindow(QMainWindow):
             self._auto_scoring_view.set_cache(cache)
         self._cache_progress.setFormat(_tr("loading.cache.pair_risks"))
 
-    def _on_cache_ready(self, cache: BreedingCache):
+    def _on_cache_ready(self, cache: BreedingCache, source_worker: Optional[BreedingCacheWorker] = None):
+        if source_worker is not None and source_worker is not self._cache_worker:
+            return  # superseded — drop stale result
         self._breeding_cache = cache
         self._cache_worker = None
         self._cache_progress.hide()
@@ -3520,6 +3543,34 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             self.statusBar().currentMessage() + _tr("status.cache_ready_suffix", default="  |  Breeding cache ready")
         )
+
+    def _on_save_load_failed(self, msg: str, source_worker: Optional[SaveLoadWorker] = None):
+        """Handle a SaveLoadWorker that raised during parsing.
+
+        The game writes the save atomically (temp file + rename) and the
+        watcher can fire during that brief window.  `SaveLoadWorker`
+        already retries with backoff; if it still fails, we surface the
+        error in the status bar and schedule a single self-healing retry
+        500 ms later — the next save the game writes almost always
+        resolves the condition.  Without this slot, the QThread would
+        die silently, the loading overlay would stay up forever, and
+        `_save_load_worker` would remain non-None so every subsequent
+        file-change event would cascade into `_reload()` hitting the
+        old `terminate()` path.
+        """
+        if source_worker is not None and source_worker is not self._save_load_worker:
+            return  # superseded — a newer load is already running
+        self._save_load_worker = None
+        self._loading_overlay.hide()
+        self.statusBar().showMessage(
+            _tr("status.save_load_failed",
+                default="Save load failed ({error}) — retrying in 500 ms.",
+                error=msg)
+        )
+        # Self-heal: try once more.  If the file is still mid-write we'll
+        # fail again and the user will see the status message; the next
+        # fileChanged event will re-trigger a refresh anyway.
+        QTimer.singleShot(500, self._reload)
 
     # ── Loading ────────────────────────────────────────────────────────────
 
@@ -3547,21 +3598,16 @@ class MainWindow(QMainWindow):
             self._watcher.removePaths(self._watcher.files())
         self._watcher.addPath(path)
 
-        # Cancel any in-progress load
-        if self._save_load_worker is not None:
-            worker = self._save_load_worker
-            self._save_load_worker = None
-            worker.quit()
-            if not worker.wait(500):
-                worker.terminate()
-                worker.wait(100)
-        if self._cache_worker is not None:
-            worker = self._cache_worker
-            self._cache_worker = None
-            worker.quit()
-            if not worker.wait(500):
-                worker.terminate()
-                worker.wait(100)
+        # Supersede any in-progress worker instead of calling terminate().
+        # QThread.terminate() mid-parse can leave the thread holding a
+        # SQLite handle or the GIL in an undefined state — a likely cause
+        # of the ~10% crash observed when the game rewrites the save
+        # while we're already loading it.  Drop the reference and let
+        # the old worker finish naturally; its finished_load / failed
+        # slots check `worker is self._save_load_worker` (identity) and
+        # discard stale results.
+        self._save_load_worker = None
+        self._cache_worker = None
 
         # Show overlay while parsing (background thread — main thread stays responsive for repaint)
         name = os.path.basename(path)
@@ -3575,12 +3621,24 @@ class MainWindow(QMainWindow):
 
         worker = SaveLoadWorker(path, parent=self)
         worker.finished_load.connect(
-            lambda result, force=force_full_breeding_cache: self._on_save_loaded(result, force)
+            lambda result, w=worker, force=force_full_breeding_cache:
+                self._on_save_loaded(result, force, source_worker=w)
+        )
+        worker.failed.connect(
+            lambda msg, w=worker: self._on_save_load_failed(msg, source_worker=w)
         )
         self._save_load_worker = worker
         worker.start()
 
-    def _on_save_loaded(self, result: dict, force_full_breeding_cache: bool = False):
+    def _on_save_loaded(self, result: dict, force_full_breeding_cache: bool = False,
+                        source_worker: Optional[SaveLoadWorker] = None):
+        # Drop results from superseded workers — a newer load_save has
+        # already started and points `_save_load_worker` at a different
+        # instance.  Processing this result would overwrite fresh state
+        # with stale data (or worse, if the stale worker managed to
+        # complete during a crash-repro reload storm).
+        if source_worker is not None and source_worker is not self._save_load_worker:
+            return
         self._save_load_worker = None
         # Dismiss overlay immediately — UI work below is fast (model.load is O(n), no ancestry)
         self._loading_overlay.hide()
@@ -3958,7 +4016,10 @@ class MainWindow(QMainWindow):
         if self._current_save:
             self.load_save(self._current_save)
 
-    def _on_file_changed(self, path: str):
+    def _on_file_changed_raw(self, path: str):
+        """Queue a debounced refresh so bursts of fileChanged events
+        (the game writes the save in rapid succession) collapse into a
+        single quick-refresh instead of spawning racing workers."""
         if path != self._current_save:
             return
         # Qt's QFileSystemWatcher stops watching a file after it's deleted
@@ -3970,6 +4031,16 @@ class MainWindow(QMainWindow):
             # Defer slightly: Qt sometimes fires fileChanged before the new
             # inode is fully materialised on NTFS, so addPath() fails silently.
             QTimer.singleShot(100, lambda p=path: self._rewatch_save(p))
+        self._pending_changed_path = path
+        # Restart the timer on every event so the debounce window
+        # resets after the latest burst write.
+        self._file_change_timer.start()
+
+    def _on_file_changed_debounced(self):
+        path = self._pending_changed_path
+        self._pending_changed_path = None
+        if path is None or path != self._current_save:
+            return
         # If cats are already loaded and no full reload is running, try the fast path.
         if self._cats and self._save_load_worker is None:
             self._start_quick_room_refresh()
@@ -3989,49 +4060,83 @@ class MainWindow(QMainWindow):
         self._watcher.addPath(path)
 
     def _start_quick_room_refresh(self):
-        if self._quick_refresh_worker is not None:
-            self._quick_refresh_worker.quit()
-            self._quick_refresh_worker.wait(200)
-            self._quick_refresh_worker = None
+        # We do NOT call quit()/wait() on the previous worker — doing so
+        # blocks the main thread and then still lets the old worker's
+        # queued room_patch signal fire after we've started a new one
+        # (see the "Vector 2" race in the fix plan).  Instead, bump the
+        # generation token so the old worker's signals are recognised as
+        # stale by `_on_room_patch` and silently dropped.  The old
+        # QThread finishes on its own and is reaped by Qt parent cleanup.
+        self._quick_refresh_generation += 1
+        gen = self._quick_refresh_generation
         expected = {c.db_key for c in self._cats}
-        w = QuickRoomRefreshWorker(self._current_save, expected, parent=self)
+        w = QuickRoomRefreshWorker(self._current_save, expected, generation=gen, parent=self)
         w.room_patch.connect(self._on_room_patch)
-        w.needs_full_reload.connect(self._reload)
+        w.needs_full_reload.connect(self._on_quick_refresh_needs_full_reload)
         self._quick_refresh_worker = w
         w.start()
 
-    def _on_room_patch(self, patch: dict):
+    def _on_quick_refresh_needs_full_reload(self, generation: int):
+        """Quick refresh fell back — do a full reload, but only if this
+        signal came from the current worker (stale ones are ignored)."""
+        if generation != self._quick_refresh_generation:
+            return
+        self._reload()
+
+    def _on_room_patch(self, generation: int, patch: dict):
+        # Drop signals from superseded workers.  Without this guard, a
+        # stale worker's room_patch can fire after the next refresh has
+        # already mutated `self._cats` or `_rebuild_room_buttons()` has
+        # deleteLater()'d its widgets — either path risks a crash.
+        if generation != self._quick_refresh_generation:
+            return
         self._quick_refresh_worker = None
-        for cat in self._cats:
-            entry = patch.get(cat.db_key)
-            if entry is not None:
-                cat.room, cat.status = entry
-        # Lightweight repaint — no model rebuild, no ancestry recompute.
-        # layoutChanged updates cell data but doesn't re-run filterAcceptsRow
-        # in QSortFilterProxyModel, so cats that moved rooms would remain
-        # visible under the old room filter.  invalidate() re-filters + re-sorts.
-        self._source_model.layoutChanged.emit()
-        self._proxy_model.invalidate()
-        self._rebuild_room_buttons(self._cats)
-        self._refresh_filter_button_counts()
-        self._bump_cats_generation()
-        if self._furniture_view is not None:
-            self._furniture_view.set_context(self._cats, self._furniture, self._furniture_data, available_rooms=self._available_house_rooms)
-            self._view_generation["furniture"] = self._cats_generation
-        if self._tree_view is not None and self._tree_view.isVisible():
-            self._set_view_cats_if_needed("tree", self._tree_view, self._cats)
-        if self._safe_breeding_view is not None and self._safe_breeding_view.isVisible():
-            self._set_view_cats_if_needed("safe_breeding", self._safe_breeding_view, self._cats)
-        if self._breeding_partners_view is not None and self._breeding_partners_view.isVisible():
-            self._set_view_cats_if_needed("breeding_partners", self._breeding_partners_view, self._cats)
-        if self._room_optimizer_view is not None and self._room_optimizer_view.isVisible():
-            self._set_view_cats_if_needed("room_optimizer", self._room_optimizer_view, self._cats)
-        if self._perfect_planner_view is not None and self._perfect_planner_view.isVisible():
-            self._set_view_cats_if_needed("perfect_planner", self._perfect_planner_view, self._cats)
-        if self._calibration_view is not None and self._calibration_view.isVisible():
-            self._calibration_view.set_context(self._current_save, self._cats)
-            self._view_generation["calibration"] = self._cats_generation
-        self.statusBar().showMessage(_tr("status.rooms_refreshed", default="Room locations updated."))
+        # Wrap the whole body in try/except: unlike `_on_save_loaded`,
+        # this slot used to run bare, so any Qt-object-lifetime or view
+        # bookkeeping error propagated to the event loop and aborted the
+        # app.  On failure, log to the status bar and fall back to a
+        # full reload — the user-visible symptom is a brief flicker
+        # instead of a crash.
+        try:
+            for cat in self._cats:
+                entry = patch.get(cat.db_key)
+                if entry is not None:
+                    cat.room, cat.status = entry
+            # Lightweight repaint — no model rebuild, no ancestry recompute.
+            # layoutChanged updates cell data but doesn't re-run filterAcceptsRow
+            # in QSortFilterProxyModel, so cats that moved rooms would remain
+            # visible under the old room filter.  invalidate() re-filters + re-sorts.
+            self._source_model.layoutChanged.emit()
+            self._proxy_model.invalidate()
+            self._rebuild_room_buttons(self._cats)
+            self._refresh_filter_button_counts()
+            self._bump_cats_generation()
+            if self._furniture_view is not None:
+                self._furniture_view.set_context(self._cats, self._furniture, self._furniture_data, available_rooms=self._available_house_rooms)
+                self._view_generation["furniture"] = self._cats_generation
+            if self._tree_view is not None and self._tree_view.isVisible():
+                self._set_view_cats_if_needed("tree", self._tree_view, self._cats)
+            if self._safe_breeding_view is not None and self._safe_breeding_view.isVisible():
+                self._set_view_cats_if_needed("safe_breeding", self._safe_breeding_view, self._cats)
+            if self._breeding_partners_view is not None and self._breeding_partners_view.isVisible():
+                self._set_view_cats_if_needed("breeding_partners", self._breeding_partners_view, self._cats)
+            if self._room_optimizer_view is not None and self._room_optimizer_view.isVisible():
+                self._set_view_cats_if_needed("room_optimizer", self._room_optimizer_view, self._cats)
+            if self._perfect_planner_view is not None and self._perfect_planner_view.isVisible():
+                self._set_view_cats_if_needed("perfect_planner", self._perfect_planner_view, self._cats)
+            if self._calibration_view is not None and self._calibration_view.isVisible():
+                self._calibration_view.set_context(self._current_save, self._cats)
+                self._view_generation["calibration"] = self._cats_generation
+            self.statusBar().showMessage(_tr("status.rooms_refreshed", default="Room locations updated."))
+        except Exception as exc:  # noqa: BLE001 — last line of defence before the event loop
+            self.statusBar().showMessage(
+                _tr("status.quick_refresh_failed",
+                    default="Quick refresh failed ({error}) — reloading save.",
+                    error=repr(exc))
+            )
+            # Full reload regenerates all widgets from scratch, clearing
+            # any dangling references that caused the failure.
+            QTimer.singleShot(0, self._reload)
 
     def _open_tree_browser(self):
         self._push_nav_history()
