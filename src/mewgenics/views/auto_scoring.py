@@ -557,6 +557,7 @@ class AutoScoringView(QWidget):
             cb.stateChanged.connect(self._on_scope_changed)
             self._room_checkboxes[rk] = cb
             self._scope_container.addWidget(cb)
+        self._sync_room_checkbox_enabled()
 
     def _compute_scope(self):
         """Determine which cats are in scope based on checkboxes and filters."""
@@ -579,13 +580,14 @@ class AutoScoringView(QWidget):
     def _dirty_status_text(self) -> str:
         if not self._alive:
             return "No cats loaded"
+        scope_info = f"  ({len(self._scope_cats)} in scope / {len(self._alive)} alive)"
         if self._scoring_worker is not None:
-            return "Calculation running..."
+            return "Calculation running..." + scope_info
         if self._results and not self._results_stale:
-            return "Showing previous scores."
+            return "Showing previous scores." + scope_info
         if self._auto_calc:
-            return "Scores are out of date. Recalculating..."
-        return "Scores are out of date. Click Calculate to recompute."
+            return "Scores are out of date. Recalculating..." + scope_info
+        return "Scores are out of date. Click Calculate to recompute." + scope_info
 
     def _clear_results(self):
         self._results = {}
@@ -1008,7 +1010,14 @@ class AutoScoringView(QWidget):
     def _on_scope_changed(self):
         if self._suppress_recompute:
             return
+        self._sync_room_checkbox_enabled()
         self._mark_dirty(clear_results=True, cancel_running=True)
+
+    def _sync_room_checkbox_enabled(self):
+        """Grey out room checkboxes when 'All Cats' is checked."""
+        enabled = not self._chk_all_cats.isChecked()
+        for cb in self._room_checkboxes.values():
+            cb.setEnabled(enabled)
 
     def _on_option_changed(self):
         if self._suppress_recompute:
@@ -1089,6 +1098,7 @@ class AutoScoringView(QWidget):
             "use_current_stats": self._use_current_stats,
             "add_mutation_stats": self._add_mutation_stats,
             "hide_out_of_scope": self._hide_out_of_scope,
+            "all_cats": self._chk_all_cats.isChecked(),
             "scope": {rk: cb.isChecked() for rk, cb in self._room_checkboxes.items()},
             "filters": self._filter_state.to_dict(),
             "sort_col": self._table.horizontalHeader().sortIndicatorSection(),
@@ -1133,10 +1143,12 @@ class AutoScoringView(QWidget):
             self._chk_hide_oos.setChecked(opts.get("hide_out_of_scope", False))
 
             # Scope
+            self._chk_all_cats.setChecked(opts.get("all_cats", True))
             scope_state = opts.get("scope", {})
             for rk, cb in self._room_checkboxes.items():
                 if rk in scope_state:
                     cb.setChecked(scope_state[rk])
+            self._sync_room_checkbox_enabled()
 
             # Filters
             filters_dict = opts.get("filters")

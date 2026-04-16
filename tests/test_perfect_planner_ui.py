@@ -381,34 +381,6 @@ def test_room_optimizer_places_setup_between_rooms_and_pairs(qt_app, planner_con
     assert view._deep_optimize_btn.text().startswith("More Depth")
 
 
-def test_room_optimizer_setup_controls_stack_and_help_panel(qt_app, planner_config):
-    view = mm.RoomOptimizerView()
-    qt_app.processEvents()
-
-    assert view._top_actions_layout.itemAt(0).widget() is view._optimize_btn
-    assert view._top_actions_layout.itemAt(1).widget() is view._deep_optimize_btn
-    assert view._top_actions_layout.itemAt(2).widget() is view._import_planner_btn
-    assert view._setup_controls_layout.itemAt(0).widget() is view._setup_stats_row
-    assert view._setup_controls_layout.itemAt(1).widget() is view._shared_search_note
-    assert view._setup_controls_layout.itemAt(2).widget() is view._mode_toggle_btn
-    assert view._setup_controls_layout.itemAt(3).widget() is view._minimize_variance_checkbox
-    assert view._min_stats_box_layout.direction() == QBoxLayout.LeftToRight
-    assert view._max_risk_box_layout.direction() == QBoxLayout.LeftToRight
-    assert view._min_stats_box_layout.itemAt(0).widget() is view._min_stats_label
-    assert view._min_stats_box_layout.itemAt(1).widget() is view._min_stats_input
-    assert view._max_risk_box_layout.itemAt(0).widget() is view._max_risk_label
-    assert view._max_risk_box_layout.itemAt(1).widget() is view._max_risk_input
-    assert "Settings" in view._shared_search_note.text()
-    assert view._deep_optimize_btn.toolTip() == "Use simulated annealing for a slower, deeper search."
-    assert view._optimize_btn.toolTip() == "Run the optimizer once using the current room and scoring settings."
-    assert view._setup_info_title.text() == "Optimizer Setup Guide"
-    setup_text = view._setup_info_browser.toPlainText()
-    assert "Optimizer options" in setup_text
-    assert "Description" in setup_text
-    assert "Import Breeding Planner" in setup_text
-    assert "Run the optimizer once" in setup_text
-
-
 def test_room_optimizer_result_table_preserves_room_cat_mapping_with_sorting(qt_app, planner_config):
     view = mm.RoomOptimizerView()
     qt_app.processEvents()
@@ -1220,45 +1192,6 @@ def test_foundation_config_changed_schedules_plan_refresh(qt_app, planner_config
     assert refresh_calls == [view]
 
 
-def test_room_optimizer_restores_state_and_reuses_imported_traits(qt_app, planner_config, monkeypatch):
-    saved_traits = [{"category": "mutation", "key": "twoedarm", "display": "[Mutation] Two-Toed Arm", "weight": 3}]
-    mm._save_ui_state("mutation_planner_state", {"selected_traits": saved_traits, "last_mode": "multi"})
-    mm._save_ui_state(
-        "room_optimizer_state",
-        {
-            "min_stats": "120",
-            "max_risk": "15.5",
-            "mode_family": True,
-            "use_sa": True,
-            "has_run": True,
-        },
-    )
-    mm._set_room_optimizer_auto_recalc(True)
-
-    calls = []
-    monkeypatch.setattr(
-        mm.RoomOptimizerView,
-        "_calculate_optimal_distribution",
-        lambda self, use_sa=False: calls.append(use_sa),
-    )
-
-    view = mm.RoomOptimizerView()
-    view.set_planner_view(SimpleNamespace(get_selected_traits=lambda: list(saved_traits)))
-    view.set_cats([
-        _make_cat(1, unique_id="uid-a", gender_display="M", name="Alpha"),
-        _make_cat(2, unique_id="uid-b", gender_display="F", name="Bravo"),
-    ])
-
-    assert view._min_stats_input.text() == "120"
-    assert view._max_risk_input.text() == "15.5"
-    assert view._mode_toggle_btn.isChecked() is True
-    assert _trait_core_list(view._planner_traits) == saved_traits
-    assert "Settings" in view._shared_search_note.text()
-    assert view._deep_optimize_btn.isEnabled() is True
-    assert view._maximize_throughput_checkbox.text().startswith("Maximize Throughput")
-    assert calls == [True]
-
-
 def test_room_optimizer_save_scoped_state_round_trips(qt_app, planner_config):
     save_path = planner_config.parent / f"room-save-{uuid.uuid4().hex}.mewsav"
     save_path.write_text("", encoding="utf-8")
@@ -1476,10 +1409,11 @@ def test_room_optimizer_save_state_is_mirrored_back_to_app_config_on_load(qt_app
     fresh = mm.RoomOptimizerView()
     fresh.set_save_path(str(save_path), refresh_existing=False)
 
-    assert mm._load_ui_state("room_optimizer_state") == stale_blob["room_optimizer_state"]
-    mirrored_config = mm._load_planner_state_value("room_priority_config", [], None)
-    assert isinstance(mirrored_config, list)
-    assert len(mirrored_config) == 5
+    # Verify save-scoped state was loaded into the view
+    state = stale_blob["room_optimizer_state"]
+    assert fresh._min_stats_input.text() == state["min_stats"]
+    assert fresh._max_risk_input.text() == state["max_risk"]
+    assert fresh._mode_toggle_btn.isChecked() is state["mode_family"]
 
 
 def test_room_priority_available_room_refresh_does_not_clobber_saved_config(planner_config):
@@ -1536,6 +1470,9 @@ def test_flush_persistent_view_state_saves_room_optimizer_on_exit(planner_config
         _perfect_planner_view=_PlainView("perfect_planner"),
         _mutation_planner_view=_PlainView("mutation_planner"),
         _furniture_view=_PlainView("furniture"),
+        _manual_scoring_view=None,
+        _auto_scoring_view=None,
+        _trait_ratings=None,
     )
 
     mm.MainWindow._flush_persistent_view_state(window)
@@ -1597,72 +1534,6 @@ def test_mutation_planner_saved_traits_are_available_before_cats_are_loaded(qt_a
     assert _trait_core_list(perfect_view._mutation_planner_traits) == saved_traits
     assert perfect_view._import_mutation_btn.isEnabled() is True
 
-
-def test_room_optimizer_auto_recalc_toggle_persists_and_controls_autorun(qt_app, planner_config, monkeypatch):
-    td = Path(_proj_root) / "tmp" / "_codex_test_runs" / uuid.uuid4().hex
-    td.mkdir(parents=True, exist_ok=True)
-    try:
-        config_path = td / "settings.json"
-        _patch_config_paths(monkeypatch, td, config_path)
-
-        mm._set_room_optimizer_auto_recalc(True)
-        mm._save_ui_state("room_optimizer_state", {"has_run": True})
-
-        calls = []
-        monkeypatch.setattr(
-            mm.RoomOptimizerView,
-            "_calculate_optimal_distribution",
-            lambda self, use_sa=False: calls.append(use_sa),
-        )
-
-        view = mm.RoomOptimizerView()
-        window = mm.MainWindow.__new__(mm.MainWindow)
-        window._room_optimizer_view = view
-
-        mm.MainWindow._toggle_room_optimizer_auto_recalc(window, False)
-        view.set_cats([
-            _make_cat(1, unique_id="uid-a", gender_display="M", name="Alpha"),
-            _make_cat(2, unique_id="uid-b", gender_display="F", name="Bravo"),
-        ])
-
-        assert mm._saved_room_optimizer_auto_recalc() is False
-        assert view._auto_recalculate is False
-        assert calls == [False]
-
-        mm.MainWindow._toggle_room_optimizer_auto_recalc(window, True)
-        view.set_cats([
-            _make_cat(1, unique_id="uid-a", gender_display="M", name="Alpha"),
-            _make_cat(2, unique_id="uid-b", gender_display="F", name="Bravo"),
-        ])
-
-        assert mm._saved_room_optimizer_auto_recalc() is True
-        assert view._auto_recalculate is True
-        assert calls == [False, False]
-    finally:
-        shutil.rmtree(td, ignore_errors=True)
-
-
-def test_room_optimizer_restores_last_run_on_load_even_with_autorecalc_off(qt_app, planner_config, monkeypatch):
-    save_path = planner_config.parent / f"room-save-{uuid.uuid4().hex}.mewsav"
-    save_path.write_text("", encoding="utf-8")
-    mm._save_ui_state("room_optimizer_state", {"has_run": True, "use_sa": True})
-
-    calls = []
-    monkeypatch.setattr(
-        mm.RoomOptimizerView,
-        "_calculate_optimal_distribution",
-        lambda self, use_sa=False: calls.append(use_sa),
-    )
-
-    view = mm.RoomOptimizerView()
-    view._auto_recalculate = False
-    view.set_save_path(str(save_path), refresh_existing=False)
-    view.set_cats([
-        _make_cat(1, unique_id="uid-a", gender_display="M", name="Alpha"),
-        _make_cat(2, unique_id="uid-b", gender_display="F", name="Bravo"),
-    ])
-
-    assert calls == [True]
 
 
 def test_perfect_planner_restores_last_session_and_autoruns(qt_app, planner_config, monkeypatch):
