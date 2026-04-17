@@ -1750,15 +1750,16 @@ class Cat:
     def has_adventured(self) -> bool:
         """Return True if this cat has been on at least one adventure.
 
-        Adventure leveling writes non-zero values to ``stat_mod`` (per-stat
-        int32 deltas). A freshly-hatched cat has all zeros; any cat that
-        has levelled at least once will have at least one positive entry.
-        The game's accessible-cat hash table leaves retired cats as
-        "accessible", so the Adv Ready column needs this extra filter to
-        avoid marking retirees as ready.
+        Adventure leveling writes *positive* values to ``stat_mod`` (per-stat
+        int32 deltas). A freshly-hatched cat has all zeros; a cat that has
+        levelled at least once will have at least one positive entry.
+
+        Only positive values are counted because the game may write negative
+        ``stat_mod`` entries for non-adventure reasons (debuffs, status
+        effects, etc.) — see GitHub issue #81.
         """
         stat_mod = getattr(self, "stat_mod", None) or []
-        return any(int(x) != 0 for x in stat_mod)
+        return any(int(x) > 0 for x in stat_mod)
 
     @property
     def short_name(self) -> str:

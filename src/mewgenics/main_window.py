@@ -8,7 +8,7 @@ from typing import Optional
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QTableView, QPushButton, QLabel, QFileDialog, QHeaderView,
-    QAbstractItemView, QSplitter, QDialog,
+    QAbstractItemView, QSplitter, QDialog, QScrollArea,
     QLineEdit,
     QMessageBox, QProgressBar, QMenu,
 )
@@ -917,9 +917,19 @@ class MainWindow(QMainWindow):
     # ── Sidebar ────────────────────────────────────────────────────────────
 
     def _build_sidebar(self) -> QWidget:
-        w  = QWidget()
+        scroll = QScrollArea()
+        scroll.setFixedWidth(self._base_sidebar_width)
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll.setStyleSheet(
+            "QScrollArea { background:#14142a; border:none; }"
+            "QScrollBar:vertical { background:#14142a; width:6px; }"
+            "QScrollBar::handle:vertical { background:#2a2a4a; border-radius:3px; }"
+            "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height:0; }"
+        )
+        w = QWidget()
         self._sidebar = w
-        w.setFixedWidth(self._base_sidebar_width)
         w.setStyleSheet("background:#14142a;")
         vb = QVBoxLayout(w)
         vb.setContentsMargins(8, 14, 8, 12)
@@ -1058,7 +1068,8 @@ class MainWindow(QMainWindow):
         self._reload_btn.clicked.connect(self._reload)
         vb.addWidget(self._reload_btn)
         self._refresh_filter_button_counts()
-        return w
+        scroll.setWidget(w)
+        return scroll
 
     def _rebuild_room_buttons(self, cats: list[Cat]):
         # Capture the active room key BEFORE destroying buttons so we can
