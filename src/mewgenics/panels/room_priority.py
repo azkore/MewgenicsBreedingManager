@@ -104,8 +104,8 @@ class RoomPriorityPanel(QWidget):
         self.set_config(_load_room_priority_config(self._save_path))
 
     def reset_to_defaults(self):
-        self.set_config(_default_room_priority_config())
-        self._on_changed()
+        # Preserve the user's room priority configuration; nothing to reset.
+        pass
 
     def _default_room_stim(self, room: str | None, fallback: float = 50.0) -> float:
         if room and room in self._room_stats:

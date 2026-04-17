@@ -810,10 +810,10 @@ class WhatsNewDialog(QDialog):
         )
 
         default_highlights = highlights or [
-            "Fight Club / Adv Ready no longer falsely excludes cats with negative stat_mod entries (#81).",
-            "Main window can now be resized vertically — sidebar scrolls on smaller screens (#82).",
-            "Mutation planner selected traits list expands properly with the splitter (#83).",
-            "Manual Scoring preserves selected mutations and disorders across restarts (#84).",
+            "Newly unlocked rooms (e.g. Attic) now appear without restarting the game (#85).",
+            "Mutation Planner: Add Desired / Add Undesired buttons for quick trait targeting.",
+            "Mutation Planner: Remove Trait button and sortable Sel column.",
+            "Reset UI to Defaults no longer wipes selected traits, foundation pairs, or room priority.",
         ]
 
         root = QVBoxLayout(self)
@@ -830,7 +830,7 @@ class WhatsNewDialog(QDialog):
         body.setHtml(
             f"""
             <div style="line-height:1.5;">
-              <p>Bug-fix release addressing issues #81–#84: Fight Club accuracy, vertical window resize, mutation planner layout, and manual scoring persistence.</p>
+              <p>Bug fix and mutation planner UX improvements.</p>
               <ul>{bullets}</ul>
               <p><a href="https://github.com/frankieg33/MewgenicsBreedingManager/releases">View releases on GitHub</a></p>
             </div>

@@ -2656,7 +2656,11 @@ class PerfectCatPlannerView(QWidget):
             self._restoring_session_state = False
 
     def reset_to_defaults(self):
-        """Restore the perfect planner to its built-in default inputs and pane sizes."""
+        """Restore the perfect planner to its default layout and input state.
+
+        Preserves foundation pairs and offspring selections so the user does
+        not lose curated data.
+        """
         self._session_state = {}
         self._restoring_session_state = True
         try:
@@ -2670,8 +2674,6 @@ class PerfectCatPlannerView(QWidget):
             self._prefer_high_libido_checkbox.setChecked(True)
             self._splitter.setSizes([200, 520])
             self._bottom_splitter.setSizes([760, 520])
-            self._foundation_panel.reset_to_defaults()
-            self._offspring_tracker.reset_to_defaults()
         finally:
             self._restoring_session_state = False
         self.retranslate_ui()

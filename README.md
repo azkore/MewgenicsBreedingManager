@@ -2,7 +2,7 @@
 
 A Python desktop tool for managing your Mewgenics cats. Reads your save file directly, scores every cat for breeding priority, optimizes room layouts, and helps plan multi-generation lines — all while tracking lineage, inbreeding risk, and trait inheritance.
 
-Current release: `v5.7.2`
+Current release: `v5.7.3`
 
 If you'd like to support the project, you can [here](https://ko-fi.com/frankieg33).
 
@@ -100,6 +100,16 @@ Produces a standalone executable via PyInstaller.
 - Original idea and reference from frankieg33
 
 ## Release Notes
+
+### v5.7.3
+
+Bug fix and mutation planner UX improvements.
+
+- **#85**: Newly unlocked rooms (e.g. Attic) now appear immediately after the game writes the save, without requiring a game restart — `house_unlocks` is now merged with `house_state`/furniture instead of used as a fallback
+- **Mutation Planner**: Added "Add Desired" (weight +5) and "Add Undesired" (weight -5) buttons for quick trait targeting; buttons override each other when re-adding an existing trait
+- **Mutation Planner**: Added "Remove Trait" button to remove traits highlighted in the left table from the selected list
+- **Mutation Planner**: Added sortable "Sel" column to the trait table so selected traits can be grouped together
+- **Reset UI to Defaults** no longer destroys user-curated data (selected traits, foundation pairs, offspring selections, room priority config) — only resets layout and search state
 
 ### v5.7.2
 

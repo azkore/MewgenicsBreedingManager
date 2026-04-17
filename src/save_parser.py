@@ -2291,49 +2291,42 @@ def _get_house_info(conn) -> dict:
 
 
 def _get_unlocked_house_rooms(conn, house: dict | None = None, furniture: list[FurnitureItem] | None = None) -> list[str]:
-    """Return the house rooms that are actually present in this save.
+    """Return the house rooms that are unlocked in this save.
 
-    The ``house_unlocks`` blob is useful as a fallback, but on some saves it
-    over-reports rooms that are not actually present in the save layout. The
-    ``house_state`` and furniture tables are a better source for the concrete
-    room set, so prefer those when available.
+    Merges two sources: rooms observed in ``house_state``/furniture (concrete
+    evidence a room is in use) and the ``house_unlocks`` blob (which records
+    unlock flags).  The union ensures newly unlocked but still-empty rooms
+    (no cats or furniture placed yet) are not missed.
     """
-    present_rooms: set[str] = set()
+    rooms: set[str] = set()
 
     if isinstance(house, dict):
-        present_rooms.update(room for room in house.values() if room in ROOM_KEYS)
+        rooms.update(room for room in house.values() if room in ROOM_KEYS)
 
     if furniture:
-        present_rooms.update(
+        rooms.update(
             item.room for item in furniture
             if getattr(item, "room", None) in ROOM_KEYS
         )
 
-    if present_rooms:
-        return [room for room in ROOM_KEYS if room in present_rooms]
-
     row = conn.execute("SELECT data FROM files WHERE key = 'house_unlocks'").fetchone()
-    if not row or not row[0]:
-        return []
+    if row and row[0]:
+        tokens = {
+            m.group(0).decode("ascii", errors="ignore")
+            for m in re.finditer(rb"[A-Za-z][A-Za-z0-9_]+", row[0])
+        }
+        if tokens & {"Default", "House3", "MediumHouse", "LargeHouse"}:
+            rooms.add("Floor1_Large")
+        if tokens & {"House3", "MediumHouse_SmallRoom", "LargeHouse"}:
+            rooms.add("Floor1_Small")
+        if "SmallHouse_Attic" in tokens:
+            rooms.add("Attic")
+        if tokens & {"LargeHouse", "LargeHouse_Floor2Large"}:
+            rooms.add("Floor2_Large")
+        if "LargeHouse_Floor2Small" in tokens:
+            rooms.add("Floor2_Small")
 
-    tokens = {
-        m.group(0).decode("ascii", errors="ignore")
-        for m in re.finditer(rb"[A-Za-z][A-Za-z0-9_]+", row[0])
-    }
-    unlocked = set()
-
-    if tokens & {"Default", "House3", "MediumHouse", "LargeHouse"}:
-        unlocked.add("Floor1_Large")
-    if tokens & {"House3", "MediumHouse_SmallRoom", "LargeHouse"}:
-        unlocked.add("Floor1_Small")
-    if "SmallHouse_Attic" in tokens:
-        unlocked.add("Attic")
-    if tokens & {"LargeHouse", "LargeHouse_Floor2Large"}:
-        unlocked.add("Floor2_Large")
-    if "LargeHouse_Floor2Small" in tokens:
-        unlocked.add("Floor2_Small")
-
-    return [room for room in ROOM_KEYS if room in unlocked]
+    return [room for room in ROOM_KEYS if room in rooms]
 
 
 def _get_adventure_keys(conn) -> set:

@@ -496,14 +496,14 @@ class MutationDisorderPlannerView(QWidget):
         self._deselect_traits_btn = QPushButton(_tr("mutation_planner.deselect_traits", default="Deselect"))
         self._deselect_traits_btn.setFixedWidth(90)
         self._deselect_traits_btn.setStyleSheet(
-            "QPushButton { background:#2a1a1a; color:#c88; border:1px solid #4a2a2a; "
+            "QPushButton { background:#2a2a1a; color:#cc8; border:1px solid #4a4a2a; "
             "border-radius:4px; padding:4px 8px; font-size:11px; font-weight:bold; }"
-            "QPushButton:hover { background:#3a2a2a; }"
+            "QPushButton:hover { background:#3a3a2a; }"
         )
         self._deselect_traits_btn.clicked.connect(self._on_deselect_traits)
         trait_row.addWidget(self._deselect_traits_btn)
-        self._add_trait_btn = QPushButton(_tr("mutation_planner.add_trait", default="Add Traits"))
-        self._add_trait_btn.setFixedWidth(180)
+        self._add_trait_btn = QPushButton(_tr("mutation_planner.add_trait", default="Add Desired"))
+        self._add_trait_btn.setFixedWidth(120)
         self._add_trait_btn.setStyleSheet(
             "QPushButton { background:#1f5f4a; color:#f2f7f3; border:1px solid #3f8f72; "
             "border-radius:4px; padding:4px 8px; font-size:11px; font-weight:bold; }"
@@ -512,6 +512,24 @@ class MutationDisorderPlannerView(QWidget):
         self._add_trait_btn.clicked.connect(self._on_add_trait)
         trait_row.addWidget(self._add_trait_btn)
         self._add_trait_btn.setVisible(True)
+        self._add_undesired_btn = QPushButton(_tr("mutation_planner.add_undesired", default="Add Undesired"))
+        self._add_undesired_btn.setFixedWidth(120)
+        self._add_undesired_btn.setStyleSheet(
+            "QPushButton { background:#4a1a2a; color:#e8a0a0; border:1px solid #6a2a3a; "
+            "border-radius:4px; padding:4px 8px; font-size:11px; font-weight:bold; }"
+            "QPushButton:hover { background:#5a2a3a; }"
+        )
+        self._add_undesired_btn.clicked.connect(self._on_add_undesired_trait)
+        trait_row.addWidget(self._add_undesired_btn)
+        self._remove_trait_btn = QPushButton(_tr("mutation_planner.remove_selected_trait", default="Remove Trait"))
+        self._remove_trait_btn.setFixedWidth(120)
+        self._remove_trait_btn.setStyleSheet(
+            "QPushButton { background:#2a1a1a; color:#c88; border:1px solid #4a2a2a; "
+            "border-radius:4px; padding:4px 8px; font-size:11px; font-weight:bold; }"
+            "QPushButton:hover { background:#3a2a2a; }"
+        )
+        self._remove_trait_btn.clicked.connect(self._on_remove_selected_trait)
+        trait_row.addWidget(self._remove_trait_btn)
         # Master list of (display_text, user_data) for filtering
         self._trait_items_master: list[tuple[str, object]] = []
         self._trait_info_label = QLabel("")
@@ -552,8 +570,9 @@ class MutationDisorderPlannerView(QWidget):
         left_layout.addWidget(trait_detail)
         trait_detail.setVisible(False)
 
-        self._trait_table = QTableWidget(0, 4)
+        self._trait_table = QTableWidget(0, 5)
         self._trait_table.setHorizontalHeaderLabels([
+            "Sel",
             "Trait",
             "Type",
             "Cats",
@@ -566,14 +585,16 @@ class MutationDisorderPlannerView(QWidget):
         self._trait_table.setSortingEnabled(True)
         self._trait_table.setAlternatingRowColors(True)
         thh = self._trait_table.horizontalHeader()
-        thh.setSectionResizeMode(0, QHeaderView.Interactive)
+        thh.setSectionResizeMode(0, QHeaderView.Fixed)
         thh.setSectionResizeMode(1, QHeaderView.Interactive)
         thh.setSectionResizeMode(2, QHeaderView.Interactive)
-        thh.setSectionResizeMode(3, QHeaderView.Stretch)
-        self._trait_table.setColumnWidth(0, 150)
-        self._trait_table.setColumnWidth(1, 90)
-        self._trait_table.setColumnWidth(2, 55)
-        self._trait_table.sortByColumn(1, Qt.AscendingOrder)
+        thh.setSectionResizeMode(3, QHeaderView.Fixed)
+        thh.setSectionResizeMode(4, QHeaderView.Stretch)
+        self._trait_table.setColumnWidth(0, 30)
+        self._trait_table.setColumnWidth(1, 160)
+        self._trait_table.setColumnWidth(2, 120)
+        self._trait_table.setColumnWidth(3, 45)
+        self._trait_table.sortByColumn(2, Qt.AscendingOrder)
         self._trait_table.selectionModel().selectionChanged.connect(self._on_trait_table_selection_changed)
         left_layout.addWidget(self._trait_table)
         splitter.addWidget(left)
@@ -715,7 +736,9 @@ class MutationDisorderPlannerView(QWidget):
         self._target_trait_label.setText(_tr("mutation_planner.target_trait"))
         self._trait_search.setPlaceholderText(_tr("mutation_planner.search_placeholder"))
         self._deselect_traits_btn.setText(_tr("mutation_planner.deselect_traits", default="Deselect"))
-        self._add_trait_btn.setText(_tr("mutation_planner.add_trait", default="Add Traits"))
+        self._add_trait_btn.setText(_tr("mutation_planner.add_trait", default="Add Desired"))
+        self._add_undesired_btn.setText(_tr("mutation_planner.add_undesired", default="Add Undesired"))
+        self._remove_trait_btn.setText(_tr("mutation_planner.remove_selected_trait", default="Remove Trait"))
         self._traits_title.setText(_tr("mutation_planner.selected_traits"))
         self._clear_traits_btn.setText(_tr("mutation_planner.clear_all"))
         self._find_pairs_btn.setText(_tr("mutation_planner.find_best_pairs"))
@@ -732,6 +755,7 @@ class MutationDisorderPlannerView(QWidget):
             self._pair_label.setStyleSheet("color:#666; font-size:11px;")
         if hasattr(self, "_trait_table"):
             self._trait_table.setHorizontalHeaderLabels([
+                "Sel",
                 "Trait",
                 "Type",
                 "Cats",
@@ -932,9 +956,6 @@ class MutationDisorderPlannerView(QWidget):
             row = self._trait_table.rowCount()
             self._trait_table.insertRow(row)
 
-            display_item = QTableWidgetItem(row_data["display"])
-            display_item.setData(Qt.UserRole, (row_data["category"], row_data["key"]))
-            display_item.setToolTip(row_data["desc"] or row_data["display"])
             weight = _planner_trait_weight(
                 self._selected_traits,
                 category=row_data["category"],
@@ -942,29 +963,40 @@ class MutationDisorderPlannerView(QWidget):
                 display=row_data["display"],
             )
             fg, bg = _planner_trait_name_colors(weight)
+
+            sel_item = _SortByUserRoleItem("\u2713" if weight != 0 else "")
+            sel_item.setData(Qt.UserRole, abs(weight) if weight != 0 else 0)
+            sel_item.setTextAlignment(Qt.AlignCenter)
+            if weight != 0:
+                sel_item.setForeground(fg)
+            self._trait_table.setItem(row, 0, sel_item)
+
+            display_item = QTableWidgetItem(row_data["display"])
+            display_item.setData(Qt.UserRole, (row_data["category"], row_data["key"]))
+            display_item.setToolTip(row_data["desc"] or row_data["display"])
             display_item.setForeground(fg)
             if bg is not None:
                 display_item.setBackground(bg)
                 font = display_item.font()
                 font.setBold(True)
                 display_item.setFont(font)
-            self._trait_table.setItem(row, 0, display_item)
+            self._trait_table.setItem(row, 1, display_item)
 
             kind_item = _SortByUserRoleItem(row_data["kind"])
             kind_item.setData(Qt.UserRole, row_data["order"])
             kind_item.setTextAlignment(Qt.AlignCenter)
-            self._trait_table.setItem(row, 1, kind_item)
+            self._trait_table.setItem(row, 2, kind_item)
 
             cats_item = _SortByUserRoleItem(str(row_data["cats"]))
             cats_item.setData(Qt.UserRole, row_data["cats"])
             cats_item.setTextAlignment(Qt.AlignCenter)
-            self._trait_table.setItem(row, 2, cats_item)
+            self._trait_table.setItem(row, 3, cats_item)
 
             desc_text = row_data["desc"] or ""
             desc_item = QTableWidgetItem(desc_text)
             if desc_text:
                 desc_item.setToolTip(desc_text)
-            self._trait_table.setItem(row, 3, desc_item)
+            self._trait_table.setItem(row, 4, desc_item)
 
             if restore_data is not None and (row_data["category"], row_data["key"]) == restore_data:
                 selected_row = row
@@ -978,7 +1010,7 @@ class MutationDisorderPlannerView(QWidget):
         if not hasattr(self, "_trait_table"):
             return
         for row in range(self._trait_table.rowCount()):
-            item = self._trait_table.item(row, 0)
+            item = self._trait_table.item(row, 1)
             if item is None:
                 continue
             data = item.data(Qt.UserRole)
@@ -1000,6 +1032,14 @@ class MutationDisorderPlannerView(QWidget):
             font = item.font()
             font.setBold(weight != 0)
             item.setFont(font)
+            sel_item = self._trait_table.item(row, 0)
+            if sel_item is not None:
+                sel_item.setText("\u2713" if weight != 0 else "")
+                sel_item.setData(Qt.UserRole, abs(weight) if weight != 0 else 0)
+                if weight != 0:
+                    sel_item.setForeground(fg)
+                else:
+                    sel_item.setForeground(QColor(0, 0, 0, 0))
 
     def _populate_trait_combo(self):
         prev = self._trait_combo.currentData()
@@ -1082,7 +1122,7 @@ class MutationDisorderPlannerView(QWidget):
                 self._trait_table.clearSelection()
             else:
                 for row in range(self._trait_table.rowCount()):
-                    item = self._trait_table.item(row, 0)
+                    item = self._trait_table.item(row, 1)
                     if item is not None and item.data(Qt.UserRole) == self._active_trait_data:
                         self._trait_table.selectRow(row)
                         break
@@ -1166,7 +1206,7 @@ class MutationDisorderPlannerView(QWidget):
         seen: set[tuple[str, str]] = set()
         rows = sorted(set(idx.row() for idx in self._trait_table.selectionModel().selectedRows()))
         for row in rows:
-            item = self._trait_table.item(row, 0)
+            item = self._trait_table.item(row, 1)
             if item is None:
                 continue
             data = item.data(Qt.UserRole)
@@ -1190,7 +1230,7 @@ class MutationDisorderPlannerView(QWidget):
             if not wanted:
                 return
             for row in range(table.rowCount()):
-                item = table.item(row, 0)
+                item = table.item(row, 1)
                 if item is None:
                     continue
                 data = item.data(Qt.UserRole)
@@ -1246,15 +1286,41 @@ class MutationDisorderPlannerView(QWidget):
         self._notify_traits_changed()
 
     def _on_add_trait(self):
-        """Add the currently selected left-table traits to the selected list."""
+        """Add the currently selected left-table traits with weight 5, overriding if already present."""
+        self._add_traits_with_weight(5)
+
+    def _on_add_undesired_trait(self):
+        """Add the currently selected left-table traits with weight -5, overriding if already present."""
+        self._add_traits_with_weight(-5)
+
+    def _add_traits_with_weight(self, weight: int):
         trait_datas = self._selected_trait_datas_from_table()
         if not trait_datas:
             return
-        combined = [(trait["category"], trait["key"]) for trait in self._selected_traits]
-        for data in trait_datas:
-            if data not in combined:
-                combined.append(data)
-        self._set_selected_traits_from_datas(combined, sync_table=False, clear_combo=True)
+        incoming = set(trait_datas)
+        trait_lookup = {(row["category"], row["key"]): row for row in self._trait_catalog}
+        # Override weight for existing traits
+        for trait in self._selected_traits:
+            if (trait["category"], trait["key"]) in incoming:
+                trait["weight"] = weight
+                incoming.discard((trait["category"], trait["key"]))
+        # Add new traits
+        for category, key in incoming:
+            row_data = trait_lookup.get((category, key))
+            if row_data is None:
+                continue
+            self._selected_traits.append({
+                "category": category,
+                "key": key,
+                "display": row_data["display"],
+                "weight": weight,
+            })
+        self._set_active_mode_traits(list(self._selected_traits))
+        self._rebuild_traits_list()
+        self._refresh_trait_table_name_styles()
+        self._refresh_table()
+        self._save_session_state()
+        self._notify_traits_changed()
 
     def _on_clear_all_traits(self):
         self._selected_traits.clear()
@@ -1297,8 +1363,32 @@ class MutationDisorderPlannerView(QWidget):
         self._pair_label.setStyleSheet("color:#666; font-size:11px;")
         self._update_trait_detail_panel(None)
         self._clear_outcome_panel()
+        self._refresh_trait_table_name_styles()
         self._refresh_table()
         self._save_session_state()
+
+    def _on_remove_selected_trait(self):
+        """Remove traits currently highlighted in the left trait table from the selected list."""
+        trait_datas = self._selected_trait_datas_from_table()
+        if not trait_datas:
+            return
+        remove_set = set(trait_datas)
+        remaining = [
+            (t["category"], t["key"])
+            for t in self._selected_traits
+            if (t["category"], t["key"]) not in remove_set
+        ]
+        self._selected_traits.clear()
+        if remaining:
+            self._set_selected_traits_from_datas(remaining, sync_table=False, clear_combo=True)
+        else:
+            self._set_active_mode_traits([])
+            self._rebuild_traits_list()
+            self._refresh_trait_table_name_styles()
+            self._refresh_table()
+            self._save_session_state()
+            self._notify_traits_changed()
+            self._notify_traits_changed()
 
     def _on_remove_trait(self, index: int):
         if 0 <= index < len(self._selected_traits):
@@ -1775,19 +1865,19 @@ class MutationDisorderPlannerView(QWidget):
         self._notify_traits_changed()
 
     def reset_to_defaults(self):
-        """Restore the mutation planner to its default room, search, and trait state."""
+        """Restore the mutation planner to its default room, search, and layout state.
+
+        Preserves selected traits and mode profiles so the user does not lose
+        their trait selections.
+        """
         self._session_state = {}
         self._restoring_session_state = True
         try:
-            self._selected_mode = "best_pairs"
-            self._mode_profiles = _default_mutation_mode_profiles()
-            self._sync_selected_traits_reference()
             self._refresh_mode_combo_label()
             if self._room_combo.count():
                 self._room_combo.setCurrentIndex(0)
             self._stim_spin.setValue(10)
             self._trait_search.setText("")
-            self._selected_traits.clear()
             self._selected_pair.clear()
             self._active_trait_data = None
             self._browse_trait_datas = []
