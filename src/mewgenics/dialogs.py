@@ -810,9 +810,10 @@ class WhatsNewDialog(QDialog):
         )
 
         default_highlights = highlights or [
-            "Fixed the ~10% crash when the game wrote to its save while the manager was open — closes four independent race / exception gaps in the auto-refresh path (SaveLoadWorker failure handling, quick-refresh stale-signal generation token, superseded-worker identity checks replacing QThread.terminate(), and fileChanged burst debouncing).",
-            "Save-load failures now surface a status-bar error instead of hanging the loading overlay; transient I/O races self-heal automatically while permanently-broken saves stop after a capped retry so they can't spin a busy loop.",
-            "Atomic file writes — config and sidecar files now use write-then-rename to prevent corruption on crash or power loss.",
+            "Fight Club / Adv Ready no longer falsely excludes cats with negative stat_mod entries (#81).",
+            "Main window can now be resized vertically — sidebar scrolls on smaller screens (#82).",
+            "Mutation planner selected traits list expands properly with the splitter (#83).",
+            "Manual Scoring preserves selected mutations and disorders across restarts (#84).",
         ]
 
         root = QVBoxLayout(self)
@@ -829,7 +830,7 @@ class WhatsNewDialog(QDialog):
         body.setHtml(
             f"""
             <div style="line-height:1.5;">
-              <p>Stability release — fixes the ~10% crash when the game writes to its save while the manager is open, plus atomic file writes to prevent config corruption.</p>
+              <p>Bug-fix release addressing issues #81–#84: Fight Club accuracy, vertical window resize, mutation planner layout, and manual scoring persistence.</p>
               <ul>{bullets}</ul>
               <p><a href="https://github.com/frankieg33/MewgenicsBreedingManager/releases">View releases on GitHub</a></p>
             </div>

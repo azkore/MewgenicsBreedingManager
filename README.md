@@ -2,7 +2,7 @@
 
 A Python desktop tool for managing your Mewgenics cats. Reads your save file directly, scores every cat for breeding priority, optimizes room layouts, and helps plan multi-generation lines — all while tracking lineage, inbreeding risk, and trait inheritance.
 
-Current release: `v5.7.1`
+Current release: `v5.7.2`
 
 If you'd like to support the project, you can [here](https://ko-fi.com/frankieg33).
 
@@ -100,6 +100,15 @@ Produces a standalone executable via PyInstaller.
 - Original idea and reference from frankieg33
 
 ## Release Notes
+
+### v5.7.2
+
+Bug-fix release addressing issues #81–#84.
+
+- **#81**: `has_adventured` heuristic now only counts positive `stat_mod` values, avoiding false exclusions from Fight Club / Adv Ready caused by negative debuffs or status effects
+- **#82**: Main window is now vertically resizable — sidebar wrapped in a scroll area so it adapts to smaller screens
+- **#83**: Mutation planner selected traits list now expands properly with the splitter instead of capping at 200px
+- **#84**: Manual Scoring no longer loses selected mutations/disorders on restart — fixed initialization order where `set_trait_ratings()` overwrote saved checked lists before `set_cats()` could rebuild them
 
 ### v5.7.1
 
