@@ -1061,7 +1061,17 @@ class ManualScoringView(QWidget):
         for k, spin in self._spin_sexuality.items():
             spin.setValue(s.get("sexuality_weights", _DEFAULT_CONFIG["sexuality_weights"]).get(k, 0))
         self._suppress_recompute = False
+        # Preserve saved mutation/disorder checked lists — _read_config returns
+        # empty lists when the selectors have no items (before set_cats rebuilds them).
+        saved_checked = {
+            k: self._config.get(k, [])
+            for k in ("desired_mutations", "undesired_mutations",
+                       "desired_disorders", "undesired_disorders",
+                       "desired_mutation_weights", "undesired_mutation_weights",
+                       "desired_disorder_weights", "undesired_disorder_weights")
+        }
         self._config = self._read_config()
+        self._config.update(saved_checked)
 
     # ---- Session state persistence ----------------------------------------
 
