@@ -142,5 +142,10 @@ def _planner_state_path(save_path: str) -> str:
     return save_path + ".planner_state.json"
 
 
+def _not_adventured_path(save_path: str) -> str:
+    """Return path for not-adventured override file associated with save."""
+    return save_path + ".not_adventured"
+
+
 def _breeding_cache_path(save_path: str) -> str:
     return save_path + ".breeding_cache.json"

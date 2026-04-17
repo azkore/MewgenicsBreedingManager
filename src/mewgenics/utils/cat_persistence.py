@@ -6,7 +6,7 @@ import tempfile
 
 from save_parser import Cat
 
-from mewgenics.utils.paths import _blacklist_path, _must_breed_path, _pinned_path, _tags_path
+from mewgenics.utils.paths import _blacklist_path, _must_breed_path, _pinned_path, _tags_path, _not_adventured_path
 from mewgenics.utils.tags import _TAG_DEFS, _cat_tags
 
 logger = logging.getLogger("mewgenics.cat_persistence")
@@ -125,6 +125,16 @@ def _save_tags(save_path: str, cats: list[Cat]):
         _atomic_write_text(tags_file, json.dumps(data, indent=2, sort_keys=True))
     except Exception:
         logger.warning("failed to persist tag sidecar at %s", tags_file, exc_info=True)
+
+
+def _save_not_adventured(save_path: str, cats: list[Cat]):
+    """Save not-adventured override UIDs to file."""
+    _save_uid_flag_list(_not_adventured_path(save_path), cats, "not_adventured_override")
+
+
+def _load_not_adventured(save_path: str, cats: list[Cat]):
+    """Load not-adventured overrides and mark cats accordingly."""
+    _load_uid_flag_list(_not_adventured_path(save_path), cats, "not_adventured_override")
 
 
 def _load_tags(save_path: str, cats: list[Cat]):

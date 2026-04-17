@@ -2,7 +2,7 @@
 
 A Python desktop tool for managing your Mewgenics cats. Reads your save file directly, scores every cat for breeding priority, optimizes room layouts, and helps plan multi-generation lines — all while tracking lineage, inbreeding risk, and trait inheritance.
 
-Current release: `v5.7.3`
+Current release: `v5.7.4`
 
 If you'd like to support the project, you can [here](https://ko-fi.com/frankieg33).
 
@@ -100,6 +100,12 @@ Produces a standalone executable via PyInstaller.
 - Original idea and reference from frankieg33
 
 ## Release Notes
+
+### v5.7.4
+
+Not-adventured override for issue #81.
+
+- **#81**: Added "Toggle Not Adventured" context menu action — right-click cats whose `has_adventured` flag is a false positive (e.g. from nightly fights, not actual adventures) and mark them as not-adventured. The override persists in a `.not_adventured` sidecar file and survives save reloads.
 
 ### v5.7.3
 

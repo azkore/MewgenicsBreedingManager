@@ -1757,7 +1757,13 @@ class Cat:
         Only positive values are counted because the game may write negative
         ``stat_mod`` entries for non-adventure reasons (debuffs, status
         effects, etc.) — see GitHub issue #81.
+
+        If ``not_adventured_override`` is set, this returns False regardless
+        of stat_mod values. This handles cats that gained positive stat_mod
+        from nightly fights rather than adventures — see GitHub issue #81.
         """
+        if getattr(self, "not_adventured_override", False):
+            return False
         stat_mod = getattr(self, "stat_mod", None) or []
         return any(int(x) > 0 for x in stat_mod)
 

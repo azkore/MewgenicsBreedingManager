@@ -810,6 +810,7 @@ class WhatsNewDialog(QDialog):
         )
 
         default_highlights = highlights or [
+            "Not-adventured override: right-click cats to mark them as not having adventured, fixing false positives from nightly fights (#81).",
             "Newly unlocked rooms (e.g. Attic) now appear without restarting the game (#85).",
             "Mutation Planner: Add Desired / Add Undesired buttons for quick trait targeting.",
             "Mutation Planner: Remove Trait button and sortable Sel column.",
@@ -830,7 +831,7 @@ class WhatsNewDialog(QDialog):
         body.setHtml(
             f"""
             <div style="line-height:1.5;">
-              <p>Bug fix and mutation planner UX improvements.</p>
+              <p>Not-adventured override, room unlock fix, and mutation planner UX improvements.</p>
               <ul>{bullets}</ul>
               <p><a href="https://github.com/frankieg33/MewgenicsBreedingManager/releases">View releases on GitHub</a></p>
             </div>

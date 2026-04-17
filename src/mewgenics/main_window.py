@@ -82,6 +82,7 @@ from mewgenics.utils.calibration import (
 )
 from mewgenics.utils.cat_persistence import (
     _save_blacklist, _save_must_breed, _save_pinned, _save_tags,
+    _save_not_adventured,
 )
 from mewgenics.utils.planner_state import _planner_import_traits_summary
 from mewgenics.utils.cat_analysis import (
@@ -1705,6 +1706,7 @@ class MainWindow(QMainWindow):
         toggle_pin = menu.addAction(_tr("menu.context.toggle_pin", default="Toggle Pin"))
         toggle_mb = menu.addAction(_tr("menu.context.toggle_must_breed", default="Toggle Must Breed"))
         toggle_block = menu.addAction(_tr("menu.context.toggle_block", default="Toggle Block"))
+        toggle_not_adv = menu.addAction(_tr("menu.context.toggle_not_adventured", default="Toggle Not Adventured"))
 
         find_best.triggered.connect(lambda: self._open_safe_breeding_for_cat(cat, quality=True))
         open_tree.triggered.connect(lambda: self._open_tree_for_cat(cat))
@@ -1712,6 +1714,7 @@ class MainWindow(QMainWindow):
         toggle_pin.triggered.connect(self._toggle_pin_filtered_cats)
         toggle_mb.triggered.connect(self._toggle_must_breed_filtered_cats)
         toggle_block.triggered.connect(self._toggle_blacklist_filtered_cats)
+        toggle_not_adv.triggered.connect(self._toggle_not_adventured_filtered_cats)
 
         # ── Tag submenu ──
         menu.addSeparator()
@@ -1964,6 +1967,20 @@ class MainWindow(QMainWindow):
         else:
             state_text = _tr("common.on", default="on") if target_state else _tr("common.off", default="off")
             self.statusBar().showMessage(_tr("bulk.status.turned_breeding_block", default="Turned breeding block {state} for {count} cats in the current view", state=state_text, count=changed))
+
+    def _toggle_not_adventured_filtered_cats(self):
+        cats = self._selected_cats()
+        if not cats:
+            self.statusBar().showMessage(_tr("bulk.status.select_toggle_not_adventured", default="Select cats first, then click Toggle Not Adventured"))
+            return
+        changed = 0
+        for cat in cats:
+            cat.not_adventured_override = not getattr(cat, "not_adventured_override", False)
+            changed += 1
+        if self._current_save:
+            _save_not_adventured(self._current_save, self._cats)
+        self._emit_bulk_toggle_refresh()
+        self.statusBar().showMessage(_tr("bulk.status.toggled_not_adventured", default="Toggled not-adventured override for {count} selected cats", count=changed))
 
     def _toggle_must_breed_filtered_cats(self):
         room_key = self._active_room_key()
@@ -3379,6 +3396,7 @@ class MainWindow(QMainWindow):
             _save_must_breed(self._current_save, self._cats)
             _save_pinned(self._current_save, self._cats)
             _save_tags(self._current_save, self._cats)
+            _save_not_adventured(self._current_save, self._cats)
         self._refresh_bulk_view_buttons()
         self._bump_cats_generation()
         if self._safe_breeding_view is not None and self._safe_breeding_view.isVisible():

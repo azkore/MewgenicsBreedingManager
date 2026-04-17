@@ -4,6 +4,7 @@ from PySide6.QtCore import QThread, Signal
 from save_parser import parse_save
 from mewgenics.utils.cat_persistence import (
     _load_blacklist, _load_must_breed, _load_pinned, _load_tags,
+    _load_not_adventured,
 )
 from mewgenics.utils.calibration import _load_gender_overrides, _apply_calibration
 from mewgenics.utils.retry import retry_transient, TRANSIENT_EXCEPTIONS
@@ -35,6 +36,7 @@ class SaveLoadWorker(QThread):
             _load_must_breed(self._path, cats)
             _load_pinned(self._path, cats)
             _load_tags(self._path, cats)
+            _load_not_adventured(self._path, cats)
             applied_overrides, override_rows = _load_gender_overrides(self._path, cats)
             cal_explicit, cal_token, cal_rows = _apply_calibration(self._path, cats)
             self.finished_load.emit({
