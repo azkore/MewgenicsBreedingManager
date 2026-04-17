@@ -1,9 +1,7 @@
 """Perfect Cat Planner views extracted from mewgenics_manager.py."""
 from __future__ import annotations
 
-import hashlib
 import html
-import json
 from typing import TYPE_CHECKING, Optional, Sequence
 
 from PySide6.QtWidgets import (
@@ -44,6 +42,7 @@ from mewgenics.utils.tags import (
 )
 from mewgenics.utils.planner_state import (
     _load_planner_state_value, _save_planner_state_value,
+    _active_cat_fingerprint,
     _default_perfect_planner_foundation_pairs,
     _load_perfect_planner_foundation_pairs, _save_perfect_planner_foundation_pairs,
     _load_perfect_planner_selected_offspring, _save_perfect_planner_selected_offspring,
@@ -2427,9 +2426,7 @@ class PerfectCatPlannerView(QWidget):
 
     @staticmethod
     def _cats_fingerprint(cats: list[Cat]) -> str:
-        keys = sorted(c.db_key for c in cats if c.status != "Gone")
-        raw = json.dumps(keys, separators=(",", ":"))
-        return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+        return _active_cat_fingerprint(cats)
 
     def _save_cached_results(self, stage_rows: list[dict], tracker_rows: list[dict],
                               locator_data: list[dict], summary_text: str):

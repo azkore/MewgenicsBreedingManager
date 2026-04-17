@@ -812,8 +812,7 @@ class WhatsNewDialog(QDialog):
         default_highlights = highlights or [
             "Fixed the ~10% crash when the game wrote to its save while the manager was open — closes four independent race / exception gaps in the auto-refresh path (SaveLoadWorker failure handling, quick-refresh stale-signal generation token, superseded-worker identity checks replacing QThread.terminate(), and fileChanged burst debouncing).",
             "Save-load failures now surface a status-bar error instead of hanging the loading overlay; transient I/O races self-heal automatically while permanently-broken saves stop after a capped retry so they can't spin a busy loop.",
-            "Quick room refresh and SaveLoadWorker retry transient SQLite / OS errors from the game's atomic-rename partial-write window (sqlite3.OperationalError, EOFError, etc.) while letting real bugs propagate immediately.",
-            "QFileSystemWatcher bursts are now debounced (250 ms) so a single save write produces exactly one refresh instead of racing multiple workers against each other.",
+            "Atomic file writes — config and sidecar files now use write-then-rename to prevent corruption on crash or power loss.",
         ]
 
         root = QVBoxLayout(self)
@@ -830,7 +829,7 @@ class WhatsNewDialog(QDialog):
         body.setHtml(
             f"""
             <div style="line-height:1.5;">
-              <p>Stability release — fixes the ~10% crash when the game writes to its save while the manager is open. No UI or feature changes.</p>
+              <p>Stability release — fixes the ~10% crash when the game writes to its save while the manager is open, plus atomic file writes to prevent config corruption.</p>
               <ul>{bullets}</ul>
               <p><a href="https://github.com/frankieg33/MewgenicsBreedingManager/releases">View releases on GitHub</a></p>
             </div>

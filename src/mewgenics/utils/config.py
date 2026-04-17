@@ -1,6 +1,8 @@
 """Application configuration persistence and coercion helpers."""
-import os
 import json
+import logging
+import os
+import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -12,6 +14,42 @@ from mewgenics.utils.paths import (
     APP_CONFIG_PATH, APPDATA_CONFIG_DIR, APPDATA_SAVE_DIR,
     _app_dir, _bundle_dir, _steam_library_paths,
 )
+
+logger = logging.getLogger("mewgenics.config")
+
+
+def _atomic_write_json(path: str, data: dict):
+    parent = os.path.dirname(path) or "."
+    tmp_fd = None
+    tmp_path = None
+    try:
+        os.makedirs(parent, exist_ok=True)
+        tmp_fd, tmp_path = tempfile.mkstemp(
+            prefix=".settings.", suffix=".tmp", dir=parent
+        )
+        with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+            tmp_fd = None
+            json.dump(data, f, indent=2, sort_keys=True)
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except OSError:
+                pass
+        os.replace(tmp_path, path)
+        tmp_path = None
+    except OSError:
+        logger.warning("failed to write app config at %s", path, exc_info=True)
+    finally:
+        if tmp_fd is not None:
+            try:
+                os.close(tmp_fd)
+            except OSError:
+                pass
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
 
 
 def _load_app_config() -> dict:
@@ -27,11 +65,9 @@ def _load_app_config() -> dict:
 
 def _save_app_config(data: dict):
     try:
-        os.makedirs(APPDATA_CONFIG_DIR, exist_ok=True)
-        with open(APP_CONFIG_PATH, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, sort_keys=True)
+        _atomic_write_json(APP_CONFIG_PATH, data if isinstance(data, dict) else {})
     except Exception:
-        pass
+        logger.warning("failed to persist app config at %s", APP_CONFIG_PATH, exc_info=True)
 
 
 # ── Coercion helpers ─────────────────────────────────────────────────────────

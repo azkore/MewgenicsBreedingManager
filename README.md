@@ -112,6 +112,9 @@ Stability release. Fixes the ~10% crash reported against v5.4.8 that also affect
   - `QFileSystemWatcher` bursts are debounced with a 250 ms single-shot timer so simultaneous writes from the game collapse into one refresh
 - New `retry_transient` helper retries only genuinely transient I/O errors (`sqlite3.OperationalError`, `sqlite3.DatabaseError`, `OSError`, `EOFError`) from the partial-write window; real bugs propagate immediately instead of wasting ~350 ms re-running a doomed parse
 - `_on_save_load_failed` only schedules a self-heal retry for transient errors, capped at 3 consecutive attempts so a permanently-broken save cannot spin a busy loop
+- **Atomic file writes** — config and sidecar files (blacklist, must-breed, pinned, tags) now use write-then-rename to prevent corruption on crash or power loss
+- Consolidated `_active_cat_fingerprint()` helper shared between Perfect Planner and Room Optimizer caches
+- Logging for sidecar I/O failures instead of silent `pass`
 
 16 regression tests cover each fix in isolation.
 

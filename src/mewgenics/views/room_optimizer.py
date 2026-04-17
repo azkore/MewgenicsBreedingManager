@@ -1,8 +1,6 @@
 """Room Optimizer views extracted from mewgenics_manager.py."""
 
-import hashlib
 import html
-import json
 from typing import Optional
 
 from PySide6.QtWidgets import (
@@ -33,6 +31,7 @@ from mewgenics.utils.optimizer_settings import (
 )
 from mewgenics.utils.planner_state import (
     MUTATION_CLASS_MODES,
+    _active_cat_fingerprint,
     _load_planner_state_value, _save_planner_state_value,
     _mutation_class_label,
     _normalize_mutation_mode_profiles,
@@ -1239,9 +1238,7 @@ class RoomOptimizerView(QWidget):
 
     @staticmethod
     def _cats_fingerprint(cats: list[Cat]) -> str:
-        keys = sorted(c.db_key for c in cats if c.status != "Gone")
-        raw = json.dumps(keys, separators=(",", ":"))
-        return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+        return _active_cat_fingerprint(cats)
 
     def _save_cached_results(self, result: dict):
         if not self._save_path:

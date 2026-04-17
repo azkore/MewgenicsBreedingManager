@@ -1,4 +1,5 @@
 """Planner blob persistence, mutation class profiles, foundation pairs, and offspring selection."""
+import hashlib
 import json
 import logging
 import os
@@ -39,6 +40,13 @@ class _PlannerStateReadError(Exception):
     Distinguished from a missing file so callers can refuse to clobber
     other planners' data with an empty blob on transient I/O failures.
     """
+
+
+def _active_cat_fingerprint(cats: list[Cat]) -> str:
+    """Stable hash of the active cat roster for planner-result caches."""
+    keys = sorted(cat.db_key for cat in cats if getattr(cat, "status", "") != "Gone")
+    raw = json.dumps(keys, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
 def _load_planner_state_blob(save_path: Optional[str]) -> dict:
