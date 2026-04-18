@@ -30,7 +30,7 @@ from mewgenics.constants import (
     _WARN_STYLE, _SAFE_STYLE, _ANCS_STYLE, _PANEL_BG, _DETAIL_TEXT_STYLE, _NOTE_STYLE,
 )
 from mewgenics.utils.localization import _tr
-from mewgenics.utils.config import _load_app_config, _save_app_config
+from mewgenics.utils.config import _load_app_config, _save_app_config, _saved_stat_icon_mode
 from mewgenics.utils.cat_analysis import _cat_base_sum, _pair_breakpoint_analysis
 from mewgenics.utils.calibration import _trait_label_from_value, _trait_level_color
 from mewgenics.utils.abilities import (
@@ -357,10 +357,24 @@ class CatDetailPanel(QWidget):
         stats_grid.addWidget(corner, 0, 0)
         stats_grid.setColumnMinimumWidth(0, 34)
 
+        show_stat_icons = _saved_stat_icon_mode()
         for col, stat_name in enumerate(STAT_NAMES, start=1):
-            head = QLabel(stat_name)
-            head.setStyleSheet("color:#888; font-size:9px; font-weight:bold;")
-            head.setAlignment(Qt.AlignCenter)
+            if show_stat_icons:
+                from mewgenics.models.cat_table_model import _stat_svg_pixmap
+                pix = _stat_svg_pixmap(stat_name, 18)
+                if pix is not None:
+                    head = QLabel()
+                    head.setPixmap(pix)
+                    head.setAlignment(Qt.AlignCenter)
+                    head.setToolTip(stat_name)
+                else:
+                    head = QLabel(stat_name)
+                    head.setStyleSheet("color:#888; font-size:9px; font-weight:bold;")
+                    head.setAlignment(Qt.AlignCenter)
+            else:
+                head = QLabel(stat_name)
+                head.setStyleSheet("color:#888; font-size:9px; font-weight:bold;")
+                head.setAlignment(Qt.AlignCenter)
             stats_grid.addWidget(head, 0, col)
             stats_grid.setColumnMinimumWidth(col, 28)
 
@@ -755,10 +769,24 @@ class CatDetailPanel(QWidget):
         grid.setColumnMinimumWidth(0, 110)   # ensure label column has room for full names
 
         # Stat column headers
+        show_stat_icons = _saved_stat_icon_mode()
         for j, stat in enumerate(STAT_NAMES):
-            h = QLabel(stat)
-            h.setStyleSheet("color:#555; font-size:9px; font-weight:bold;")
-            h.setAlignment(Qt.AlignCenter)
+            if show_stat_icons:
+                from mewgenics.models.cat_table_model import _stat_svg_pixmap
+                pix = _stat_svg_pixmap(stat, 18)
+                if pix is not None:
+                    h = QLabel()
+                    h.setPixmap(pix)
+                    h.setAlignment(Qt.AlignCenter)
+                    h.setToolTip(stat)
+                else:
+                    h = QLabel(stat)
+                    h.setStyleSheet("color:#555; font-size:9px; font-weight:bold;")
+                    h.setAlignment(Qt.AlignCenter)
+            else:
+                h = QLabel(stat)
+                h.setStyleSheet("color:#555; font-size:9px; font-weight:bold;")
+                h.setAlignment(Qt.AlignCenter)
             grid.addWidget(h, 0, j + 1)
         sum_col = len(STAT_NAMES) + 1
         sh = QLabel(_tr("cat_detail.sum"))

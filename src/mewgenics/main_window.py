@@ -811,6 +811,8 @@ class MainWindow(QMainWindow):
         _set_stat_icon_mode(enabled)
         if hasattr(self, "_source_model"):
             self._source_model.set_show_stat_icons(enabled)
+        if self._detail and self._detail.current_cats:
+            self._detail.show_cats(self._detail.current_cats)
         self.statusBar().showMessage(
             _tr("status.stat_icons_display", default="Roster stat icons {state}", state=_tr("common.on", default="on") if enabled else _tr("common.off", default="off"))
         )

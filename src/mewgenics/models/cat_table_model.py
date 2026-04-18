@@ -40,15 +40,49 @@ from mewgenics.utils.abilities import (
 
 
 _STAT_ICON_CACHE: dict[tuple[str, int], QIcon] = {}
-_STAT_ICON_COLORS = {
-    "STR": QColor(212, 82, 82),
-    "DEX": QColor(92, 170, 220),
-    "CON": QColor(102, 190, 104),
-    "INT": QColor(155, 124, 220),
-    "SPD": QColor(214, 164, 72),
-    "CHA": QColor(214, 110, 176),
-    "LCK": QColor(90, 205, 176),
+_STAT_SVG_PIXMAP_CACHE: dict[tuple[str, int], QPixmap] = {}
+_STAT_SVG_NAMES = {
+    "STR": "Stat_Strength.svg",
+    "DEX": "Stat_Dexterity.svg",
+    "CON": "Stat_Constitution.svg",
+    "INT": "Stat_Intelligence.svg",
+    "SPD": "Stat_Speed.svg",
+    "CHA": "Stat_Charisma.svg",
+    "LCK": "Stat_Luck.svg",
 }
+
+
+def _stat_svg_pixmap(stat_name: str, size: int = 16) -> QPixmap | None:
+    """Load and cache an SVG stat icon as a QPixmap at the given size."""
+    key = (stat_name, int(size))
+    cached = _STAT_SVG_PIXMAP_CACHE.get(key)
+    if cached is not None:
+        return cached if not cached.isNull() else None
+    svg_name = _STAT_SVG_NAMES.get(stat_name)
+    if svg_name is None:
+        _STAT_SVG_PIXMAP_CACHE[key] = QPixmap()
+        return None
+    from pathlib import Path
+    from mewgenics.utils.paths import _bundle_dir, _app_dir
+    candidates = [
+        Path(__file__).resolve().parents[3] / "images" / svg_name,
+        Path(_bundle_dir()) / "images" / svg_name,
+        Path(_app_dir()) / "images" / svg_name,
+    ]
+    for path in candidates:
+        if path.exists():
+            from PySide6.QtSvg import QSvgRenderer
+            renderer = QSvgRenderer(str(path))
+            if renderer.isValid():
+                pix = QPixmap(size, size)
+                pix.fill(Qt.transparent)
+                painter = QPainter(pix)
+                renderer.render(painter)
+                painter.end()
+                _STAT_SVG_PIXMAP_CACHE[key] = pix
+                return pix
+    _STAT_SVG_PIXMAP_CACHE[key] = QPixmap()
+    return None
 
 
 def _make_stat_header_icon(stat_name: str, size: int = 16) -> QIcon:
@@ -56,10 +90,25 @@ def _make_stat_header_icon(stat_name: str, size: int = 16) -> QIcon:
     cached = _STAT_ICON_CACHE.get(key)
     if cached is not None:
         return cached
+    pix = _stat_svg_pixmap(stat_name, size)
+    if pix is not None:
+        icon = QIcon(pix)
+        _STAT_ICON_CACHE[key] = icon
+        return icon
+    # Fallback: colored rounded rectangle with stat initial
     pix = QPixmap(size, size)
     pix.fill(Qt.transparent)
     painter = QPainter(pix)
     painter.setRenderHint(QPainter.Antialiasing)
+    _STAT_ICON_COLORS = {
+        "STR": QColor(212, 82, 82),
+        "DEX": QColor(92, 170, 220),
+        "CON": QColor(102, 190, 104),
+        "INT": QColor(155, 124, 220),
+        "SPD": QColor(214, 164, 72),
+        "CHA": QColor(214, 110, 176),
+        "LCK": QColor(90, 205, 176),
+    }
     color = _STAT_ICON_COLORS.get(stat_name, QColor(100, 100, 115))
     painter.setBrush(QBrush(color))
     painter.setPen(QColor(color.darker(150)))
