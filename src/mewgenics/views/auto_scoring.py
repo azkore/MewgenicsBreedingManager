@@ -635,6 +635,15 @@ class AutoScoringView(QWidget):
             self._status_label.setText("No cats loaded")
             return
 
+        # Retire the previous worker if still running — request cancellation
+        # and let it clean up via deleteLater when its thread finishes.
+        old = self._scoring_worker
+        if old is not None:
+            old.requestInterruption()
+            old.finished.disconnect(self._on_scoring_done)
+            old.finished.connect(old.deleteLater)
+            self._scoring_worker = None
+
         self._read_options()
         self._compute_scope()
 
