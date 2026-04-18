@@ -779,6 +779,7 @@ class MutationDisorderPlannerView(QWidget):
         self._populate_trait_combo()
         self._refresh_table()
         self._restore_session_state()
+        self._refresh_trait_table_name_styles()
 
     def set_navigate_to_cat_callback(self, callback):
         self._navigate_to_cat_callback = callback
@@ -799,6 +800,7 @@ class MutationDisorderPlannerView(QWidget):
         self._selected_mode = mode
         self._sync_selected_traits_reference()
         self._rebuild_traits_list()
+        self._refresh_trait_table_name_styles()
         self._refresh_table()
         self._clear_outcome_panel()
         self._save_session_state()
@@ -819,6 +821,7 @@ class MutationDisorderPlannerView(QWidget):
         self._suppress_traits_changed = not notify
         try:
             self._restore_session_state()
+            self._refresh_trait_table_name_styles()
         finally:
             self._suppress_traits_changed = False
 
