@@ -3456,9 +3456,7 @@ class MainWindow(QMainWindow):
                 and self._breeding_cache.ready
                 and self._only_display_changed(cats)):
             # Refresh cat object references so views see updated rooms
-            self._breeding_cache._cats_by_key = {
-                c.db_key: c for c in cats if c.status != "Gone"
-            }
+            self._breeding_cache.refresh_cat_index(cats)
             # Keep _prev_parent_keys current for the next reload's incremental check
             self._prev_parent_keys = {
                 c.db_key: (
@@ -3636,6 +3634,11 @@ class MainWindow(QMainWindow):
         """
         if worker is None:
             return
+        # Guard against double-retirement: if we already wired up
+        # deleteLater, don't connect it again.
+        if getattr(worker, '_retired', False):
+            return
+        worker._retired = True
         worker.requestInterruption()
         # deleteLater must run after the thread's event loop exits.
         # Connecting to `finished` is safe even if the thread already
@@ -3672,11 +3675,11 @@ class MainWindow(QMainWindow):
         self._watcher.addPath(path)
 
         # Retire in-progress workers so they clean up properly instead
-        # of accumulating as zombie QThreads.  The old worker finishes
-        # naturally (requestInterruption lets it exit early) and its
-        # finished signal triggers deleteLater.  Identity checks in
-        # finished_load / failed / phase1_ready / finished_cache slots
-        # discard any stale results.
+        # of accumulating as zombie QThreads.  requestInterruption lets
+        # the worker exit early at its next check point, and finished
+        # triggers deleteLater.  Identity checks in finished_load /
+        # failed / phase1_ready / finished_cache slots discard any
+        # stale results that slip through.
         self._retire_worker(self._save_load_worker)
         self._save_load_worker = None
         self._retire_worker(self._cache_worker)
@@ -4180,13 +4183,10 @@ class MainWindow(QMainWindow):
         # full reload — the user-visible symptom is a brief flicker
         # instead of a crash.
         try:
-            # Retire the cache worker before mutating cat objects — the
-            # worker reads c.status from a background thread, and mutating
-            # it here without synchronisation is a data race that can
-            # crash the app or produce corrupt breeding results.
-            if self._cache_worker is not None:
-                self._retire_worker(self._cache_worker)
-                self._cache_worker = None
+            # Safe to mutate cat.room / cat.status here even if a
+            # BreedingCacheWorker is running — the worker snapshots the
+            # alive list at construction time and never reads cat.status
+            # from the live objects.
             for cat in self._cats:
                 entry = patch.get(cat.db_key)
                 if entry is not None:
@@ -4194,9 +4194,7 @@ class MainWindow(QMainWindow):
             # Refresh the cache's cat-by-key index so it sees updated
             # rooms/statuses without a full rebuild.
             if self._breeding_cache is not None:
-                self._breeding_cache._cats_by_key = {
-                    c.db_key: c for c in self._cats if c.status != "Gone"
-                }
+                self._breeding_cache.refresh_cat_index(self._cats)
             # Lightweight repaint — no model rebuild, no ancestry recompute.
             # layoutChanged updates cell data but doesn't re-run filterAcceptsRow
             # in QSortFilterProxyModel, so cats that moved rooms would remain

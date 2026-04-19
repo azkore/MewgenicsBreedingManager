@@ -1,4 +1,5 @@
 """CatDetailPanel, LineageDialog, and chip helper widgets."""
+import re
 from typing import Optional
 
 from PySide6.QtWidgets import (
@@ -83,7 +84,6 @@ def _wrapped_chip_block(items, tooltip_fn=None, display_fn=None, max_per_row: in
 def _breakable(text: str) -> str:
     """Insert zero-width spaces before uppercase letters in camelCase so
     QLabel word-wrap can break long single-word ability names."""
-    import re
     return re.sub(r'(?<=[a-z])(?=[A-Z])', '\u200b', text)
 
 

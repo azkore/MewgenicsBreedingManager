@@ -810,10 +810,10 @@ class WhatsNewDialog(QDialog):
         )
 
         default_highlights = highlights or [
-            "Crash fix: proper QThread worker lifecycle management prevents zombie thread accumulation when the game autosaves while MBM is open.",
-            "Icon improvements: gradient colors no longer washed out in table view; consistent 72px icon sizing in detail panel with word-wrapping labels (#90).",
+            "Thread safety: eliminated data race between room refresh and breeding cache worker; all workers now respond to interruption requests.",
+            "Crash fix: proper QThread worker lifecycle with double-retirement guard prevents zombie thread accumulation.",
+            "Icon improvements: gradient colors preserved in table view; consistent 72px icons with word-wrapping labels (#90).",
             "Cat profile sprites now show the full cat without cropping ears or chin.",
-            "Column resize indicators visible in table header borders.",
         ]
 
         root = QVBoxLayout(self)
@@ -830,7 +830,7 @@ class WhatsNewDialog(QDialog):
         body.setHtml(
             f"""
             <div style="line-height:1.5;">
-              <p>Crash fix, icon rendering improvements, profile sprite fix, and UI polish.</p>
+              <p>Thread safety hardening, icon rendering improvements, and profile sprite fix.</p>
               <ul>{bullets}</ul>
               <p><a href="https://github.com/frankieg33/MewgenicsBreedingManager/releases">View releases on GitHub</a></p>
             </div>

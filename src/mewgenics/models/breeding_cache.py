@@ -58,6 +58,14 @@ class BreedingCache:
         # Cat lookup
         self._cats_by_key: dict[int, 'Cat'] = {}
 
+    def refresh_cat_index(self, cats: list['Cat']) -> None:
+        """Rebuild the internal cat-by-key index from *cats*.
+
+        Call after mutating room/status on live Cat objects so the cache
+        sees the updated alive set without a full recompute.
+        """
+        self._cats_by_key = {c.db_key: c for c in cats if c.status != "Gone"}
+
     # ── disk persistence ──
 
     _CACHE_VERSION = 8  # bump to invalidate stale disk caches
@@ -156,7 +164,10 @@ class BreedingCacheWorker(QThread):
                  pedigree_coi_memos: Optional[dict[tuple[int, int], float]] = None,
                  parent=None):
         super().__init__(parent)
-        self._cats = cats
+        # Snapshot the alive/gone status at construction time so the
+        # background thread never reads cat.status from a live Cat
+        # object that the main thread might mutate in _on_room_patch.
+        self._alive = [c for c in cats if c.status != "Gone"]
         self._save_path = save_path
         self._existing = existing_pairwise  # disk-loaded cache with pairwise data only
         self._prev_cache = prev_cache       # previous in-memory cache for incremental update
@@ -171,7 +182,7 @@ class BreedingCacheWorker(QThread):
         return (pa, pb)
 
     def run(self):
-        alive = [c for c in self._cats if c.status != "Gone"]
+        alive = self._alive
         n = len(alive)
 
         # Early exit if already superseded before we even start

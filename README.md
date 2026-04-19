@@ -2,7 +2,7 @@
 
 A Python desktop tool for managing your Mewgenics cats. Reads your save file directly, scores every cat for breeding priority, optimizes room layouts, and helps plan multi-generation lines — all while tracking lineage, inbreeding risk, and trait inheritance.
 
-Current release: `v5.7.6`
+Current release: `v5.7.8`
 
 If you'd like to support the project, you can [here](https://ko-fi.com/frankieg33).
 
@@ -100,6 +100,15 @@ Produces a standalone executable via PyInstaller.
 - Original idea and reference from frankieg33
 
 ## Release Notes
+
+### v5.7.8
+
+Thread safety hardening and code quality fixes.
+
+- **Data race eliminated**: `BreedingCacheWorker` now snapshots the alive cat list at construction time instead of reading live `cat.status` from the background thread while the main thread may mutate it
+- **Worker interruption**: `SaveLoadWorker` and `QuickRoomRefreshWorker` now check `isInterruptionRequested()` so retired workers exit early instead of running to completion
+- **Double-retirement guard**: `_retire_worker()` tracks whether a worker was already retired, preventing duplicate `deleteLater` connections
+- **API cleanup**: Replaced direct `_cats_by_key` access across class boundaries with public `BreedingCache.refresh_cat_index()` method
 
 ### v5.7.6
 

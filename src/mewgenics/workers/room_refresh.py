@@ -53,7 +53,11 @@ class QuickRoomRefreshWorker(QThread):
 
     def run(self):
         try:
+            if self.isInterruptionRequested():
+                return
             live_keys, house, adv = retry_transient(self._read_state)
+            if self.isInterruptionRequested():
+                return
             if live_keys != self._expected_keys:
                 self.needs_full_reload.emit(self._generation)
                 return
@@ -65,6 +69,8 @@ class QuickRoomRefreshWorker(QThread):
                     patch[key] = (house[key], "In House")
                 else:
                     patch[key] = ("", "Gone")
+            if self.isInterruptionRequested():
+                return
             self.room_patch.emit(self._generation, patch)
         except Exception:
             self.needs_full_reload.emit(self._generation)

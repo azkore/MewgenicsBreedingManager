@@ -24,12 +24,12 @@ class SaveLoadWorker(QThread):
 
     def run(self):
         try:
+            if self.isInterruptionRequested():
+                return
             self.status.emit("Parsing save file…")
-            # retry_transient recovers from the partial-write window the
-            # game briefly opens when it renames its temp save over the
-            # real file.  Non-transient errors (corrupt saves, missing
-            # file, etc.) propagate immediately.
             save = retry_transient(lambda: parse_save(self._path))
+            if self.isInterruptionRequested():
+                return
             cats, errors, unlocked_house_rooms = save
             self.status.emit("Loading blacklist & overrides…")
             _load_blacklist(self._path, cats)
@@ -39,6 +39,8 @@ class SaveLoadWorker(QThread):
             _load_not_adventured(self._path, cats)
             applied_overrides, override_rows = _load_gender_overrides(self._path, cats)
             cal_explicit, cal_token, cal_rows = _apply_calibration(self._path, cats)
+            if self.isInterruptionRequested():
+                return
             self.finished_load.emit({
                 "cats": cats,
                 "errors": errors,
