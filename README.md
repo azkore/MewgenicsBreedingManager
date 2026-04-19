@@ -2,7 +2,7 @@
 
 A Python desktop tool for managing your Mewgenics cats. Reads your save file directly, scores every cat for breeding priority, optimizes room layouts, and helps plan multi-generation lines — all while tracking lineage, inbreeding risk, and trait inheritance.
 
-Current release: `v5.7.4`
+Current release: `v5.7.5`
 
 If you'd like to support the project, you can [here](https://ko-fi.com/frankieg33).
 
@@ -100,6 +100,14 @@ Produces a standalone executable via PyInstaller.
 - Original idea and reference from frankieg33
 
 ## Release Notes
+
+### v5.7.5
+
+Dead cat detection, gradient icon rendering, and adventure heuristic improvements.
+
+- **#89**: Dead cats are now detected via the `death_day` field in the save binary — cats that died but remain in a room are marked "Dead" in the status column and excluded from alive filters
+- **#90**: Ability/mutation/passive icons now render with proper gradient fills instead of flat single-color approximations
+- **#81**: Improved `has_adventured` heuristic — now requires 4+ abilities in addition to positive stat gains, eliminating nearly all false positives from nightly cat fights
 
 ### v5.7.4
 

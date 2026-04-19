@@ -8,7 +8,10 @@ import zlib
 from dataclasses import dataclass
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QPixmap
+from PySide6.QtGui import (
+    QBrush, QColor, QLinearGradient, QPainter, QPainterPath, QPixmap,
+    QRadialGradient,
+)
 
 from mewgenics.utils.gpak import extract_entry as _gpak_extract_entry
 
@@ -115,6 +118,29 @@ def _skip_matrix(br: _BitReader):
     br.align()
 
 
+def _read_matrix(br: _BitReader) -> tuple[float, float, float, float, float, float]:
+    """Read SWF MATRIX and return (sx, r1, r0, sy, tx, ty).
+
+    sx/sy are scale (fixed-point 16.16), r0/r1 are rotate/skew
+    (fixed-point 16.16), tx/ty are translate in twips.
+    """
+    sx = sy = 1.0
+    r0 = r1 = 0.0
+    if br.read(1):
+        bits = br.read(5)
+        sx = br.read_signed(bits) / 65536.0
+        sy = br.read_signed(bits) / 65536.0
+    if br.read(1):
+        bits = br.read(5)
+        r0 = br.read_signed(bits) / 65536.0
+        r1 = br.read_signed(bits) / 65536.0
+    bits = br.read(5)
+    tx = br.read_signed(bits) / 20.0   # twips to pixels
+    ty = br.read_signed(bits) / 20.0
+    br.align()
+    return (sx, r1, r0, sy, tx, ty)
+
+
 def _read_color(br: _BitReader, rgba: bool) -> QColor:
     red = br.read(8)
     green = br.read(8)
@@ -123,57 +149,88 @@ def _read_color(br: _BitReader, rgba: bool) -> QColor:
     return QColor(red, green, blue, alpha)
 
 
-def _fallback_fill_color(token: int) -> QColor:
+def _fallback_fill_brush(token: int) -> QBrush:
     digest = hashlib.sha1(str(token).encode("utf-8")).digest()
-    return QColor(
+    return QBrush(QColor(
         72 + digest[0] // 2,
         72 + digest[1] // 2,
         96 + digest[2] // 3,
         255,
-    )
+    ))
 
 
-def _skip_gradient(br: _BitReader, rgba: bool, focal: bool) -> QColor:
-    br.read(2)  # spread mode
+def _read_gradient(br: _BitReader, style_type: int, rgba: bool) -> QBrush:
+    """Read a SWF gradient fill and return a QBrush with a real gradient."""
+    sx, r1, r0, sy, tx, ty = _read_matrix(br)
+
+    spread = br.read(2)
     br.read(2)  # interpolation mode
     count = br.read(4)
-    first = None
+    stops: list[tuple[float, QColor]] = []
     for _ in range(count):
-        br.read(8)  # ratio
+        ratio = br.read(8) / 255.0
         color = _read_color(br, rgba)
-        if first is None:
-            first = color
-    if focal:
-        br.read_signed(16)
-    return first or QColor("#808080")
+        stops.append((ratio, color))
+    focal_point = 0.0
+    if style_type == 0x13:
+        focal_point = br.read_signed(16) / 256.0
+
+    if not stops:
+        return QBrush(QColor("#808080"))
+
+    # SWF gradient space: linear goes from (-16384, 0) to (16384, 0) in twips,
+    # i.e. (-819.2, 0) to (819.2, 0) in pixels.  The matrix transforms this
+    # into shape space.
+    if style_type in {0x10, 0x12}:
+        # Linear gradient
+        x0 = sx * (-819.2) + r1 * 0.0 + tx
+        y0 = r0 * (-819.2) + sy * 0.0 + ty
+        x1 = sx * 819.2 + r1 * 0.0 + tx
+        y1 = r0 * 819.2 + sy * 0.0 + ty
+        grad = QLinearGradient(QPointF(x0, y0), QPointF(x1, y1))
+    else:
+        # Radial gradient (0x13)
+        cx = tx
+        cy = ty
+        # Radius: distance from center to the edge of the gradient box
+        edge_x = sx * 819.2 + tx
+        edge_y = r0 * 819.2 + ty
+        radius = max(1.0, ((edge_x - cx) ** 2 + (edge_y - cy) ** 2) ** 0.5)
+        fx = cx + focal_point * (edge_x - cx)
+        fy = cy + focal_point * (edge_y - cy)
+        grad = QRadialGradient(QPointF(cx, cy), radius, QPointF(fx, fy))
+
+    for ratio, color in stops:
+        grad.setColorAt(ratio, color)
+
+    return QBrush(grad)
 
 
-def _read_fill_style(br: _BitReader, style_type: int, rgba: bool) -> QColor:
+def _read_fill_style(br: _BitReader, style_type: int, rgba: bool) -> QBrush:
     if style_type == 0x00:
         br.align()
-        return _read_color(br, rgba)
+        return QBrush(_read_color(br, rgba))
     if style_type in {0x10, 0x12, 0x13}:
         br.align()
-        _skip_matrix(br)
-        return _skip_gradient(br, rgba, style_type == 0x13)
+        return _read_gradient(br, style_type, rgba)
     if style_type in {0x40, 0x41, 0x42}:
         br.align()
         bitmap_id = br.read(16)
         _skip_matrix(br)
-        return _fallback_fill_color(bitmap_id + style_type)
-    return _fallback_fill_color(style_type)
+        return _fallback_fill_brush(bitmap_id + style_type)
+    return _fallback_fill_brush(style_type)
 
 
-def _read_fill_styles(br: _BitReader, code: int) -> list[QColor]:
+def _read_fill_styles(br: _BitReader, code: int) -> list[QBrush]:
     count = br.read(8)
     if count == 0xFF:
         count = br.read(16)
     rgba = code in {32, 83}
-    colors: list[QColor] = []
+    brushes: list[QBrush] = []
     for _ in range(count):
         style_type = br.read(8)
-        colors.append(_read_fill_style(br, style_type, rgba))
-    return colors
+        brushes.append(_read_fill_style(br, style_type, rgba))
+    return brushes
 
 
 def _read_line_styles(br: _BitReader, code: int) -> None:
@@ -205,7 +262,7 @@ def _read_line_styles(br: _BitReader, code: int) -> None:
             _read_color(br, rgba)
 
 
-def _parse_shape(code: int, payload: bytes) -> tuple[QRectF, list[tuple[QColor, QPainterPath]]]:
+def _parse_shape(code: int, payload: bytes) -> tuple[QRectF, list[tuple[QBrush, QPainterPath]]]:
     if code == 83:
         br = _BitReader(payload, 2)
         bounds = _read_rect(br)
@@ -223,30 +280,30 @@ def _parse_shape(code: int, payload: bytes) -> tuple[QRectF, list[tuple[QColor, 
     fill_bits = br.read(4)
     line_bits = br.read(4)
 
-    contours: list[tuple[QColor, QPainterPath]] = []
+    contours: list[tuple[QBrush, QPainterPath]] = []
     current_path = QPainterPath()
     current_fill0 = 0
     current_fill1 = 0
     current_line = 0
     current_pos = QPointF(0.0, 0.0)
-    current_fill_color = QColor()
+    current_brush = QBrush()
 
-    def _sync_fill_color():
-        nonlocal current_fill_color
+    def _sync_fill_brush():
+        nonlocal current_brush
         current_fill_index = current_fill1 or current_fill0
         if 1 <= current_fill_index <= len(fill_styles):
-            current_fill_color = QColor(fill_styles[current_fill_index - 1])
+            current_brush = QBrush(fill_styles[current_fill_index - 1])
         else:
-            current_fill_color = QColor()
+            current_brush = QBrush()
 
     def _commit_path():
-        nonlocal current_path, current_fill_color
-        if current_fill_color.isValid() and current_path.elementCount() > 1:
+        nonlocal current_path, current_brush
+        if current_brush.style() != Qt.NoBrush and current_path.elementCount() > 1:
             path = QPainterPath(current_path)
             path.closeSubpath()
-            contours.append((QColor(current_fill_color), path))
+            contours.append((QBrush(current_brush), path))
         current_path = QPainterPath()
-        current_fill_color = QColor()
+        current_brush = QBrush()
 
     while True:
         type_flag = br.read(1)
@@ -259,13 +316,13 @@ def _parse_shape(code: int, payload: bytes) -> tuple[QRectF, list[tuple[QColor, 
                 move_bits = br.read(5)
                 current_pos = QPointF(br.read_signed(move_bits) / 20.0, br.read_signed(move_bits) / 20.0)
                 current_path.moveTo(current_pos)
-                _sync_fill_color()
+                _sync_fill_brush()
             if flags & 0b00010:
                 current_fill0 = br.read(fill_bits)
-                _sync_fill_color()
+                _sync_fill_brush()
             if flags & 0b00100:
                 current_fill1 = br.read(fill_bits)
-                _sync_fill_color()
+                _sync_fill_brush()
             if flags & 0b01000:
                 current_line = br.read(line_bits)
             if flags & 0b10000:
@@ -293,7 +350,7 @@ def _parse_shape(code: int, payload: bytes) -> tuple[QRectF, list[tuple[QColor, 
                         dy = 0
                 if current_path.isEmpty():
                     current_path.moveTo(current_pos)
-                    _sync_fill_color()
+                    _sync_fill_brush()
                 current_pos = QPointF(current_pos.x() + dx / 20.0, current_pos.y() + dy / 20.0)
                 current_path.lineTo(current_pos)
             else:
@@ -304,7 +361,7 @@ def _parse_shape(code: int, payload: bytes) -> tuple[QRectF, list[tuple[QColor, 
                 anchor_dy = br.read_signed(curve_bits)
                 if current_path.isEmpty():
                     current_path.moveTo(current_pos)
-                    _sync_fill_color()
+                    _sync_fill_brush()
                 control = QPointF(
                     current_pos.x() + control_dx / 20.0,
                     current_pos.y() + control_dy / 20.0,
@@ -534,9 +591,9 @@ def _shape_pixmap(symbol_id: int, size: int) -> QPixmap | None:
     painter.translate(dx - target_bounds.left() * scale, dy - target_bounds.top() * scale)
     painter.scale(scale, scale)
 
-    for color, path in contours:
+    for brush, path in contours:
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(color))
+        painter.setBrush(brush)
         painter.drawPath(path)
 
     painter.end()

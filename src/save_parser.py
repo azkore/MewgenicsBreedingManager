@@ -1718,6 +1718,23 @@ class Cat:
 
         self.parsed_age = self.age
 
+        # Death day: an i64 at offset +8 from creation_day (len(raw) - 95).
+        # Value of -1 means alive; a non-negative value is the day the cat died.
+        self.death_day: Optional[int] = None
+        try:
+            dd_pos = len(raw) - 95
+            if dd_pos >= 0 and dd_pos + 8 <= len(raw):
+                dd = struct.unpack_from('<q', raw, dd_pos)[0]
+                max_day = current_day if current_day is not None else 100000
+                if 0 <= dd <= max_day:
+                    self.death_day = dd
+        except Exception:
+            logger.debug("Cat %s: death_day extraction failed", cat_key, exc_info=True)
+
+        # Dead cats that still appear in house_info are functionally gone.
+        if self.death_day is not None and self.status == "In House":
+            self.status = "Gone"
+
         # Derive sexuality string from the raw float at personality_anchor+40.
         if _sexuality_raw is None or _sexuality_raw < _SEXUALITY_BI_THRESHOLD:
             self.sexuality: str = "straight"
@@ -1728,6 +1745,10 @@ class Cat:
         self.parsed_sexuality = self.sexuality
 
     # ── Display helpers ────────────────────────────────────────────────────
+
+    @property
+    def is_dead(self) -> bool:
+        return self.death_day is not None
 
     @property
     def room_display(self) -> str:
@@ -1748,24 +1769,26 @@ class Cat:
 
     @property
     def has_adventured(self) -> bool:
-        """Return True if this cat has been on at least one adventure.
+        """Return True if this cat has likely been on at least one adventure.
 
-        Adventure leveling writes *positive* values to ``stat_mod`` (per-stat
-        int32 deltas). A freshly-hatched cat has all zeros; a cat that has
-        levelled at least once will have at least one positive entry.
+        Checks for positive ``stat_mod`` values (per-stat int32 deltas written
+        by adventure leveling) AND 4+ abilities (cats gain abilities through
+        adventure leveling; freshly hatched cats have 2-3).
 
-        Only positive values are counted because the game may write negative
-        ``stat_mod`` entries for non-adventure reasons (debuffs, status
-        effects, etc.) — see GitHub issue #81.
+        Positive ``stat_mod`` alone is ambiguous — nightly cat fights also
+        write positive values.  Requiring 4+ abilities eliminates nearly all
+        fight-club false positives: across ~13K cats in test saves, only 6
+        cats with 4+ abilities had zero stat gains.  See GitHub issue #81.
 
-        If ``not_adventured_override`` is set, this returns False regardless
-        of stat_mod values. This handles cats that gained positive stat_mod
-        from nightly fights rather than adventures — see GitHub issue #81.
+        If ``not_adventured_override`` is set, this returns False regardless.
         """
         if getattr(self, "not_adventured_override", False):
             return False
         stat_mod = getattr(self, "stat_mod", None) or []
-        return any(int(x) > 0 for x in stat_mod)
+        has_stat_gains = any(int(x) > 0 for x in stat_mod)
+        if not has_stat_gains:
+            return False
+        return len(getattr(self, "abilities", None) or []) >= 4
 
     @property
     def short_name(self) -> str:

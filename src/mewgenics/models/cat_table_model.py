@@ -871,7 +871,10 @@ class CatTableModel(QAbstractTableModel):
             if col == COL_AGE:  return str(cat.age) if cat.age is not None else "—"
             if col == COL_GEN:  return cat.gender_display
             if col == COL_ROOM: return cat.room_display
-            if col == COL_STAT: return STATUS_ABBREV.get(cat.status, cat.status)
+            if col == COL_STAT:
+                if cat.is_dead:
+                    return "Dead"
+                return STATUS_ABBREV.get(cat.status, cat.status)
             if col == COL_ADV:  return "✓" if can_adventure else "—"
             if col == COL_BL:   return "X" if cat.is_blacklisted else ""
             if col == COL_MB:   return "★" if cat.must_breed else ""
