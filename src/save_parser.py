@@ -264,7 +264,7 @@ _STAT_LABELS = {
 class GameData:
     """Resource-backed lookup tables used by parser helpers."""
 
-    visual_mutation_data: dict[str, dict[int, tuple[str, str]]] = field(default_factory=dict)
+    visual_mutation_data: dict[str, dict[int, tuple[str, str, str]]] = field(default_factory=dict)
     furniture_data: dict[str, "FurnitureDefinition"] = field(default_factory=dict)
     game_tag_data: list[dict[str, str]] = field(default_factory=list)
     swf_symbol_data: dict[str, list[str]] = field(default_factory=dict)
@@ -305,7 +305,7 @@ class GameData:
                     key_column="KEY",
                     value_column="en",
                 )
-                result: dict[str, dict[int, tuple[str, str]]] = {}
+                result: dict[str, dict[int, tuple[str, str, str]]] = {}
                 furniture_data: dict[str, FurnitureDefinition] = {}
                 game_tag_data: list[dict[str, str]] = []
                 swf_symbol_data: dict[str, list[str]] = {}
@@ -336,7 +336,7 @@ class GameData:
 
 
 # Populated at runtime via set_visual_mut_data() from the main module.
-_VISUAL_MUT_DATA: dict[str, dict[int, tuple[str, str]]] = {}
+_VISUAL_MUT_DATA: dict[str, dict[int, tuple[str, str, str]]] = {}
 
 # Mutation names that map to multiple body parts in the catalog — these must
 # always be disambiguated with a slot label even when a cat only has one.
@@ -349,14 +349,14 @@ _GLOBALLY_AMBIGUOUS_MUTATION_NAMES: frozenset[str] = frozenset(
 del _name_to_parts, _cat_part, _mid, _mname
 
 
-def set_visual_mut_data(data: dict[str, dict[int, tuple[str, str]]]):
+def set_visual_mut_data(data: dict[str, dict[int, tuple[str, str, str]]]):
     """Update the visual mutation lookup data (called after gpak loading)."""
     global _VISUAL_MUT_DATA, _GLOBALLY_AMBIGUOUS_MUTATION_NAMES
     _VISUAL_MUT_DATA = data
     # Extend ambiguous set with GPAK names that appear across categories
     gpak_name_cats: dict[str, set[str]] = {}
     for category, muts in data.items():
-        for mid, (name, _desc) in muts.items():
+        for mid, (name, _desc, *_rest) in muts.items():
             name = str(name).strip()
             if name:
                 gpak_name_cats.setdefault(name, set()).add(category)
@@ -602,9 +602,17 @@ def _parse_mutation_gon(
     game_strings: dict[str, str],
     category: str,
     mutation_strings: dict[str, str] | None = None,
-) -> dict[int, tuple[str, str]]:
-    """Parse a mutation GON file into {slot_id: (display_name, stat_desc)}."""
-    result: dict[int, tuple[str, str]] = {}
+) -> dict[int, tuple[str, str, str]]:
+    """Parse a mutation GON file into {slot_id: (display_name, stat_desc, gon_stats)}.
+
+    ``gon_stats`` is always extracted from the GON block header (e.g.
+    ``+1 CON, -1 SPD``) and may differ from ``stat_desc`` which comes
+    from the localized CSV strings.  Stat bonus computation should
+    prefer ``gon_stats`` so that mutations whose CSV description uses
+    non-stat phrasing (e.g. "Start with +1 Bonus Attack") still
+    contribute the correct stat delta.
+    """
+    result: dict[int, tuple[str, str, str]] = {}
     mutation_strings = mutation_strings or {}
     csv_prefix = f"MUTATION_{category.upper()}_"
 
@@ -618,25 +626,30 @@ def _parse_mutation_gon(
             end += 1
         return content[start_pos:end - 1], end
 
+    def _gon_stat_string(block: str) -> str:
+        """Always extract stat deltas from the GON block header."""
+        header = block.split("{")[0]
+        stats: list[str] = []
+        for key, label in _STAT_LABELS.items():
+            stat_match = re.search(rf"(?<!\w){re.escape(key)}\s+(-?\d+)", header)
+            if stat_match:
+                value = int(stat_match.group(1))
+                stats.append(f"{'+' if value > 0 else ''}{value} {label}")
+        return ", ".join(stats)
+
     def _block_to_entry(slot_id: int, block: str):
         name_match = re.search(r"//\s*(.+)", block)
         raw_name = name_match.group(1).strip().title() if name_match else f"Mutation {slot_id}"
         raw_name = re.sub(r"\s*\(.*", "", raw_name).strip() or raw_name
+        gon_stats = _gon_stat_string(block)
         csv_key = f"{csv_prefix}{slot_id}_DESC"
         if csv_key in mutation_strings:
             stat_desc = _resolve_game_string(mutation_strings[csv_key], game_strings).strip().rstrip(".")
         elif csv_key in game_strings:
             stat_desc = _resolve_game_string(game_strings[csv_key], game_strings).strip().rstrip(".")
         else:
-            header = block.split("{")[0]
-            stats: list[str] = []
-            for key, label in _STAT_LABELS.items():
-                stat_match = re.search(rf"(?<!\w){re.escape(key)}\s+(-?\d+)", header)
-                if stat_match:
-                    value = int(stat_match.group(1))
-                    stats.append(f"{'+' if value > 0 else ''}{value} {label}")
-            stat_desc = ", ".join(stats)
-        result[slot_id] = (raw_name, stat_desc)
+            stat_desc = gon_stats
+        result[slot_id] = (raw_name, stat_desc, gon_stats)
 
     idx = 0
     while idx < len(content):
@@ -658,13 +671,13 @@ def _parse_mutation_gon(
             raw_name = name_match.group(1).strip().title() if name_match else "Missing Part"
             raw_name = re.sub(r"\s*\(.*", "", raw_name).strip() or raw_name
             stat_desc = _resolve_game_string(mutation_strings[csv_key_m2], game_strings).strip().rstrip(".")
-            result[0xFFFFFFFE] = (raw_name, stat_desc)
+            result[0xFFFFFFFE] = (raw_name, stat_desc, _gon_stat_string(block))
         elif csv_key_m2 in game_strings:
             name_match = re.search(r"//\s*(.+)", block)
             raw_name = name_match.group(1).strip().title() if name_match else "Missing Part"
             raw_name = re.sub(r"\s*\(.*", "", raw_name).strip() or raw_name
             stat_desc = _resolve_game_string(game_strings[csv_key_m2], game_strings).strip().rstrip(".")
-            result[0xFFFFFFFE] = (raw_name, stat_desc)
+            result[0xFFFFFFFE] = (raw_name, stat_desc, _gon_stat_string(block))
         else:
             _block_to_entry(0xFFFFFFFE, block)
 
@@ -962,6 +975,7 @@ def _read_visual_mutation_entries(table: list[int]) -> list[dict[str, object]]:
         is_defect = (700 <= mutation_id <= 706) or mutation_id == 0xFFFF_FFFE
         display_name = ""
         detail = ""
+        gon_stats = ""
         source = "generic"
         catalog_name = fallback_names.get((fallback_part, mutation_id))
         gpak_info = _VISUAL_MUT_DATA.get(gpak_category, {}).get(mutation_id)
@@ -972,7 +986,7 @@ def _read_visual_mutation_entries(table: list[int]) -> list[dict[str, object]]:
         if gpak_info is None and catalog_name is None and mutation_id != 0xFFFF_FFFE:
             continue
         if gpak_info:
-            raw_name, stat_desc = gpak_info
+            raw_name, stat_desc, gon_stats = gpak_info
             raw_name = str(raw_name).strip()
             detail = str(stat_desc).strip()
             if raw_name and not re.match(r'^Mutation \d+$', raw_name):
@@ -1018,6 +1032,7 @@ def _read_visual_mutation_entries(table: list[int]) -> list[dict[str, object]]:
             "mutation_id": mutation_id,
             "name": display_name,
             "detail": str(detail).strip(),
+            "gon_stats": str(gon_stats).strip(),
             "is_defect": is_defect,
         })
     return entries
@@ -1074,6 +1089,12 @@ def _mutation_stat_bonus_from_entries(entries: list[dict[str, object]]) -> dict[
     Paired body parts (e.g. ``arm_L`` + ``arm_R``) that share the same
     mutation id represent a single mutation affecting both slots and are
     therefore counted once, matching how the UI merges them into one chip.
+
+    Stat deltas are preferentially extracted from ``gon_stats`` (raw GON
+    block data like ``+1 CON``) rather than ``detail`` (the localized
+    CSV description), because some mutations use non-stat phrasing in
+    their description (e.g. "Start with +1 Bonus Attack") while the
+    GON block still contains the actual stat field (e.g. ``con 1``).
     """
     bonus: dict[str, int] = {name: 0 for name in STAT_NAMES}
     seen: set[tuple[str, int]] = set()
@@ -1082,7 +1103,11 @@ def _mutation_stat_bonus_from_entries(entries: list[dict[str, object]]) -> dict[
         if key in seen:
             continue
         seen.add(key)
-        deltas = _parse_mutation_stat_delta(str(entry.get("detail") or ""))
+        # Prefer gon_stats (raw GON block data) over detail (CSV description)
+        gon = str(entry.get("gon_stats") or "")
+        deltas = _parse_mutation_stat_delta(gon) if gon else {}
+        if not deltas:
+            deltas = _parse_mutation_stat_delta(str(entry.get("detail") or ""))
         for stat, delta in deltas.items():
             bonus[stat] = bonus.get(stat, 0) + delta
     return bonus
@@ -1127,6 +1152,7 @@ def _visual_mutation_chip_items(entries: list[dict[str, object]]) -> list[tuple[
         mutation_id = int(items[0]["mutation_id"])
         part_label = str(items[0]["part_label"])
         detail = str(items[0]["detail"]).strip()
+        gon_stats = str(items[0].get("gon_stats") or "").strip()
         is_defect = bool(items[0].get("is_defect", False))
         title_label = part_label if len(slot_labels) > 1 else str(items[0]["slot_label"])
         kind = "Birth Defect" if is_defect else "Mutation"
@@ -1134,6 +1160,9 @@ def _visual_mutation_chip_items(entries: list[dict[str, object]]) -> list[tuple[
         tooltip = f"{title_label} {kind} (ID {id_str})\n{name}"
         if detail and detail not in name:
             tooltip = f"{tooltip}\n{detail}"
+        # Show raw stat bonus from GON data if different from the display text
+        if gon_stats and gon_stats != detail:
+            tooltip = f"{tooltip}\n{gon_stats}"
         if len(slot_labels) > 1:
             tooltip = f"{tooltip}\nAffects: {', '.join(slot_labels)}"
         groups.append({
