@@ -2,7 +2,7 @@
 
 A Python desktop tool for managing your Mewgenics cats. Reads your save file directly, scores every cat for breeding priority, optimizes room layouts, and helps plan multi-generation lines — all while tracking lineage, inbreeding risk, and trait inheritance.
 
-Current release: `v5.7.5`
+Current release: `v5.7.6`
 
 If you'd like to support the project, you can [here](https://ko-fi.com/frankieg33).
 
@@ -100,6 +100,15 @@ Produces a standalone executable via PyInstaller.
 - Original idea and reference from frankieg33
 
 ## Release Notes
+
+### v5.7.6
+
+Crash fix, icon rendering improvements, and UI polish.
+
+- **Crash fix**: Proper QThread worker lifecycle management — superseded workers are now retired with `requestInterruption()` + `deleteLater()` instead of being leaked as zombies, preventing the ~1-minute crash cycle when the game autosaves while MBM is open
+- **#90**: Gradient icon colors no longer washed out in table view (reduced Screen composition from 2 passes to 1); detail panel icons fixed at 72px with camelCase word-wrapping labels
+- **Profile sprites**: Cat face thumbnails now scale-to-fit instead of fill-and-crop, so ears and chin are no longer cut off
+- **UI**: Column header borders now show subtle resize grip indicators
 
 ### v5.7.5
 

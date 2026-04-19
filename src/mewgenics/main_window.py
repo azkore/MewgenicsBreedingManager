@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import (
     Qt, QEvent, QModelIndex, QItemSelection, QItemSelectionModel,
-    QFileSystemWatcher, QTimer, QSize,
+    QFileSystemWatcher, QThread, QTimer, QSize,
 )
 from PySide6.QtGui import (
     QColor, QBrush, QAction, QActionGroup, QFont, QKeySequence,
@@ -1585,7 +1585,7 @@ class MainWindow(QMainWindow):
             QHeaderView::section {
                 background:#16213e; color:#888; padding:5px 4px;
                 border:none; border-bottom:1px solid #1e1e38;
-                border-right:1px solid #16213e;
+                border-right:1px solid #2a2a50;
                 font-size:11px; font-weight:bold;
             }
             QScrollBar:vertical { background:#0d0d1c; width:10px; }
@@ -3469,9 +3469,10 @@ class MainWindow(QMainWindow):
             }
             return
 
-        # Supersede any in-progress cache worker rather than calling
-        # terminate().  The stale worker's phase1_ready / finished_cache
-        # slots drop the result by identity check (`is self._cache_worker`).
+        # Retire any in-progress cache worker so it cleans up properly.
+        # The stale worker's phase1_ready / finished_cache slots drop
+        # the result by identity check (`is self._cache_worker`).
+        self._retire_worker(self._cache_worker)
         self._cache_worker = None
 
         # Snapshot parent keys before clearing old cache (for incremental update)
@@ -3514,7 +3515,9 @@ class MainWindow(QMainWindow):
             pedigree_coi_memos=pedigree_coi_memos,
             parent=self,
         )
-        worker.progress.connect(self._on_cache_progress)
+        worker.progress.connect(
+            lambda cur, tot, w=worker: self._on_cache_progress(cur, tot, w)
+        )
         worker.phase1_ready.connect(
             lambda cache, w=worker: self._on_phase1_ready(cache, source_worker=w)
         )
@@ -3525,7 +3528,10 @@ class MainWindow(QMainWindow):
         self._cache_worker = worker
         worker.start()
 
-    def _on_cache_progress(self, current: int, total: int):
+    def _on_cache_progress(self, current: int, total: int,
+                           source_worker: Optional[BreedingCacheWorker] = None):
+        if source_worker is not None and source_worker is not self._cache_worker:
+            return  # stale worker — ignore
         self._cache_progress.setMaximum(total)
         self._cache_progress.setValue(current)
 
@@ -3615,6 +3621,30 @@ class MainWindow(QMainWindow):
                     error=msg)
             )
 
+    # ── Worker lifecycle ─────────────────────────────────────────────────
+
+    @staticmethod
+    def _retire_worker(worker: Optional[QThread]) -> None:
+        """Gracefully retire a superseded QThread worker.
+
+        Requests cancellation so the worker can exit its loop early,
+        then schedules deleteLater on its finished signal so the C++
+        QThread is cleaned up once it actually stops — without blocking
+        the main thread.  This prevents zombie QThread accumulation that
+        was causing the ~1-minute crash cycle when the game rewrites its
+        save while MBM is open.
+        """
+        if worker is None:
+            return
+        worker.requestInterruption()
+        # deleteLater must run after the thread's event loop exits.
+        # Connecting to `finished` is safe even if the thread already
+        # finished — Qt queues the call and it becomes a no-op.
+        try:
+            worker.finished.connect(worker.deleteLater)
+        except RuntimeError:
+            pass  # C++ object already destroyed
+
     # ── Loading ────────────────────────────────────────────────────────────
 
     def load_save(self, path: str, force_full_breeding_cache: bool = False):
@@ -3641,15 +3671,15 @@ class MainWindow(QMainWindow):
             self._watcher.removePaths(self._watcher.files())
         self._watcher.addPath(path)
 
-        # Supersede any in-progress worker instead of calling terminate().
-        # QThread.terminate() mid-parse can leave the thread holding a
-        # SQLite handle or the GIL in an undefined state — a likely cause
-        # of the ~10% crash observed when the game rewrites the save
-        # while we're already loading it.  Drop the reference and let
-        # the old worker finish naturally; its finished_load / failed
-        # slots check `worker is self._save_load_worker` (identity) and
-        # discard stale results.
+        # Retire in-progress workers so they clean up properly instead
+        # of accumulating as zombie QThreads.  The old worker finishes
+        # naturally (requestInterruption lets it exit early) and its
+        # finished signal triggers deleteLater.  Identity checks in
+        # finished_load / failed / phase1_ready / finished_cache slots
+        # discard any stale results.
+        self._retire_worker(self._save_load_worker)
         self._save_load_worker = None
+        self._retire_worker(self._cache_worker)
         self._cache_worker = None
 
         # Show overlay while parsing (background thread — main thread stays responsive for repaint)
@@ -3829,6 +3859,14 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self._flush_persistent_view_state()
+        # Stop background workers so they don't fire signals into a
+        # half-destroyed widget tree during shutdown.
+        self._retire_worker(self._save_load_worker)
+        self._save_load_worker = None
+        self._retire_worker(self._cache_worker)
+        self._cache_worker = None
+        self._retire_worker(self._quick_refresh_worker)
+        self._quick_refresh_worker = None
         super().closeEvent(event)
 
     def showEvent(self, event):
@@ -4105,13 +4143,12 @@ class MainWindow(QMainWindow):
         self._watcher.addPath(path)
 
     def _start_quick_room_refresh(self):
-        # We do NOT call quit()/wait() on the previous worker — doing so
-        # blocks the main thread and then still lets the old worker's
-        # queued room_patch signal fire after we've started a new one
-        # (see the "Vector 2" race in the fix plan).  Instead, bump the
-        # generation token so the old worker's signals are recognised as
-        # stale by `_on_room_patch` and silently dropped.  The old
-        # QThread finishes on its own and is reaped by Qt parent cleanup.
+        # Retire the previous worker so it doesn't accumulate as a
+        # zombie QThread.  We also bump the generation token so the old
+        # worker's queued room_patch signal is recognised as stale by
+        # `_on_room_patch` and silently dropped.
+        self._retire_worker(self._quick_refresh_worker)
+        self._quick_refresh_worker = None
         self._quick_refresh_generation += 1
         gen = self._quick_refresh_generation
         expected = {c.db_key for c in self._cats}
@@ -4143,10 +4180,23 @@ class MainWindow(QMainWindow):
         # full reload — the user-visible symptom is a brief flicker
         # instead of a crash.
         try:
+            # Retire the cache worker before mutating cat objects — the
+            # worker reads c.status from a background thread, and mutating
+            # it here without synchronisation is a data race that can
+            # crash the app or produce corrupt breeding results.
+            if self._cache_worker is not None:
+                self._retire_worker(self._cache_worker)
+                self._cache_worker = None
             for cat in self._cats:
                 entry = patch.get(cat.db_key)
                 if entry is not None:
                     cat.room, cat.status = entry
+            # Refresh the cache's cat-by-key index so it sees updated
+            # rooms/statuses without a full rebuild.
+            if self._breeding_cache is not None:
+                self._breeding_cache._cats_by_key = {
+                    c.db_key: c for c in self._cats if c.status != "Gone"
+                }
             # Lightweight repaint — no model rebuild, no ancestry recompute.
             # layoutChanged updates cell data but doesn't re-run filterAcceptsRow
             # in QSortFilterProxyModel, so cats that moved rooms would remain

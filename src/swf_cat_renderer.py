@@ -1096,7 +1096,7 @@ def render_cat_face_thumbnail(cat, size: int = 64) -> Optional[bytes]:
 
     _FACE_CACHE_DIR.mkdir(exist_ok=True)
     digest = hashlib.sha1(signature.encode("utf-8")).hexdigest()
-    disk_path = _FACE_CACHE_DIR / f"{digest}_{size}.png"
+    disk_path = _FACE_CACHE_DIR / f"{digest}_{size}_v2.png"
     if disk_path.exists():
         data = disk_path.read_bytes()
         _FACE_BYTES_CACHE[cache_key] = data
@@ -1131,16 +1131,17 @@ def render_cat_face_thumbnail(cat, size: int = 64) -> Optional[bytes]:
     if head.width < 1 or head.height < 1:
         return None
 
-    # Scale to fill the target square, preserving aspect ratio.
-    scale = max(size / head.width, size / head.height)
+    # Scale to fit the target square, preserving aspect ratio.
+    # Using min ensures the entire cat is visible (no cropping).
+    scale = min(size / head.width, size / head.height)
     new_w = int(head.width * scale)
     new_h = int(head.height * scale)
     head = head.resize((new_w, new_h), Image.LANCZOS)
 
-    # Center-crop to exactly size × size.
-    left = (new_w - size) // 2
-    top = (new_h - size) // 2
-    head = head.crop((left, top, left + size, top + size))
+    # Paste centred onto a transparent size × size canvas.
+    canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    canvas.paste(head, ((size - new_w) // 2, (size - new_h) // 2))
+    head = canvas
 
     buf = io.BytesIO()
     head.save(buf, format="PNG")

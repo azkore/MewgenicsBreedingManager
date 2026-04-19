@@ -345,20 +345,23 @@ _BRIGHTEN_CACHE: dict[int, QPixmap] = {}
 
 def _brighten_pixmap(pix: QPixmap) -> QPixmap:
     """Return a brightened copy of *pix* so dark SWF icons are visible on
-    the near-black icon background.  Uses QPainter composition for speed."""
+    the near-black icon background.  Uses QPainter composition for speed.
+
+    A single Screen pass lifts dark pixels while preserving gradient hue
+    information.  Two passes were too aggressive and washed icons to
+    near-white, defeating the gradient rendering (#90).
+    """
     key = pix.cacheKey()
     cached = _BRIGHTEN_CACHE.get(key)
     if cached is not None:
         return cached
-    # Screen-blend a white overlay twice to lift dark pixels aggressively.
     result = QPixmap(pix.size())
     result.setDevicePixelRatio(pix.devicePixelRatio())
     result.fill(Qt.transparent)
     p = QPainter(result)
     p.drawPixmap(0, 0, pix)
     p.setCompositionMode(QPainter.CompositionMode_Screen)
-    p.drawPixmap(0, 0, pix)  # first screen pass
-    p.drawPixmap(0, 0, pix)  # second screen pass — brightens darks further
+    p.drawPixmap(0, 0, pix)  # single screen pass — brightens darks, preserves hue
     p.end()
     _BRIGHTEN_CACHE[key] = result
     return result

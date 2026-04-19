@@ -80,12 +80,16 @@ def _wrapped_chip_block(items, tooltip_fn=None, display_fn=None, max_per_row: in
     return box
 
 
+def _breakable(text: str) -> str:
+    """Insert zero-width spaces before uppercase letters in camelCase so
+    QLabel word-wrap can break long single-word ability names."""
+    import re
+    return re.sub(r'(?<=[a-z])(?=[A-Z])', '\u200b', text)
+
+
 class ChipRow(QWidget):
-    # Icon-bearing chips render the icon stacked ABOVE the text, with the
-    # icon sized to match the label's width (with a sane minimum). Previously
-    # we clamped to 48px which made long labels like "BasicMelee" render
-    # with the icon noticeably narrower than the text.
-    _STACKED_ICON_MIN = 48
+    _STACKED_ICON_MIN = 72
+    _STACKED_ICON_MAX = 72
 
     def __init__(self, items, tooltip_fn=None, display_fn=None, icon_fn=None, defect: bool = False, icon_size: int | None = None):
         super().__init__()
@@ -112,9 +116,10 @@ class ChipRow(QWidget):
                 text = display_fn(item) if display_fn else item
                 tip = tooltip_fn(item) if tooltip_fn else ""
             resolved.append((str(text), tip, bool(is_upgraded)))
-        uniform_size = self._STACKED_ICON_MIN
-        for text, _, _u in resolved:
-            uniform_size = max(uniform_size, metrics.horizontalAdvance(text))
+        uniform_size = min(
+            self._STACKED_ICON_MAX,
+            max(self._STACKED_ICON_MIN, *(metrics.horizontalAdvance(t) for t, _, _ in resolved)),
+        )
 
         for idx, item in enumerate(items):
             text, tip, is_upgraded = resolved[idx]
@@ -148,8 +153,9 @@ class ChipRow(QWidget):
                 icon_lbl.setFixedSize(uniform_size, uniform_size)
                 icon_lbl.setAlignment(Qt.AlignCenter)
                 icon_lbl.setStyleSheet("background:transparent;")
-                text_lbl = QLabel(text)
+                text_lbl = QLabel(_breakable(text))
                 text_lbl.setAlignment(Qt.AlignCenter)
+                text_lbl.setWordWrap(True)
                 text_lbl.setFixedWidth(uniform_size)
                 text_lbl.setStyleSheet(
                     "background:transparent; color:#ccc; font-size:11px;"

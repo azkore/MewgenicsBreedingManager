@@ -810,9 +810,10 @@ class WhatsNewDialog(QDialog):
         )
 
         default_highlights = highlights or [
-            "Dead cat detection: cats that died but remain in a room are now identified and shown as \"Dead\" in the status column (#89).",
-            "Gradient icon rendering: ability/mutation/passive icons now display with proper gradient colors instead of flat approximations (#90).",
-            "Improved adventure heuristic: requires 4+ abilities in addition to stat gains, eliminating most false positives from nightly fights (#81).",
+            "Crash fix: proper QThread worker lifecycle management prevents zombie thread accumulation when the game autosaves while MBM is open.",
+            "Icon improvements: gradient colors no longer washed out in table view; consistent 72px icon sizing in detail panel with word-wrapping labels (#90).",
+            "Cat profile sprites now show the full cat without cropping ears or chin.",
+            "Column resize indicators visible in table header borders.",
         ]
 
         root = QVBoxLayout(self)
@@ -829,7 +830,7 @@ class WhatsNewDialog(QDialog):
         body.setHtml(
             f"""
             <div style="line-height:1.5;">
-              <p>Dead cat detection, proper gradient icon colors, and improved adventure heuristic.</p>
+              <p>Crash fix, icon rendering improvements, profile sprite fix, and UI polish.</p>
               <ul>{bullets}</ul>
               <p><a href="https://github.com/frankieg33/MewgenicsBreedingManager/releases">View releases on GitHub</a></p>
             </div>

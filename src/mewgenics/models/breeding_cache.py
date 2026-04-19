@@ -173,6 +173,10 @@ class BreedingCacheWorker(QThread):
     def run(self):
         alive = [c for c in self._cats if c.status != "Gone"]
         n = len(alive)
+
+        # Early exit if already superseded before we even start
+        if self.isInterruptionRequested():
+            return
         memo_table = dict(self._pedigree_coi_memos)
 
         has_pairwise = (
@@ -251,6 +255,9 @@ class BreedingCacheWorker(QThread):
         self.phase1_ready.emit(cache)
 
         # ── Phase 2: pairwise risk + shared (skip same-sex, reuse unchanged) ──
+        if self.isInterruptionRequested():
+            return
+
         # Use path-based COI (with overlap exclusion) for correct results in
         # heavily inbred colonies.  Kinship is O(ancestor pairs) with memo
         # shared across all pair computations — orders of magnitude faster than
@@ -276,6 +283,8 @@ class BreedingCacheWorker(QThread):
 
         step = n
         for i, j in pairs_to_compute:
+            if self.isInterruptionRequested():
+                return
             a = alive[i]
             b = alive[j]
             pk = cache._pair_key(a.db_key, b.db_key)
