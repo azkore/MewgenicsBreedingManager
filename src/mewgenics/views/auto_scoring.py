@@ -640,7 +640,10 @@ class AutoScoringView(QWidget):
         old = self._scoring_worker
         if old is not None:
             old.requestInterruption()
-            old.finished.disconnect(self._on_scoring_done)
+            try:
+                old.finished.disconnect(self._on_scoring_done)
+            except (TypeError, RuntimeError):
+                pass  # already disconnected or C++ object destroyed
             old.finished.connect(old.deleteLater)
             self._scoring_worker = None
 
