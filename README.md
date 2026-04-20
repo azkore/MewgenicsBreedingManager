@@ -2,7 +2,7 @@
 
 A Python desktop tool for managing your Mewgenics cats. Reads your save file directly, scores every cat for breeding priority, optimizes room layouts, and helps plan multi-generation lines — all while tracking lineage, inbreeding risk, and trait inheritance.
 
-Current release: `v5.7.8`
+Current release: `v5.7.9`
 
 If you'd like to support the project, you can [here](https://ko-fi.com/frankieg33).
 
@@ -100,6 +100,10 @@ Produces a standalone executable via PyInstaller.
 - Original idea and reference from frankieg33
 
 ## Release Notes
+
+### v5.7.9
+
+- Guarded `auto_scoring` worker retirement disconnect against already-disconnected or destroyed C++ object state
 
 ### v5.7.8
 
