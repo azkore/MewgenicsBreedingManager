@@ -22,13 +22,13 @@ If you'd like to support the project, you can [here](https://ko-fi.com/frankieg3
 
 ## Features
 
-### Cat Sorting
+### Cat Scoring
 
 Two views for evaluating which cats to keep, breed, or cull:
 
-- **Automatic Scoring** — assigns a breed priority score to every cat based on configurable weights: stat rarity, genetic safety, trait ratings, personality, age, and relationships. Includes heatmap mode, scope filtering by room, and 5 independent profiles for different strategies.
-- **Manual Scoring** — assign point values to individual stats, mutations, and traits, then sort by total. Great for targeted goals like "high STR melee cats" or "collect all rare mutations."
-- Shared trait rating profiles — rate abilities as Top Priority, Desirable, or Undesirable. Ratings sync between both scoring views.
+- **Detailed Scoring** — assigns a breed priority score to every cat based on configurable weights: stat rarity, genetic safety, trait ratings, personality, age, and relationships. Includes heatmap mode, scope filtering by room, complex weight rules, and 5 independent profiles for different strategies.
+- **Simple Scoring** — assign point values to individual stats, mutations, and traits, then sort by total. Great for targeted goals like "high STR melee cats" or "collect all rare mutations."
+- Each view has its own trait-rating profiles (5 slots) stored per save.
 
 ### Breeding & Genetics
 
@@ -95,11 +95,23 @@ Produces a standalone executable via PyInstaller.
 
 - Save parsing research based on [pzx521521/mewgenics-save-editor](https://github.com/pzx521521/mewgenics-save-editor)
 - Community reverse-engineering help from players and mod users
+- **Detailed Scoring view** — concept and implementation by [Byron Altice](https://github.com/byronaltice) (ported from his fork)
 - PR contributors: [0demongamer0](https://github.com/0demongamer0), [An-on-im](https://github.com/An-on-im), [byronaltice](https://github.com/byronaltice), [heartskingu](https://github.com/heartskingu), [ICaxapl](https://github.com/ICaxapl), [luisMolina95](https://github.com/luisMolina95), [TheMegax](https://github.com/TheMegax)
 - Simulated annealing (SA) idea from [PurpleMyst](https://github.com/PurpleMyst/mewgenics_breeding_helper)
 - Original idea and reference from frankieg33
 
 ## Release Notes
+
+### v5.8.0
+
+Detailed Scoring view — ported and consolidated from the [byronaltice fork](https://github.com/byronaltice/MewgenicsBreedingManager).
+
+- **New Detailed Scoring view** (concept and implementation by [Byron Altice](https://github.com/byronaltice)): weighted breed-priority ranker with 5-slot profiles, per-cat custom Complex Weights rules, a filter dialog, heatmap column coloring, and a current-stats overview popup.
+- **Cat Scoring section** in the sidebar: **Simple Scoring** (was Manual Scoring) and **Detailed Scoring**. The previous Automatic Scoring view has been retired — Detailed Scoring supersedes it.
+- **Consolidated scoring engine**: Detailed Scoring and Simple Scoring now share `src/mewgenics/scoring/engine.py`. Ports forward the `(group_key, mutation_id)` mutation-bonus dedupe fix and folds class stat modifiers into current-stat readouts.
+- **Session persistence**: auto-loads your most recently used save on startup; restores window geometry, splitter sizes, table column widths, and all Detailed Scoring preferences (active profile, weights, Complex Weights, filters, scope, toggles, sort).
+- **Fork back-ports**: defect detection via GON block data, distinct mutation stat variants surfaced as separate traits, and a latent nav bug fix so back/forward now correctly returns to Simple/Detailed Scoring.
+- **Performance**: Detailed Scoring runs computation on a background thread and defers recompute while hidden.
 
 ### v5.7.9
 
