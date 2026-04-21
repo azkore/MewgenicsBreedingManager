@@ -2,7 +2,7 @@
 
 A Python desktop tool for managing your Mewgenics cats. Reads your save file directly, scores every cat for breeding priority, optimizes room layouts, and helps plan multi-generation lines — all while tracking lineage, inbreeding risk, and trait inheritance.
 
-Current release: `v5.7.9`
+Current release: `v5.8.1`
 
 If you'd like to support the project, you can [here](https://ko-fi.com/frankieg33).
 
@@ -101,6 +101,14 @@ Produces a standalone executable via PyInstaller.
 - Original idea and reference from frankieg33
 
 ## Release Notes
+
+### v5.8.1
+
+Bug fixes.
+
+- **Fixed phantom eyebrow birth defect** (issue #93): GPAK's own `tag birth_defect` marker is now authoritative when present, so mutations like "no eyebrows" are no longer mislabeled as defects on stray cats.
+- **Reduced game crashes when Mewgenics and the manager are open at the same time** (issue #94): both save readers now copy the `.sav` (and any `-wal`/`-shm`/`-journal` sidecars) to a temp file before opening, eliminating file-handle contention with the running game.
+- **More diagnostic logs**: every save load records snapshot size, copy duration, parse time, and each detected birth defect's source — uploaded logs are now actionable when a report does come in.
 
 ### v5.8.0
 

@@ -815,11 +815,9 @@ class WhatsNewDialog(QDialog):
         )
 
         default_highlights = highlights or [
-            "New Detailed Scoring view (credit Byron Altice) — weighted breed-priority ranker with profiles, complex custom weights, filter dialog, heatmap column coloring, and a stats overview popup.",
-            "Cat Scoring sidebar section: Simple Scoring (formerly Manual Scoring) and Detailed Scoring. Automatic Scoring view retired in favor of Detailed Scoring.",
-            "Scoring engine consolidated — Detailed Scoring shares the same canonical engine as Simple Scoring, with the (group_key, mutation_id) dedupe fix and class stat modifiers folded in.",
-            "Auto-loads your most recently used save on startup and restores window geometry, splitter sizes, column widths, and all Detailed Scoring preferences across sessions.",
-            "Fork merges: defect detection via GON data, distinct mutation variants as separate traits, and a nav fix for back/forward into the scoring views.",
+            "Fixed phantom eyebrow birth defect (issue #93) — GPAK's own birth-defect tag is now authoritative, so mutations like 'no eyebrows' are no longer mislabeled as defects on strays.",
+            "Reduced game crashes when both Mewgenics and the manager are open (issue #94) — saves are now snapshotted to a temp copy before reading, eliminating file-handle contention with the running game.",
+            "Expanded log coverage: every save load records snapshot size, copy duration, parse time, and each detected birth defect's source, so uploaded logs are actionable.",
         ]
 
         root = QVBoxLayout(self)
