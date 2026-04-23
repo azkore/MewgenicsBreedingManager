@@ -815,9 +815,9 @@ class WhatsNewDialog(QDialog):
         )
 
         default_highlights = highlights or [
-            "Fixed phantom eyebrow birth defect (issue #93) — GPAK's own birth-defect tag is now authoritative, so mutations like 'no eyebrows' are no longer mislabeled as defects on strays.",
-            "Reduced game crashes when both Mewgenics and the manager are open (issue #94) — saves are now snapshotted to a temp copy before reading, eliminating file-handle contention with the running game.",
-            "Expanded log coverage: every save load records snapshot size, copy duration, parse time, and each detected birth defect's source, so uploaded logs are actionable.",
+            "Fixed Alive Cats sort crash after a quick refresh (issue #94) — the table now uses proper layout-change signals so clicking a sort header right after the game auto-saves no longer aborts the app, and your selection / scroll position survive the refresh.",
+            "Mating Pair Search filters (issue #96) — new top-of-left filter pane: 'Hide cats already in love' button, max risk %, min quality, and a searchable trait checklist (mutations + passives + disorders + defects + abilities). The selected cat's existing traits are bolded with a checkmark.",
+            "Mating Pair Search now shows each candidate's room in a new column, and rooms are visible in the cat selection list too.",
         ]
 
         root = QVBoxLayout(self)
@@ -834,7 +834,7 @@ class WhatsNewDialog(QDialog):
         body.setHtml(
             f"""
             <div style="line-height:1.5;">
-              <p>Thread safety hardening, icon rendering improvements, and profile sprite fix.</p>
+              <p>Crash fix for sorting Alive Cats during auto-refresh, plus Mating Pair Search filters and a new room column.</p>
               <ul>{bullets}</ul>
               <p><a href="https://github.com/frankieg33/MewgenicsBreedingManager/releases">View releases on GitHub</a></p>
             </div>

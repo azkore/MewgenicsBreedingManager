@@ -2,7 +2,7 @@
 
 A Python desktop tool for managing your Mewgenics cats. Reads your save file directly, scores every cat for breeding priority, optimizes room layouts, and helps plan multi-generation lines — all while tracking lineage, inbreeding risk, and trait inheritance.
 
-Current release: `v5.8.1`
+Current release: `v5.8.2`
 
 If you'd like to support the project, you can [here](https://ko-fi.com/frankieg33).
 
@@ -101,6 +101,14 @@ Produces a standalone executable via PyInstaller.
 - Original idea and reference from frankieg33
 
 ## Release Notes
+
+### v5.8.2
+
+Crash fix and new Mating Pair Search filters.
+
+- **Fixed Alive Cats sort crash after a quick refresh** (issue #94): the table now uses proper Qt layout-change signals instead of a malformed `layoutChanged` emission, so clicking a sort header right after the game auto-saves no longer aborts the app. As a bonus, your selection and scroll position now survive the refresh.
+- **Mating Pair Search filters** (issue #96): a new filter pane on the top of the left bar — "Hide cats already in love" toggle, max risk %, min quality (Best Pair mode), and a searchable trait checklist that unions mutations + passives + disorders + defects + abilities. The selected cat's existing traits are bolded and marked with a checkmark in the list.
+- **Mating Pair Search room visibility**: each candidate's room is now shown in a new column, and rooms also appear next to each name in the cat selection list.
 
 ### v5.8.1
 
