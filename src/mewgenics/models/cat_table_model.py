@@ -744,6 +744,49 @@ class CatTableModel(QAbstractTableModel):
                 cat.inbredness = 0.0
         self.endResetModel()
 
+    def apply_room_patch(self, patch: dict[int, tuple[str, str]]) -> bool:
+        """Apply a quick room/status patch in place.
+
+        Source row positions are stable — only cat.room / cat.status are
+        mutated. Bracketing the change with the proper
+        layoutAboutToBeChanged / layoutChanged pair lets the proxy
+        update its sort/filter mapping while preserving view selection
+        and scroll position. Emitting layoutChanged on its own (without
+        the matching about-to signal) leaves persistent indexes
+        dangling and crashes when the user clicks a sort header.
+        """
+        if not self._cats or not patch:
+            return False
+
+        changes: list[tuple[Cat, str, str]] = []
+        for cat in self._cats:
+            entry = patch.get(cat.db_key)
+            if entry is None:
+                continue
+            room, status = entry
+            if cat.room == room and cat.status == status:
+                continue
+            changes.append((cat, room, status))
+
+        if not changes:
+            return False
+
+        self.layoutAboutToBeChanged.emit()
+        old_indexes = self.persistentIndexList()
+        try:
+            self._relation_cache.clear()
+            self._compat_cache.clear()
+            for cat, room, status in changes:
+                cat.room = room
+                cat.status = status
+        finally:
+            # Source row positions are stable — persistent indexes map
+            # to themselves. The explicit call keeps Qt's bookkeeping
+            # consistent and silences "persistent index" warnings.
+            self.changePersistentIndexList(old_indexes, list(old_indexes))
+            self.layoutChanged.emit()
+        return True
+
     def set_focus_cat(self, cat: Optional[Cat]):
         if cat is self._focus_cat:
             return
