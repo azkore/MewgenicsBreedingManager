@@ -1084,10 +1084,6 @@ def _read_visual_mutation_entries(table: list[int]) -> list[dict[str, object]]:
                 # Legacy 3-tuple GPAK entry — fall back to the range heuristic.
                 is_defect = True
                 defect_source = "range_fallback_gpak3tuple"
-        elif not is_sentinel_missing and 700 <= mutation_id <= 706:
-            # No GPAK data at all — use the range heuristic as a best guess.
-            is_defect = True
-            defect_source = "range_fallback_no_gpak"
             raw_name = str(raw_name).strip()
             detail = str(stat_desc).strip()
             if raw_name and not re.match(r'^Mutation \d+$', raw_name):
@@ -1100,6 +1096,13 @@ def _read_visual_mutation_entries(table: list[int]) -> list[dict[str, object]]:
                 base = f"{part_label} Mutation"
                 display_name = f"{base} {stat_desc}" if stat_desc else base
                 source = f"generic:{gpak_category}"
+        elif not is_sentinel_missing and 700 <= mutation_id <= 706:
+            # No GPAK data at all — use the range heuristic as a best guess.
+            is_defect = True
+            defect_source = "range_fallback_no_gpak"
+            if catalog_name:
+                display_name = str(catalog_name).strip()
+                source = f"catalog:{fallback_part}"
         elif catalog_name:
             display_name = str(catalog_name).strip()
             source = f"catalog:{fallback_part}"
