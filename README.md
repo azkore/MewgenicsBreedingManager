@@ -2,7 +2,7 @@
 
 A Python desktop tool for managing your Mewgenics cats. Reads your save file directly, scores every cat for breeding priority, optimizes room layouts, and helps plan multi-generation lines — all while tracking lineage, inbreeding risk, and trait inheritance.
 
-Current release: `v5.8.2`
+Current release: `v5.8.3`
 
 If you'd like to support the project, you can [here](https://ko-fi.com/frankieg33).
 
@@ -101,6 +101,12 @@ Produces a standalone executable via PyInstaller.
 - Original idea and reference from frankieg33
 
 ## Release Notes
+
+### v5.8.3
+
+Bug fix.
+
+- **Restored human-readable mutation names and descriptions** (issue #99): names like "Aura Ears", "Slenderman Tail", "Human Head Body", "Exposed Brain", and "Wing Hoof Legs" are back in the UI, along with their effect details (e.g. "adds bruise", "jump movement"). The v5.8.1 defect-trust refactor had accidentally stranded the display-name assignment inside an unreachable branch of `_read_visual_mutation_entries`, so every GPAK-known mutation fell through to the generic `"{slot} {id}"` fallback.
 
 ### v5.8.2
 

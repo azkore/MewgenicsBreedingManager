@@ -815,9 +815,7 @@ class WhatsNewDialog(QDialog):
         )
 
         default_highlights = highlights or [
-            "Fixed Alive Cats sort crash after a quick refresh (issue #94) — the table now uses proper layout-change signals so clicking a sort header right after the game auto-saves no longer aborts the app, and your selection / scroll position survive the refresh.",
-            "Mating Pair Search filters (issue #96) — new top-of-left filter pane: 'Hide cats already in love' button, max risk %, min quality, and a searchable trait checklist (mutations + passives + disorders + defects + abilities). The selected cat's existing traits are bolded with a checkmark.",
-            "Mating Pair Search now shows each candidate's room in a new column, and rooms are visible in the cat selection list too.",
+            "Restored human-readable mutation names and descriptions (issue #99) — names like 'Aura Ears', 'Slenderman Tail', 'Human Head Body', 'Exposed Brain', and 'Wing Hoof Legs' are back, along with their effect details (e.g. 'adds bruise', 'jump movement'). A v5.8.1 refactor had accidentally stranded the name-assignment logic in an unreachable branch; every GPAK-known mutation fell through to the generic '{slot} {id}' fallback.",
         ]
 
         root = QVBoxLayout(self)
@@ -834,7 +832,7 @@ class WhatsNewDialog(QDialog):
         body.setHtml(
             f"""
             <div style="line-height:1.5;">
-              <p>Crash fix for sorting Alive Cats during auto-refresh, plus Mating Pair Search filters and a new room column.</p>
+              <p>Restores human-readable mutation names and their effect descriptions that went missing in v5.8.1.</p>
               <ul>{bullets}</ul>
               <p><a href="https://github.com/frankieg33/MewgenicsBreedingManager/releases">View releases on GitHub</a></p>
             </div>
