@@ -2,7 +2,7 @@
 
 > ## ⚠️ Project status: archived, not maintained
 >
-> This repo is archived and I am no longer accepting issues or pull requests. The latest release (`v5.8.3`) is in a working state against the version of Mewgenics at the time of archiving, and the Windows build in the [Releases](../../releases) page should run out of the box.
+> This repo is archived and I am no longer accepting issues or pull requests. The latest release (`v5.8.4`) is in a working state against the version of Mewgenics at the time of archiving, and the Windows build in the [Releases](../../releases) page should run out of the box.
 >
 > **Anyone is free to fork it and keep it going.** The build is straightforward (`pip install -r requirements.txt && python src/mewgenics_manager.py`, or `build.bat` for a standalone Windows exe), and the architecture is documented in [`CLAUDE.md`](CLAUDE.md). If Mewgenics updates break the save parser, the binary offsets live in `src/save_parser.py` and `tools/field_mapper/` has the reverse-engineering pipeline used to find them.
 >
@@ -10,7 +10,7 @@
 
 A Python desktop tool for managing your Mewgenics cats. Reads your save file directly, scores every cat for breeding priority, optimizes room layouts, and helps plan multi-generation lines — all while tracking lineage, inbreeding risk, and trait inheritance.
 
-Current release: `v5.8.3`
+Current release: `v5.8.4`
 
 If you'd like to support the project, you can [here](https://ko-fi.com/frankieg33).
 
@@ -109,6 +109,18 @@ Produces a standalone executable via PyInstaller.
 - Original idea and reference from frankieg33
 
 ## Release Notes
+
+### v5.8.4
+
+**Final maintained release.** The project is being archived; see the notice at the top of this file. The app is in a working state and anyone is welcome to fork it.
+
+- **Mating Pair Search — filter + indicator fixes** (#102, #103): "Hide in-love" now treats *any* lover (not just mutual) as disqualifying, with separate toggles for the left list and the matches table. Cats with a lover now show a ♥ next to their name in both panels, and the list entries now include age.
+- **Donation/Exceptional thresholds driven by Detailed Scoring** (#104): new "Score source" combo in the Thresholds dialog — keep the default Base stat sum, or switch to the Detailed Scoring total with float thresholds. The sidebar counts and tooltips adapt to the active source. Falls back to base-sum silently when the Detailed cache hasn't been populated yet.
+- **CSV/XLSX export**: added Class, Passive Abilities, Disorders, Defects, Tags, Lovers, and Haters columns.
+- **Getting Started guide**: a new 9-page walkthrough under Help > Getting Started, with a startup prompt on first launch (Open Guide / Skip Once / Always Skip). Preference is persisted.
+- **Startup flow**: the splash screen now waits for the save to finish loading before showing the startup prompt or What's New dialog, so the splash doesn't sit parked behind modal windows.
+- **Breeding math**: `can_breed` and the new `game_compatibility` helper now cite the wiki's formula verbatim (`0.15 × CHA × libido × lover_mult × sexuality_mult` with the `> 0.05` gate) and feed compat-aware scoring throughout the app.
+- **Issue #101** closed as working-as-intended — same-sex P7P pairs where at least one cat is bi/gay can produce kittens per the game's sexuality math, and the planner surfaces them correctly.
 
 ### v5.8.3
 

@@ -815,7 +815,13 @@ class WhatsNewDialog(QDialog):
         )
 
         default_highlights = highlights or [
-            "Restored human-readable mutation names and descriptions (issue #99) — names like 'Aura Ears', 'Slenderman Tail', 'Human Head Body', 'Exposed Brain', and 'Wing Hoof Legs' are back, along with their effect details (e.g. 'adds bruise', 'jump movement'). A v5.8.1 refactor had accidentally stranded the name-assignment logic in an unreachable branch; every GPAK-known mutation fell through to the generic '{slot} {id}' fallback.",
+            "Final maintained release. This project is being archived — the repo will be read-only shortly and no further issues or PRs will be accepted. The app is in a working state; anyone is welcome to fork and continue from here. See the README for build instructions.",
+            "Mating Pair Search: 'Hide in-love' filters now treat any lover (not just mutual) as disqualifying. Cats with any lover show a ♥ next to their name in both the left list and the matches table, and the list now shows age for quick context (#102, #103).",
+            "Donation/Exceptional thresholds can now be driven by Detailed Scoring — new 'Score source' combo in the Thresholds dialog swaps base-sum thresholds for Detailed Scoring floats (#104).",
+            "CSV/XLSX export: added Class, Passive Abilities, Disorders, Defects, Tags, Lovers, and Haters columns.",
+            "Getting Started guide: new 9-page walkthrough with a startup prompt (Open Guide / Skip Once / Always Skip), accessible from Help > Getting Started.",
+            "Startup: splash screen now waits for the save to finish loading before the Getting Started prompt or What's New dialog appears, so the splash doesn't stay parked behind modal windows.",
+            "Breeding math: can_breed and the new game_compatibility helper now cite the wiki's formula directly (0.15 × CHA × libido × lover_mult × sexuality_mult with the > 0.05 gate) and used for compat-aware scoring.",
         ]
 
         root = QVBoxLayout(self)
@@ -832,7 +838,7 @@ class WhatsNewDialog(QDialog):
         body.setHtml(
             f"""
             <div style="line-height:1.5;">
-              <p>Restores human-readable mutation names and their effect descriptions that went missing in v5.8.1.</p>
+              <p><b>Final maintained release.</b> Bundles the #102–#104 fixes, the new Getting Started guide, and the Detailed Scoring donation/exceptional source.</p>
               <ul>{bullets}</ul>
               <p><a href="https://github.com/frankieg33/MewgenicsBreedingManager/releases">View releases on GitHub</a></p>
             </div>
