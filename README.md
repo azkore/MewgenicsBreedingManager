@@ -1,5 +1,13 @@
 # Mewgenics Breeding Manager
 
+> ## ⚠️ Project status: archived, not maintained
+>
+> This repo is archived and I am no longer accepting issues or pull requests. The latest release (`v5.8.3`) is in a working state against the version of Mewgenics at the time of archiving, and the Windows build in the [Releases](../../releases) page should run out of the box.
+>
+> **Anyone is free to fork it and keep it going.** The build is straightforward (`pip install -r requirements.txt && python src/mewgenics_manager.py`, or `build.bat` for a standalone Windows exe), and the architecture is documented in [`CLAUDE.md`](CLAUDE.md). If Mewgenics updates break the save parser, the binary offsets live in `src/save_parser.py` and `tools/field_mapper/` has the reverse-engineering pipeline used to find them.
+>
+> If you fork and ship a maintained successor, feel free to open a PR against this README linking to your fork and I'll merge it before archiving is finalized.
+
 A Python desktop tool for managing your Mewgenics cats. Reads your save file directly, scores every cat for breeding priority, optimizes room layouts, and helps plan multi-generation lines — all while tracking lineage, inbreeding risk, and trait inheritance.
 
 Current release: `v5.8.3`
