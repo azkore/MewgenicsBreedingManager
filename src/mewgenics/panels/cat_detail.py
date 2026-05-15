@@ -12,7 +12,7 @@ from PySide6.QtCore import Qt, Signal, QTimer, QItemSelectionModel
 from PySide6.QtGui import QColor, QBrush, QFont, QFontMetrics, QPixmap
 
 from save_parser import (
-    Cat, STAT_NAMES,
+    Cat, CatInfoUnlocks, STAT_NAMES,
     can_breed, risk_percent, kinship_coi,
     get_parents, get_grandparents, find_common_ancestors,
     _appearance_group_names, _appearance_preview_text,
@@ -289,6 +289,8 @@ class CatDetailPanel(QWidget):
         self.setStyleSheet(_PANEL_BG)
         self.setFixedHeight(0)
         self._show_lineage: bool = False
+        self._cat_info_unlocks: CatInfoUnlocks = CatInfoUnlocks()
+        self._respect_cat_info_unlocks: bool = True
         self._pair_stimulation: int = int(_load_app_config().get("pair_stimulation", 50) or 50)
         self._current_cats: list[Cat] = []
 
@@ -307,6 +309,15 @@ class CatDetailPanel(QWidget):
 
     def set_show_lineage(self, show: bool):
         self._show_lineage = show
+
+    def set_info_availability(self, unlocks: CatInfoUnlocks | None, respect_unlocks: bool):
+        self._cat_info_unlocks = unlocks or CatInfoUnlocks()
+        self._respect_cat_info_unlocks = bool(respect_unlocks)
+        if self._current_cats:
+            self.show_cats(self._current_cats)
+
+    def _info_available(self, feature: str) -> bool:
+        return self._cat_info_unlocks.allows(feature, respect_unlocks=self._respect_cat_info_unlocks)
 
     def show_cats(self, cats: list[Cat]):
         self._current_cats = list(cats)
@@ -452,40 +463,33 @@ class CatDetailPanel(QWidget):
         sexuality_label = sexuality_raw.title() if sexuality_raw != "unknown" else "Unknown"
         sexuality_color = QColor(72, 100, 140) if sexuality_raw != "unknown" else QColor(80, 80, 95)
 
-        attr_specs = [
-            (
-                0,
-                0,
-                "Aggression",
-                aggression_label.title(),
-                _trait_level_color(aggression_label),
+        locked_color = QColor(48, 48, 58)
+        attr_specs = []
+        if self._info_available("aggression"):
+            attr_specs.append((
+                0, 0, "Aggression", aggression_label.title(), _trait_level_color(aggression_label),
                 f"Aggression: {cat.aggression:.3f} ({aggression_label})" if cat.aggression is not None else "Aggression: unknown",
-            ),
-            (
-                0,
-                1,
-                "Libido",
-                libido_label.title(),
-                _trait_level_color(libido_label),
+            ))
+        else:
+            attr_specs.append((0, 0, "Aggression", "Locked", locked_color, "Aggression is locked until Tink's aggression-info reward is unlocked."))
+        if self._info_available("libido"):
+            attr_specs.append((
+                0, 1, "Libido", libido_label.title(), _trait_level_color(libido_label),
                 f"Libido: {cat.libido:.3f} ({libido_label})" if cat.libido is not None else "Libido: unknown",
-            ),
-            (
-                1,
-                0,
-                "Inbredness",
-                inbred_label.title(),
-                _trait_level_color(inbred_label),
+            ))
+        else:
+            attr_specs.append((0, 1, "Libido", "Locked", locked_color, "Libido is locked until Tink's sexuality-info reward is unlocked."))
+        if self._info_available("inbreeding"):
+            attr_specs.append((
+                1, 0, "Inbredness", inbred_label.title(), _trait_level_color(inbred_label),
                 f"Inbredness: {cat.inbredness:.3f} ({inbred_label})" if cat.inbredness is not None else "Inbredness: unknown",
-            ),
-            (
-                1,
-                1,
-                "Sexuality",
-                sexuality_label,
-                sexuality_color,
-                f"Sexuality: {sexuality_raw}",
-            ),
-        ]
+            ))
+        else:
+            attr_specs.append((1, 0, "Inbredness", "Locked", locked_color, "Inbredness is locked until Tink's inbreeding-info reward is unlocked."))
+        if self._info_available("sexuality"):
+            attr_specs.append((1, 1, "Sexuality", sexuality_label, sexuality_color, f"Sexuality: {sexuality_raw}"))
+        else:
+            attr_specs.append((1, 1, "Sexuality", "Locked", locked_color, "Sexuality is locked until Tink's sexuality-info reward is unlocked."))
         for row, col, label, value, color, tooltip in attr_specs:
             attr_grid.addWidget(_attr_chip(label, value, color, tooltip), row, col)
 
@@ -675,7 +679,7 @@ class CatDetailPanel(QWidget):
             root.addLayout(anc)
 
         # Lovers & haters
-        if cat.lovers or cat.haters:
+        if self._info_available("relationships") and (cat.lovers or cat.haters):
             root.addWidget(_vsep())
             rel = QVBoxLayout(); rel.setSpacing(4)
             if cat.lovers:
@@ -901,6 +905,15 @@ class CatDetailPanel(QWidget):
             ("libido", "Libido"),
             ("inbredness", "Inbredness"),
         ):
+            unlock_feature = "inbreeding" if field == "inbredness" else field
+            if not self._info_available(unlock_feature):
+                row = QHBoxLayout()
+                row.setSpacing(5)
+                row.addWidget(QLabel(f"{title}:", styleSheet="color:#555; font-size:10px;"))
+                row.addWidget(_chip("Locked"))
+                row.addStretch()
+                trait_col.addLayout(row)
+                continue
             va = getattr(a, field, None)
             vb = getattr(b, field, None)
             row = QHBoxLayout()

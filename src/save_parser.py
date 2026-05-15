@@ -94,6 +94,34 @@ def _pair_key_u64(a: int, b: int) -> tuple[int, int]:
 
 
 @dataclass(slots=True)
+class CatInfoUnlocks:
+    """Save-wide cat-info feature unlock flags from Tink rewards."""
+
+    basestats: bool = False
+    inbreeding: bool = False
+    sexuality: bool = False
+    tags: bool = False
+    aggression: bool = False
+    relationships: bool = False
+
+    def allows(self, feature: str, *, respect_unlocks: bool = True) -> bool:
+        """Return whether a cat-info feature may be shown/used."""
+        if not respect_unlocks:
+            return True
+        # These are intentionally treated as player-known in this app: the
+        # player can write down base stats and family trees, derive inbreeding
+        # from those notes, and tags are assigned by players rather than
+        # discovered hidden cat biology.
+        if feature in {"base_stats", "basestats", "inbreeding", "inbredness", "family_tree", "lineage", "tags"}:
+            return True
+        if feature == "libido":
+            # The game data has no separate catinfo_unlock_libido flag; Tink's
+            # sexuality reward covers sexuality/libido indicators.
+            feature = "sexuality"
+        return bool(getattr(self, feature, False))
+
+
+@dataclass(slots=True)
 class SaveData:
     """Parsed save output with tuple-style compatibility."""
 
@@ -105,6 +133,7 @@ class SaveData:
     pedigree_map: dict[int, tuple[Optional[int], Optional[int]]] = field(default_factory=dict)
     pedigree_coi_memos: dict[tuple[int, int], float] = field(default_factory=dict)
     accessible_cats: set[int] = field(default_factory=set)
+    cat_info_unlocks: CatInfoUnlocks = field(default_factory=CatInfoUnlocks)
 
     def as_tuple(self) -> tuple[list["Cat"], list[tuple[int, str]], list[str]]:
         return self.cats, self.errors, self.unlocked_house_rooms
@@ -2665,6 +2694,49 @@ def _parse_pedigree(conn) -> dict:
     return _parse_pedigree_tables(conn)[0]
 
 
+_CATINFO_PROPERTY_MAP = {
+    "catinfo_unlock_basestats": "basestats",
+    "catinfo_unlock_inbreeding": "inbreeding",
+    "catinfo_unlock_sexuality": "sexuality",
+    "catinfo_unlock_tags": "tags",
+    "catinfo_unlock_aggression": "aggression",
+    "catinfo_unlock_relationships": "relationships",
+}
+
+
+def _property_value_is_true(value) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value != 0
+    if isinstance(value, float):
+        return value != 0.0
+    if isinstance(value, bytes):
+        if not value:
+            return False
+        if len(value) <= 8:
+            return int.from_bytes(value, "little", signed=False) != 0
+        return any(value)
+    text = str(value).strip().lower()
+    return text not in {"", "0", "false", "none", "null"}
+
+
+def _get_cat_info_unlocks(conn) -> CatInfoUnlocks:
+    placeholders = ",".join("?" for _ in _CATINFO_PROPERTY_MAP)
+    rows = conn.execute(
+        f"SELECT key, data FROM properties WHERE key IN ({placeholders})",
+        tuple(_CATINFO_PROPERTY_MAP.keys()),
+    ).fetchall()
+    values = {field: False for field in _CATINFO_PROPERTY_MAP.values()}
+    for key, data in rows:
+        field = _CATINFO_PROPERTY_MAP.get(str(key))
+        if field:
+            values[field] = _property_value_is_true(data)
+    return CatInfoUnlocks(**values)
+
+
 def parse_save(path: str) -> SaveData:
     conn  = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     house = _get_house_info(conn)
@@ -2673,6 +2745,7 @@ def parse_save(path: str) -> SaveData:
     unlocked_house_rooms = _get_unlocked_house_rooms(conn, house=house, furniture=furniture)
     rows  = conn.execute("SELECT key, data FROM cats").fetchall()
     ped_map, pedigree_coi_memos, accessible_cats = _parse_pedigree_tables(conn)
+    cat_info_unlocks = _get_cat_info_unlocks(conn)
     current_day_row = conn.execute("SELECT data FROM properties WHERE key='current_day'").fetchone()
     current_day = current_day_row[0] if current_day_row else None
     conn.close()
@@ -2763,6 +2836,7 @@ def parse_save(path: str) -> SaveData:
         pedigree_map=ped_map,
         pedigree_coi_memos=pedigree_coi_memos,
         accessible_cats=accessible_cats,
+        cat_info_unlocks=cat_info_unlocks,
     )
 
 

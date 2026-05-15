@@ -306,6 +306,17 @@ def _set_roster_visual_mode(enabled: bool):
     _save_app_config(data)
 
 
+def _saved_respect_cat_info_unlocks(default: bool = True) -> bool:
+    data = _load_app_config()
+    return _coerce_bool(data.get("respect_cat_info_unlocks"), default)
+
+
+def _set_respect_cat_info_unlocks(enabled: bool):
+    data = _load_app_config()
+    data["respect_cat_info_unlocks"] = bool(enabled)
+    _save_app_config(data)
+
+
 # ── Tag color palette persistence ──────────────────────────────────────────
 
 def _normalize_tag_color_hex(value, default: str = "") -> str:

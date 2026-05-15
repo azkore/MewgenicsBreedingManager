@@ -22,7 +22,7 @@ from PySide6.QtGui import (
 )
 
 from save_parser import (
-    Cat, FurnitureDefinition, FurnitureRoomSummary,
+    Cat, CatInfoUnlocks, FurnitureDefinition, FurnitureRoomSummary,
     build_furniture_room_summaries,
     STAT_NAMES, _is_hater_pair, ROOM_KEYS,
 )
@@ -53,6 +53,7 @@ from mewgenics.utils.config import (
     _saved_total_stats_display, _set_total_stats_display,
     _saved_stat_icon_mode, _set_stat_icon_mode,
     _saved_roster_visual_mode, _set_roster_visual_mode,
+    _saved_respect_cat_info_unlocks, _set_respect_cat_info_unlocks,
     _gpak_search_start_dir,
     _candidate_gpak_paths,
     _set_last_save,
@@ -269,6 +270,8 @@ class MainWindow(QMainWindow):
         self._nav_forward_stack: list[dict] = []
         self._nav_suppress: bool = False
         self._show_lineage: bool = False
+        self._respect_cat_info_unlocks: bool = _saved_respect_cat_info_unlocks()
+        self._cat_info_unlocks: CatInfoUnlocks = CatInfoUnlocks()
         self._pair_detail_override: bool = False
         self._pedigree_coi_memos: dict[tuple[int, int], float] = {}
         self._tree_view: Optional[FamilyTreeBrowserView] = None
@@ -462,6 +465,15 @@ class MainWindow(QMainWindow):
         self._manual_scoring_auto_calc_action.setChecked(_saved_manual_scoring_auto_calc())
         self._manual_scoring_auto_calc_action.toggled.connect(self._toggle_manual_scoring_auto_calc)
         vm.addAction(self._manual_scoring_auto_calc_action)
+
+        self._respect_cat_info_unlocks_action = QAction(
+            _tr("menu.settings.respect_cat_info_unlocks", default="Respect In-Game Cat Info Unlocks"),
+            self,
+        )
+        self._respect_cat_info_unlocks_action.setCheckable(True)
+        self._respect_cat_info_unlocks_action.setChecked(self._respect_cat_info_unlocks)
+        self._respect_cat_info_unlocks_action.toggled.connect(self._toggle_respect_cat_info_unlocks)
+        vm.addAction(self._respect_cat_info_unlocks_action)
 
         vm.addSeparator()
 
@@ -842,6 +854,25 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             _tr("status.stat_icons_display", default="Roster stat icons {state}", state=_tr("common.on", default="on") if enabled else _tr("common.off", default="off"))
         )
+
+    def _toggle_respect_cat_info_unlocks(self, checked: bool):
+        enabled = bool(checked)
+        self._respect_cat_info_unlocks = enabled
+        _set_respect_cat_info_unlocks(enabled)
+        self._apply_cat_info_availability()
+        self.statusBar().showMessage(
+            _tr(
+                "status.respect_cat_info_unlocks",
+                default="In-game cat info unlocks {state}",
+                state=_tr("common.on", default="on") if enabled else _tr("common.off", default="off"),
+            )
+        )
+
+    def _apply_cat_info_availability(self):
+        if hasattr(self, "_source_model"):
+            self._source_model.set_info_availability(self._cat_info_unlocks, self._respect_cat_info_unlocks)
+        if hasattr(self, "_detail") and self._detail is not None:
+            self._detail.set_info_availability(self._cat_info_unlocks, self._respect_cat_info_unlocks)
 
     # Row height (px) used when roster visual mode is on. Chosen to be
     # roughly 2.25x the default compact row height so sprites and ability
@@ -1525,6 +1556,7 @@ class MainWindow(QMainWindow):
 
         # Table
         self._source_model = CatTableModel()
+        self._source_model.set_info_availability(self._cat_info_unlocks, self._respect_cat_info_unlocks)
         self._source_model.blacklistChanged.connect(self._on_blacklist_changed)
         self._proxy_model  = RoomFilterModel()
         self._proxy_model.setSourceModel(self._source_model)
@@ -1653,6 +1685,7 @@ class MainWindow(QMainWindow):
 
         # Detail panel
         self._detail = CatDetailPanel()
+        self._detail.set_info_availability(self._cat_info_unlocks, self._respect_cat_info_unlocks)
         vs.addWidget(self._detail)
         vs.setStretchFactor(0, 1)
         vs.setStretchFactor(1, 0)
@@ -3773,6 +3806,7 @@ class MainWindow(QMainWindow):
             errors = result["errors"]
             unlocked_house_rooms = result.get("unlocked_house_rooms", [])
             accessible_cats = result.get("accessible_cats", set())
+            self._cat_info_unlocks = result.get("cat_info_unlocks") or CatInfoUnlocks()
             self._accessible_cat_keys = set(accessible_cats)
             self._proxy_model.set_accessible_cats(accessible_cats)
             furniture = result.get("furniture", [])
@@ -3815,6 +3849,7 @@ class MainWindow(QMainWindow):
             if self._perfect_planner_view is not None:
                 self._perfect_planner_view.set_cache(None)
             self._refresh_threshold_runtime(cats)
+            self._apply_cat_info_availability()
             self._source_model.load(cats, accessible_cats=accessible_cats)
             self._rebuild_room_buttons(cats)
             self._refresh_filter_button_counts()

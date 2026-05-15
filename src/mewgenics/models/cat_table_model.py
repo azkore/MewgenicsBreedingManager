@@ -13,7 +13,7 @@ from PySide6.QtGui import (
 )
 
 from save_parser import (
-    Cat, STAT_NAMES,
+    Cat, CatInfoUnlocks, STAT_NAMES,
     can_breed, risk_percent,
     get_all_ancestors, get_parents, find_common_ancestors,
     _is_hater_pair, _kinship,
@@ -617,6 +617,24 @@ class CatTableModel(QAbstractTableModel):
         self._visual_mode: bool = False
         self._visual_sprite_size: int = 48
         self._accessible_cat_keys: set[int] = set()
+        self._cat_info_unlocks: CatInfoUnlocks = CatInfoUnlocks()
+        self._respect_cat_info_unlocks: bool = True
+
+    def set_info_availability(self, unlocks: Optional[CatInfoUnlocks], respect_unlocks: bool):
+        self._cat_info_unlocks = unlocks or CatInfoUnlocks()
+        self._respect_cat_info_unlocks = bool(respect_unlocks)
+        if self._cats:
+            self.dataChanged.emit(
+                self.index(0, 0),
+                self.index(len(self._cats) - 1, len(COLUMNS) - 1),
+                [Qt.DisplayRole, Qt.UserRole, Qt.DecorationRole, Qt.BackgroundRole, Qt.ForegroundRole, Qt.ToolTipRole],
+            )
+
+    def _info_available(self, feature: str) -> bool:
+        return self._cat_info_unlocks.allows(feature, respect_unlocks=self._respect_cat_info_unlocks)
+
+    def _locked_tooltip(self, label: str) -> str:
+        return f"{label}: locked until the matching Tink cat-info reward is unlocked."
 
     def set_breeding_cache(self, cache):
         self._breeding_cache = cache
@@ -960,23 +978,35 @@ class CatTableModel(QAbstractTableModel):
                     parts += [f"⚠ {_mutation_display_name(d)}" for d in cat.disorders]
                 return ", ".join(parts)
             if col == COL_RELNS:
+                if not self._info_available("relationships"):
+                    return "Locked"
                 return _relations_summary(cat) or "—"
             if col == COL_REL:
+                if not self._info_available("inbreeding"):
+                    return "Locked"
                 if self._focus_cat is None:
                     return "—"
                 return f"{int(round(self._relation_for(cat)))}%"
             if col == COL_GEN_DEPTH:
                 return str(cat.generation)
             if col == COL_AGG:
+                if not self._info_available("aggression"):
+                    return "Locked"
                 label = _trait_label_from_value("aggression", cat.aggression)
                 return label if label else "—"
             if col == COL_LIB:
+                if not self._info_available("libido"):
+                    return "Locked"
                 label = _trait_label_from_value("libido", cat.libido)
                 return label if label else "—"
             if col == COL_INBRD:
+                if not self._info_available("inbreeding"):
+                    return "Locked"
                 label = _trait_label_from_value("inbredness", cat.inbredness)
                 return label if label else "—"
             if col == COL_SEXUALITY:
+                if not self._info_available("sexuality"):
+                    return "Locked"
                 return getattr(cat, "sexuality", None) or ""
             if col == COL_SRC:
                 return _source_summary(cat)[0]
@@ -992,18 +1022,28 @@ class CatTableModel(QAbstractTableModel):
             if col == COL_ADV:
                 return 0 if can_adventure else 1
             if col == COL_REL:
+                if not self._info_available("inbreeding"):
+                    return -1.0
                 return self._relation_for(cat) if self._focus_cat is not None else -1.0
             if col == COL_AGE:
                 return cat.age if cat.age is not None else -1
             if col == COL_GEN_DEPTH:
                 return cat.generation
             if col == COL_AGG:
+                if not self._info_available("aggression"):
+                    return -1.0
                 return cat.aggression if cat.aggression is not None else -1.0
             if col == COL_LIB:
+                if not self._info_available("libido"):
+                    return -1.0
                 return cat.libido if cat.libido is not None else -1.0
             if col == COL_INBRD:
+                if not self._info_available("inbreeding"):
+                    return -1.0
                 return cat.inbredness if cat.inbredness is not None else -1.0
             if col == COL_SEXUALITY:
+                if not self._info_available("sexuality"):
+                    return ""
                 return getattr(cat, "sexuality", None) or ""
             if col == COL_SRC:
                 return _source_summary(cat)[1]
@@ -1042,6 +1082,12 @@ class CatTableModel(QAbstractTableModel):
                     return QBrush(QColor(36, 96, 64))
                 return QBrush(QColor(48, 48, 58))
             if col in (COL_AGG, COL_LIB, COL_INBRD):
+                if (
+                    (col == COL_AGG and not self._info_available("aggression"))
+                    or (col == COL_LIB and not self._info_available("libido"))
+                    or (col == COL_INBRD and not self._info_available("inbreeding"))
+                ):
+                    return QBrush(QColor(48, 48, 58))
                 if col == COL_AGG:
                     base = _trait_level_color(_trait_label_from_value("aggression", cat.aggression))
                 elif col == COL_LIB:
@@ -1121,6 +1167,8 @@ class CatTableModel(QAbstractTableModel):
             if col == COL_ABIL and (cat.abilities or cat.passive_abilities or cat.disorders):
                 return _abilities_tooltip(cat)
             if col == COL_RELNS and (cat.lovers or cat.haters):
+                if not self._info_available("relationships"):
+                    return self._locked_tooltip("Relationships")
                 lines: list[str] = []
                 if cat.lovers:
                     lines.append("Lovers: " + ", ".join(other.name for other in cat.lovers))
@@ -1128,14 +1176,20 @@ class CatTableModel(QAbstractTableModel):
                     lines.append("Haters: " + ", ".join(other.name for other in cat.haters))
                 return "\n".join(lines)
             if col == COL_AGG:
+                if not self._info_available("aggression"):
+                    return self._locked_tooltip("Aggression")
                 if cat.aggression is None:
                     return "Aggression: unknown"
                 return f"Aggression: {cat.aggression:.3f} ({_trait_label_from_value('aggression', cat.aggression)})"
             if col == COL_LIB:
+                if not self._info_available("libido"):
+                    return self._locked_tooltip("Libido")
                 if cat.libido is None:
                     return "Libido: unknown"
                 return f"Libido: {cat.libido:.3f} ({_trait_label_from_value('libido', cat.libido)})"
             if col == COL_INBRD:
+                if not self._info_available("inbreeding"):
+                    return self._locked_tooltip("Inbredness")
                 if cat.inbredness is None:
                     return "Inbredness: unknown"
                 return f"Inbredness: {cat.inbredness:.3f} ({_trait_label_from_value('inbredness', cat.inbredness)})"
