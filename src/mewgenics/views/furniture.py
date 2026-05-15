@@ -572,7 +572,11 @@ class FurnitureView(QWidget):
         self._layout_splitter_restore_pending = False
         if self._layout_splitter is None or self._pending_layout_splitter_sizes is None:
             return
-        if not self.isVisible() or self._layout_splitter.width() <= 0 or self._layout_splitter.height() <= 0:
+        if not self.isVisible():
+            # showEvent() will reschedule once the view is shown; rescheduling
+            # here would create a busy QTimer.singleShot(0) loop on the GUI thread.
+            return
+        if self._layout_splitter.width() <= 0 or self._layout_splitter.height() <= 0:
             self._schedule_layout_splitter_restore()
             return
         self._restoring_session_state = True
@@ -593,7 +597,11 @@ class FurnitureView(QWidget):
         self._splitter_restore_pending = False
         if self._splitter is None or self._pending_splitter_sizes is None:
             return
-        if not self.isVisible() or self._splitter.width() <= 0 or self._splitter.height() <= 0:
+        if not self.isVisible():
+            # showEvent() will reschedule once the view is shown; rescheduling
+            # here would create a busy QTimer.singleShot(0) loop on the GUI thread.
+            return
+        if self._splitter.width() <= 0 or self._splitter.height() <= 0:
             self._schedule_splitter_restore()
             return
         self._restoring_session_state = True

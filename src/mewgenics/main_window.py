@@ -3881,9 +3881,9 @@ class MainWindow(QMainWindow):
             if self._room_optimizer_view is not None:
                 self._room_optimizer_view.set_available_rooms(self._available_house_rooms)
                 self._room_optimizer_view.set_room_summaries(self._room_summaries)
-            if self._furniture_view is not None:
-                self._furniture_view.set_context(self._cats, self._furniture, self._furniture_data, available_rooms=self._available_house_rooms)
-                self._view_generation["furniture"] = self._cats_generation
+            # FurnitureView is expensive to populate while hidden and can leave
+            # native Qt table work active while the app idles.  Keep it lazy;
+            # _show_furniture_view() refreshes the context before showing it.
             # Cats are pushed to views on-demand when they become visible
             # (each _show_*_view calls _set_view_cats_if_needed).
             # _restore_current_view() in the finally block shows the active
@@ -4316,7 +4316,7 @@ class MainWindow(QMainWindow):
             self._rebuild_room_buttons(self._cats)
             self._refresh_filter_button_counts()
             self._bump_cats_generation()
-            if self._furniture_view is not None:
+            if self._furniture_view is not None and self._furniture_view.isVisible():
                 self._furniture_view.set_context(self._cats, self._furniture, self._furniture_data, available_rooms=self._available_house_rooms)
                 self._view_generation["furniture"] = self._cats_generation
             if self._tree_view is not None and self._tree_view.isVisible():
