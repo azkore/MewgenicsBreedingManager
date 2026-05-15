@@ -267,6 +267,7 @@ def score_pair(
         prefer_low_aggression=params.prefer_low_aggression,
         prefer_high_libido=params.prefer_high_libido,
         planner_traits=params.planner_traits,
+        use_breeding_compatibility=params.use_breeding_compatibility,
     )
     if not factors.compatible or factors.risk > params.max_risk:
         return None

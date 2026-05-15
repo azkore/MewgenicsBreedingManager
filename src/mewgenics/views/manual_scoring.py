@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QBrush
 
-from save_parser import Cat, ROOM_KEYS
+from save_parser import Cat, CatInfoUnlocks, ROOM_KEYS
 from mewgenics.utils.localization import _tr, ROOM_DISPLAY
 from mewgenics.utils.config import _load_ui_state, _save_ui_state, _saved_manual_scoring_auto_calc
 from mewgenics.utils.cat_analysis import _cat_base_sum
@@ -550,6 +550,8 @@ class ManualScoringView(QWidget):
         self._trait_ratings: Optional[TraitRatings] = None
         self._auto_calc = _saved_manual_scoring_auto_calc()
         self._results_stale = False
+        self._cat_info_unlocks = CatInfoUnlocks()
+        self._use_known_cat_info_only = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -747,6 +749,7 @@ class ManualScoringView(QWidget):
         self._table.setColumnWidth(_COL_TOTAL, 60)
         for i in range(_COL_FIRST_BREAKDOWN, _NUM_COLS):
             self._table.setColumnWidth(i, 65)
+        self._apply_info_availability_to_columns()
 
         vb.addWidget(self._table, 1)
 
@@ -875,6 +878,37 @@ class ManualScoringView(QWidget):
         self._auto_calc_chk.setChecked(self._auto_calc)
         self._auto_calc_chk.blockSignals(False)
 
+    def set_info_availability(self, unlocks: Optional[CatInfoUnlocks], use_known_info_only: bool = True):
+        self._cat_info_unlocks = unlocks or CatInfoUnlocks()
+        self._use_known_cat_info_only = bool(use_known_info_only)
+        self._apply_info_availability_to_columns()
+        if self._alive:
+            self._recompute()
+
+    def _info_available(self, feature: str) -> bool:
+        return self._cat_info_unlocks.allows(feature, use_known_info_only=self._use_known_cat_info_only)
+
+    def _apply_info_availability_to_columns(self):
+        if not hasattr(self, "_table"):
+            return
+        hidden_keys = {
+            "libido": not self._info_available("libido"),
+            "aggression": not self._info_available("aggression"),
+            "sexuality": not self._info_available("libido"),
+        }
+        for key, hidden in hidden_keys.items():
+            if key in _BREAKDOWN_KEYS:
+                self._table.setColumnHidden(_COL_FIRST_BREAKDOWN + _BREAKDOWN_KEYS.index(key), hidden)
+
+    def _effective_config(self) -> dict:
+        config = dict(self._config)
+        if not self._info_available("libido"):
+            config["libido_weights"] = {}
+            config["sexuality_weights"] = {}
+        if not self._info_available("aggression"):
+            config["aggression_weights"] = {}
+        return config
+
     # ---- Data reception ---------------------------------------------------
 
     def set_cats(self, cats: list[Cat]):
@@ -918,8 +952,9 @@ class ManualScoringView(QWidget):
             cats = [c for c in cats if c.room == room_filter]
 
         scored: list[tuple[Cat, int, dict[str, int]]] = []
+        config = self._effective_config()
         for cat in cats:
-            total, breakdown = compute_cat_score(cat, self._config)
+            total, breakdown = compute_cat_score(cat, config)
             scored.append((cat, total, breakdown))
 
         scored.sort(key=lambda x: x[1], reverse=True)

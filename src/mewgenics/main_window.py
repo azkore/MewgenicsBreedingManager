@@ -53,7 +53,7 @@ from mewgenics.utils.config import (
     _saved_total_stats_display, _set_total_stats_display,
     _saved_stat_icon_mode, _set_stat_icon_mode,
     _saved_roster_visual_mode, _set_roster_visual_mode,
-    _saved_respect_cat_info_unlocks, _set_respect_cat_info_unlocks,
+    _saved_use_known_cat_info_only, _set_use_known_cat_info_only,
     _gpak_search_start_dir,
     _candidate_gpak_paths,
     _set_last_save,
@@ -270,7 +270,7 @@ class MainWindow(QMainWindow):
         self._nav_forward_stack: list[dict] = []
         self._nav_suppress: bool = False
         self._show_lineage: bool = False
-        self._respect_cat_info_unlocks: bool = _saved_respect_cat_info_unlocks()
+        self._use_known_cat_info_only: bool = _saved_use_known_cat_info_only()
         self._cat_info_unlocks: CatInfoUnlocks = CatInfoUnlocks()
         self._pair_detail_override: bool = False
         self._pedigree_coi_memos: dict[tuple[int, int], float] = {}
@@ -466,14 +466,14 @@ class MainWindow(QMainWindow):
         self._manual_scoring_auto_calc_action.toggled.connect(self._toggle_manual_scoring_auto_calc)
         vm.addAction(self._manual_scoring_auto_calc_action)
 
-        self._respect_cat_info_unlocks_action = QAction(
-            _tr("menu.settings.respect_cat_info_unlocks", default="Respect In-Game Cat Info Unlocks"),
+        self._use_known_cat_info_only_action = QAction(
+            _tr("menu.settings.use_known_cat_info_only", default="Use Only Known Cat Info"),
             self,
         )
-        self._respect_cat_info_unlocks_action.setCheckable(True)
-        self._respect_cat_info_unlocks_action.setChecked(self._respect_cat_info_unlocks)
-        self._respect_cat_info_unlocks_action.toggled.connect(self._toggle_respect_cat_info_unlocks)
-        vm.addAction(self._respect_cat_info_unlocks_action)
+        self._use_known_cat_info_only_action.setCheckable(True)
+        self._use_known_cat_info_only_action.setChecked(self._use_known_cat_info_only)
+        self._use_known_cat_info_only_action.toggled.connect(self._toggle_use_known_cat_info_only)
+        vm.addAction(self._use_known_cat_info_only_action)
 
         vm.addSeparator()
 
@@ -855,24 +855,39 @@ class MainWindow(QMainWindow):
             _tr("status.stat_icons_display", default="Roster stat icons {state}", state=_tr("common.on", default="on") if enabled else _tr("common.off", default="off"))
         )
 
-    def _toggle_respect_cat_info_unlocks(self, checked: bool):
+    def _toggle_use_known_cat_info_only(self, checked: bool):
         enabled = bool(checked)
-        self._respect_cat_info_unlocks = enabled
-        _set_respect_cat_info_unlocks(enabled)
+        self._use_known_cat_info_only = enabled
+        _set_use_known_cat_info_only(enabled)
         self._apply_cat_info_availability()
         self.statusBar().showMessage(
             _tr(
-                "status.respect_cat_info_unlocks",
-                default="In-game cat info unlocks {state}",
+                "status.use_known_cat_info_only",
+                default="Known cat info mode {state}",
                 state=_tr("common.on", default="on") if enabled else _tr("common.off", default="off"),
             )
         )
 
     def _apply_cat_info_availability(self):
         if hasattr(self, "_source_model"):
-            self._source_model.set_info_availability(self._cat_info_unlocks, self._respect_cat_info_unlocks)
+            self._source_model.set_info_availability(self._cat_info_unlocks, self._use_known_cat_info_only)
         if hasattr(self, "_detail") and self._detail is not None:
-            self._detail.set_info_availability(self._cat_info_unlocks, self._respect_cat_info_unlocks)
+            self._detail.set_info_availability(self._cat_info_unlocks, self._use_known_cat_info_only)
+        for view in (
+            getattr(self, "_tree_view", None),
+            getattr(self, "_safe_breeding_view", None),
+            getattr(self, "_breeding_partners_view", None),
+            getattr(self, "_room_optimizer_view", None),
+            getattr(self, "_perfect_planner_view", None),
+            getattr(self, "_calibration_view", None),
+            getattr(self, "_mutation_planner_view", None),
+            getattr(self, "_furniture_view", None),
+            getattr(self, "_manual_scoring_view", None),
+            getattr(self, "_breed_priority_view", None),
+        ):
+            setter = getattr(view, "set_info_availability", None) if view is not None else None
+            if setter is not None:
+                setter(self._cat_info_unlocks, self._use_known_cat_info_only)
 
     # Row height (px) used when roster visual mode is on. Chosen to be
     # roughly 2.25x the default compact row height so sprites and ability
@@ -1556,7 +1571,7 @@ class MainWindow(QMainWindow):
 
         # Table
         self._source_model = CatTableModel()
-        self._source_model.set_info_availability(self._cat_info_unlocks, self._respect_cat_info_unlocks)
+        self._source_model.set_info_availability(self._cat_info_unlocks, self._use_known_cat_info_only)
         self._source_model.blacklistChanged.connect(self._on_blacklist_changed)
         self._proxy_model  = RoomFilterModel()
         self._proxy_model.setSourceModel(self._source_model)
@@ -1685,7 +1700,7 @@ class MainWindow(QMainWindow):
 
         # Detail panel
         self._detail = CatDetailPanel()
-        self._detail.set_info_availability(self._cat_info_unlocks, self._respect_cat_info_unlocks)
+        self._detail.set_info_availability(self._cat_info_unlocks, self._use_known_cat_info_only)
         vs.addWidget(self._detail)
         vs.setStretchFactor(0, 1)
         vs.setStretchFactor(1, 0)
@@ -2213,6 +2228,9 @@ class MainWindow(QMainWindow):
         """Push cats to *view* only when data has changed since the last push."""
         if self._view_generation.get(view_key) == self._cats_generation:
             return  # already up-to-date
+        setter = getattr(view, "set_info_availability", None)
+        if setter is not None:
+            setter(self._cat_info_unlocks, self._use_known_cat_info_only)
         view.set_cats(cats)
         self._view_generation[view_key] = self._cats_generation
 
@@ -2227,6 +2245,9 @@ class MainWindow(QMainWindow):
     def _push_cats_to_view_if_loaded(self, view_key: str, view):
         """Push current cat data to a freshly-built view if cats are loaded."""
         if self._cats and view is not None:
+            setter = getattr(view, "set_info_availability", None)
+            if setter is not None:
+                setter(self._cat_info_unlocks, self._use_known_cat_info_only)
             view.set_cats(self._cats)
             self._view_generation[view_key] = self._cats_generation
 
@@ -3678,7 +3699,10 @@ class MainWindow(QMainWindow):
             return  # superseded — a newer load is already running
         self._save_load_worker = None
         self._loading_overlay.hide()
-        self.startup_save_load_finished.emit()
+        try:
+            self.startup_save_load_finished.emit()
+        except RuntimeError:
+            pass
         if is_transient and self._save_load_retries < self._SAVE_LOAD_RETRY_CAP:
             self._save_load_retries += 1
             self.statusBar().showMessage(

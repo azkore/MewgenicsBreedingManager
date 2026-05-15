@@ -14,7 +14,7 @@ from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QColor, QBrush, QPalette, QFont
 
 from save_parser import (
-    Cat, STAT_NAMES, can_breed, kinship_coi, risk_percent, shared_ancestor_counts, _ancestor_depths,
+    Cat, CatInfoUnlocks, STAT_NAMES, can_breed, kinship_coi, risk_percent, shared_ancestor_counts, _ancestor_depths,
     _inheritance_candidates,
 )
 from breeding import score_pair, PairFactors
@@ -221,6 +221,8 @@ class SafeBreedingView(QWidget):
         self._lover_key_map: dict[int, set[int]] = {}
         self._hater_key_map: dict[int, set[int]] = {}
         self._parent_key_map: dict[int, set[int]] = {}
+        self._cat_info_unlocks = CatInfoUnlocks()
+        self._use_known_cat_info_only = False
         self._navigate_to_pair_callback = None
 
         # Filter state. Defaults match "no filtering".
@@ -407,6 +409,8 @@ class SafeBreedingView(QWidget):
             self._table.setColumnWidth(self._QUALITY_RISK_COL, 60)
             for col in range(self._QUALITY_COLUMN_COUNT):
                 self._table.setColumnHidden(col, False)
+            self._table.setColumnHidden(self._QUALITY_TRAIT_START + 0, not self._info_available("aggression"))
+            self._table.setColumnHidden(self._QUALITY_TRAIT_START + 1, not self._info_available("libido"))
         else:
             self._table.verticalHeader().setDefaultSectionSize(22)
             self._table.setColumnWidth(self._PAIR_JUMP_COL, 34)
@@ -579,22 +583,26 @@ class SafeBreedingView(QWidget):
         self._cats = cats
         self._alive = sorted([c for c in cats if c.status != "Gone"], key=lambda c: (c.name or "").lower())
         self._by_key = {c.db_key: c for c in self._alive}
-        self._lover_key_map = {
-            cat.db_key: {
-                lover.db_key
-                for lover in getattr(cat, "lovers", [])
-                if lover is not None and getattr(lover, "db_key", None) is not None and lover is not cat
+        if self._info_available("relationships"):
+            self._lover_key_map = {
+                cat.db_key: {
+                    lover.db_key
+                    for lover in getattr(cat, "lovers", [])
+                    if lover is not None and getattr(lover, "db_key", None) is not None and lover is not cat
+                }
+                for cat in self._alive
             }
-            for cat in self._alive
-        }
-        self._hater_key_map = {
-            cat.db_key: {
-                hater.db_key
-                for hater in getattr(cat, "haters", [])
-                if hater is not None and getattr(hater, "db_key", None) is not None and hater is not cat
+            self._hater_key_map = {
+                cat.db_key: {
+                    hater.db_key
+                    for hater in getattr(cat, "haters", [])
+                    if hater is not None and getattr(hater, "db_key", None) is not None and hater is not cat
+                }
+                for cat in self._alive
             }
-            for cat in self._alive
-        }
+        else:
+            self._lover_key_map = {cat.db_key: set() for cat in self._alive}
+            self._hater_key_map = {cat.db_key: set() for cat in self._alive}
         self._parent_key_map = {
             cat.db_key: {
                 parent.db_key
@@ -619,6 +627,17 @@ class SafeBreedingView(QWidget):
         if cur is not None:
             self._render_for(self._by_key.get(int(cur.data(Qt.UserRole))))
 
+    def set_info_availability(self, unlocks: Optional[CatInfoUnlocks], use_known_info_only: bool = True):
+        self._cat_info_unlocks = unlocks or CatInfoUnlocks()
+        self._use_known_cat_info_only = bool(use_known_info_only)
+        relationships_available = self._info_available("relationships")
+        self._filter_hide_left_paired_btn.setEnabled(relationships_available)
+        self._filter_hide_matches_btn.setEnabled(relationships_available)
+        self.set_cats(self._cats)
+
+    def _info_available(self, feature: str) -> bool:
+        return self._cat_info_unlocks.allows(feature, use_known_info_only=self._use_known_cat_info_only)
+
     def select_cat(self, cat: Optional[Cat]):
         if cat is None or cat.db_key not in self._by_key:
             return
@@ -631,8 +650,9 @@ class SafeBreedingView(QWidget):
 
     # ── Filter handlers ─────────────────────────────────────────────
     def _on_filter_changed(self, *_):
-        self._filter_hide_left_paired = self._filter_hide_left_paired_btn.isChecked()
-        self._filter_hide_matches_paired = self._filter_hide_matches_btn.isChecked()
+        relationships_available = self._info_available("relationships")
+        self._filter_hide_left_paired = relationships_available and self._filter_hide_left_paired_btn.isChecked()
+        self._filter_hide_matches_paired = relationships_available and self._filter_hide_matches_btn.isChecked()
         self._filter_max_risk = int(self._filter_max_risk_spin.value())
         self._filter_min_quality = float(self._filter_min_quality_spin.value())
         self._refresh_list()
@@ -862,6 +882,9 @@ class SafeBreedingView(QWidget):
                     parent_key_map=getattr(self, "_parent_key_map", {}),
                     cache=cache,
                     stimulation=self._pair_stimulation(),
+                    prefer_low_aggression=self._info_available("aggression"),
+                    prefer_high_libido=self._info_available("libido"),
+                    use_breeding_compatibility=self._info_available("libido"),
                 )
                 if not quality_factors.compatible:
                     continue
@@ -883,17 +906,22 @@ class SafeBreedingView(QWidget):
                 ]
                 closest_recent_gen = min(recent_levels) if recent_levels else 3
 
-            lover_keys = {
-                lover.db_key
-                for lover in getattr(cat, "lovers", [])
-                if lover is not None and getattr(lover, "db_key", None) is not None
-            }
-            is_loved = other.db_key in lover_keys
-            is_mutual_love = is_loved and cat.db_key in {
-                lover.db_key
-                for lover in getattr(other, "lovers", [])
-                if lover is not None and getattr(lover, "db_key", None) is not None
-            }
+            relationships_available = self._info_available("relationships")
+            if relationships_available:
+                lover_keys = {
+                    lover.db_key
+                    for lover in getattr(cat, "lovers", [])
+                    if lover is not None and getattr(lover, "db_key", None) is not None
+                }
+                is_loved = other.db_key in lover_keys
+                is_mutual_love = is_loved and cat.db_key in {
+                    lover.db_key
+                    for lover in getattr(other, "lovers", [])
+                    if lover is not None and getattr(lover, "db_key", None) is not None
+                }
+            else:
+                is_loved = False
+                is_mutual_love = False
 
             row_bg = None
             row_fg = None
@@ -943,7 +971,7 @@ class SafeBreedingView(QWidget):
                 )
                 if quality_factors.must_breed_bonus:
                     notes.append(_tr("safe_breeding.notes.must_breed", default="Must breed"))
-                if quality_factors.lover_bonus:
+                if relationships_available and quality_factors.lover_bonus:
                     notes.append(_tr("safe_breeding.notes.mutual_lovers", default="Mutual lovers"))
                 if quality_factors.trait_bonus:
                     notes.append(_tr("safe_breeding.notes.trait_bonus", default="Trait bonus: {value:.1f}", value=quality_factors.trait_bonus))

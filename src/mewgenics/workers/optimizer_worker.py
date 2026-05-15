@@ -44,6 +44,7 @@ class RoomOptimizerWorker(QThread):
         avoid_lovers = bool(p.get("avoid_lovers", True))
         prefer_low_aggression = bool(p.get("prefer_low_aggression", True))
         prefer_high_libido = bool(p.get("prefer_high_libido", True))
+        use_breeding_compatibility = bool(p.get("use_breeding_compatibility", True))
         maximize_throughput = bool(p.get("maximize_throughput", False))
         ignore_stat_priority = bool(p.get("ignore_stat_priority", False))
         send_kittens_to_fallback = bool(p.get("send_kittens_to_fallback", False))
@@ -90,6 +91,7 @@ class RoomOptimizerWorker(QThread):
             avoid_lovers=avoid_lovers,
             prefer_low_aggression=prefer_low_aggression,
             prefer_high_libido=prefer_high_libido,
+            use_breeding_compatibility=use_breeding_compatibility,
             mode_family=mode_family,
             use_sa=use_sa,
             sa_temperature=max(0.1, sa_temperature),

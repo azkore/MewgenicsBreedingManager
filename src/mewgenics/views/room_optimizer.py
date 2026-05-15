@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QColor, QBrush
 
-from save_parser import Cat, STAT_NAMES, FurnitureRoomSummary
+from save_parser import Cat, CatInfoUnlocks, STAT_NAMES, FurnitureRoomSummary
 
 from mewgenics.constants import (
     STAT_COLORS, PAIR_COLORS,
@@ -470,6 +470,8 @@ class RoomOptimizerView(QWidget):
         self._pending_cache_recalc = False
         self._pending_cache_recalc_sa = False
         self._selected_room_data: Optional[dict] = None
+        self._cat_info_unlocks = CatInfoUnlocks()
+        self._use_known_cat_info_only = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
@@ -1096,6 +1098,21 @@ class RoomOptimizerView(QWidget):
     def get_room_config(self) -> list[dict]:
         return self._room_priority_panel.get_config()
 
+    def set_info_availability(self, unlocks: Optional[CatInfoUnlocks], use_known_info_only: bool = True):
+        self._cat_info_unlocks = unlocks or CatInfoUnlocks()
+        self._use_known_cat_info_only = bool(use_known_info_only)
+        relationships_available = self._info_available("relationships")
+        aggression_available = self._info_available("aggression")
+        libido_available = self._info_available("libido")
+        self._avoid_lovers_checkbox.setEnabled(relationships_available)
+        self._prefer_low_aggression_checkbox.setEnabled(aggression_available)
+        self._prefer_high_libido_checkbox.setEnabled(libido_available)
+        if hasattr(self, "_details_pane") and self._details_pane is not None:
+            self._details_pane.set_info_availability(self._cat_info_unlocks, self._use_known_cat_info_only)
+
+    def _info_available(self, feature: str) -> bool:
+        return self._cat_info_unlocks.allows(feature, use_known_info_only=self._use_known_cat_info_only)
+
     def _navigate_to_cat_from_breeding_pairs(self, cat_name_formatted: str):
         """Navigate to a cat by its formatted name (e.g. 'Fluffy (Female)')."""
         # Extract the cat name part (before the gender)
@@ -1577,9 +1594,10 @@ class RoomOptimizerView(QWidget):
             "min_stats": min_stats,
             "max_risk": max_risk,
             "minimize_variance": self._minimize_variance_checkbox.isChecked(),
-            "avoid_lovers": self._avoid_lovers_checkbox.isChecked(),
-            "prefer_low_aggression": self._prefer_low_aggression_checkbox.isChecked(),
-            "prefer_high_libido": self._prefer_high_libido_checkbox.isChecked(),
+            "avoid_lovers": self._avoid_lovers_checkbox.isChecked() and self._info_available("relationships"),
+            "prefer_low_aggression": self._prefer_low_aggression_checkbox.isChecked() and self._info_available("aggression"),
+            "prefer_high_libido": self._prefer_high_libido_checkbox.isChecked() and self._info_available("libido"),
+            "use_breeding_compatibility": self._info_available("libido"),
             "maximize_throughput": maximize_throughput and not mode_family,
             "ignore_stat_priority": ignore_stat_priority,
             "send_kittens_to_fallback": send_kittens_to_fallback,
@@ -1638,6 +1656,9 @@ class RoomOptimizerView(QWidget):
         room_rows = result["room_rows"]
         locator_data = result["locator_data"]
         excluded_rows = result["excluded_rows"]
+        relationships_available = self._info_available("relationships")
+        if not relationships_available:
+            locator_data = [dict(row, has_lover=False) for row in locator_data]
         mode_family = result["mode_family"]
         min_stats = result["min_stats"]
         max_risk = result["max_risk"]
@@ -1679,6 +1700,11 @@ class RoomOptimizerView(QWidget):
             cat_names = room_data["cat_names"]
             cat_keys = room_data.get("cat_keys", [])
             room_pairs = room_data["pairs"]
+            if not relationships_available:
+                room_pairs = [
+                    dict(p, cat_a_has_lover=False, cat_b_has_lover=False, is_lovers=False)
+                    for p in room_pairs
+                ]
             avg_stats = room_data["avg_stats"]
             avg_risk = room_data["avg_risk"]
             room_capacity = room_data.get("capacity")
@@ -2071,6 +2097,8 @@ class RoomOptimizerDetailPanel(QWidget):
         self._mode_profiles: dict[str, dict] = _normalize_mutation_mode_profiles({})
         self._navigate_to_cat_callback = None  # Callback to navigate to a cat by name
         self._navigate_to_pair_callback = None  # Callback to navigate to a cat pair
+        self._cat_info_unlocks = CatInfoUnlocks()
+        self._use_known_cat_info_only = False
 
         self._pairs_table = QTableWidget(0, 16)
         self._pairs_table.setHorizontalHeaderLabels([
@@ -2160,6 +2188,7 @@ class RoomOptimizerDetailPanel(QWidget):
             }
         """)
         root.addWidget(self._excluded_table, 1)
+        self._apply_info_availability_to_columns()
 
     def retranslate_ui(self):
         self._best_pairs_btn.setText(
@@ -2187,6 +2216,24 @@ class RoomOptimizerDetailPanel(QWidget):
             _tr("room_optimizer.detail.excluded.lib"),
             _tr("room_optimizer.detail.excluded.inbred"),
         ])
+        self._apply_info_availability_to_columns()
+
+    def set_info_availability(self, unlocks: Optional[CatInfoUnlocks], use_known_info_only: bool = True):
+        self._cat_info_unlocks = unlocks or CatInfoUnlocks()
+        self._use_known_cat_info_only = bool(use_known_info_only)
+        self._apply_info_availability_to_columns()
+        if self._current_data:
+            self.show_room(self._current_data)
+
+    def _info_available(self, feature: str) -> bool:
+        return self._cat_info_unlocks.allows(feature, use_known_info_only=self._use_known_cat_info_only)
+
+    def _apply_info_availability_to_columns(self):
+        if hasattr(self, "_pairs_table"):
+            self._pairs_table.setColumnHidden(3, not self._info_available("relationships"))
+        if hasattr(self, "_excluded_table"):
+            self._excluded_table.setColumnHidden(9, not self._info_available("aggression"))
+            self._excluded_table.setColumnHidden(10, not self._info_available("libido"))
 
     def set_navigate_to_cat_callback(self, callback):
         self._navigate_to_cat_callback = callback

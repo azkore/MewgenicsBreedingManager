@@ -482,6 +482,7 @@ def evaluate_pair(
     parent_key_map: Optional[dict[int, set[int]]] = None,
     pair_eval_cache: Optional[dict] = None,
     compat_threshold: float = 0.05,
+    use_breeding_compatibility: bool = True,
 ) -> tuple[bool, str, float, float]:
     """
     Unified pair evaluation. Returns (can_breed, reason, risk_pct, game_compat).
@@ -490,8 +491,8 @@ def evaluate_pair(
     are rejected early (before the expensive COI calculation).
     Pass parent_key_map to enable direct-family checking.
     """
+    key = (pair_key(a, b), bool(use_breeding_compatibility))
     if pair_eval_cache is not None:
-        key = pair_key(a, b)
         cached = pair_eval_cache.get(key)
         if cached is not None:
             return cached
@@ -499,8 +500,8 @@ def evaluate_pair(
     ok, reason = can_breed(a, b)
 
     # Cheap compatibility check — reject before expensive COI/risk calc
-    compat = game_compatibility(a, b) if ok else 0.0
-    if ok and compat < compat_threshold:
+    compat = game_compatibility(a, b) if ok and use_breeding_compatibility else (1.0 if ok else 0.0)
+    if ok and use_breeding_compatibility and compat < compat_threshold:
         ok, reason = False, f"Very low compatibility ({compat:.3f})"
 
     if ok and parent_key_map is not None and is_direct_family_pair(a, b, parent_key_map):
@@ -516,17 +517,17 @@ def evaluate_pair(
         if cache is not None and getattr(cache, "ready", False):
             get_risk = getattr(cache, "get_risk", None)
             if callable(get_risk):
-                risk = get_risk(a, b)
+                risk = float(get_risk(a, b))
             else:
-                risk = risk_percent(a, b)
+                risk = float(risk_percent(a, b))
         else:
-            risk = risk_percent(a, b)
+            risk = float(risk_percent(a, b))
     else:
         risk = 0.0
 
     result = (ok, reason, risk, compat)
     if pair_eval_cache is not None:
-        pair_eval_cache[pair_key(a, b)] = result
+        pair_eval_cache[key] = result
     return result
 
 
@@ -548,6 +549,7 @@ def score_pair(
     stat_priority: Optional[Sequence[str]] = None,
     must_breed_bonus: float = 1000.0,
     lover_bonus: float = 500.0,
+    use_breeding_compatibility: bool = True,
 ) -> PairFactors:
     """Return a complete score breakdown for a pair."""
     hater_key_map = hater_key_map or {}
@@ -563,6 +565,7 @@ def score_pair(
         cache=cache,
         parent_key_map=parent_key_map,
         pair_eval_cache=pair_eval_cache,
+        use_breeding_compatibility=use_breeding_compatibility,
     )
 
     projection = pair_projection(a, b, stimulation=stimulation)

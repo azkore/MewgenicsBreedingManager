@@ -306,14 +306,15 @@ def _set_roster_visual_mode(enabled: bool):
     _save_app_config(data)
 
 
-def _saved_respect_cat_info_unlocks(default: bool = True) -> bool:
+def _saved_use_known_cat_info_only(default: bool = True) -> bool:
     data = _load_app_config()
-    return _coerce_bool(data.get("respect_cat_info_unlocks"), default)
+    return _coerce_bool(data.get("use_known_cat_info_only", data.get("respect_cat_info_unlocks")), default)
 
 
-def _set_respect_cat_info_unlocks(enabled: bool):
+def _set_use_known_cat_info_only(enabled: bool):
     data = _load_app_config()
-    data["respect_cat_info_unlocks"] = bool(enabled)
+    data["use_known_cat_info_only"] = bool(enabled)
+    data.pop("respect_cat_info_unlocks", None)
     _save_app_config(data)
 
 

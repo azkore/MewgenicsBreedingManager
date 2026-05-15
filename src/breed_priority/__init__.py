@@ -11,7 +11,7 @@ import json
 import tempfile
 from typing import Optional, Callable
 
-from save_parser import risk_percent, can_breed
+from save_parser import CatInfoUnlocks, risk_percent, can_breed
 
 from .filters import FilterState, FilterDialog, cat_passes_filter
 from .stat_text_formatter import StatTextFormatter
@@ -79,6 +79,7 @@ from .columns import (
 from .complex_weights import (
     ComplexWeight, compute_cw_matches, build_cat_trait_set, ComplexWeightsDialog,
 )
+from .complex_weights.model import FIELD_AGGRESSION, FIELD_LIBIDO, FIELD_SEXUALITY
 from .scoring import (
     ScoreResult, ability_base, is_basic_trait,
 )
@@ -137,8 +138,9 @@ class _BreedPriorityScoringWorker(QThread):
     finished_with_data = Signal(object)
 
     def __init__(self, *, alive, all_cats, scope_cats, scope_set,
-                 ma_ratings, stat_names, weights, display_name_fn,
-                 use_current_stats, add_mutation_stats, run_revision):
+                  ma_ratings, stat_names, weights, display_name_fn,
+                  use_current_stats, add_mutation_stats, use_relationships,
+                  run_revision):
         super().__init__()
         self._alive = alive
         self._all_cats = all_cats
@@ -150,6 +152,7 @@ class _BreedPriorityScoringWorker(QThread):
         self._display_name_fn = display_name_fn
         self._use_current_stats = use_current_stats
         self._add_mutation_stats = add_mutation_stats
+        self._use_relationships = bool(use_relationships)
         self._run_revision = run_revision
 
     def run(self):
@@ -167,7 +170,10 @@ class _BreedPriorityScoringWorker(QThread):
                 self.finished_with_data.emit({"status": "canceled",
                                               "run_revision": self._run_revision})
                 return
-            hated_by_map, loved_by_map = build_relationship_maps(self._all_cats)
+            if self._use_relationships:
+                hated_by_map, loved_by_map = build_relationship_maps(self._all_cats)
+            else:
+                hated_by_map, loved_by_map = {}, {}
             if self.isInterruptionRequested():
                 self.finished_with_data.emit({"status": "canceled",
                                               "run_revision": self._run_revision})
@@ -241,6 +247,8 @@ class BreedPriorityView(QWidget):
         self._selected_cat = None
         self._hated_by_map: dict[int, list] = {}
         self._loved_by_map: dict[int, list] = {}
+        self._cat_info_unlocks = CatInfoUnlocks()
+        self._use_known_cat_info_only = False
         self._scope_pair_risks: dict[tuple[int, int], float] = {}
         self._hide_kittens = False
         self._hide_out_of_scope = False
@@ -1900,6 +1908,19 @@ class BreedPriorityView(QWidget):
                 )
             else:
                 self._score_table.hideColumn(ci)
+        _hidden_score_headers = []
+        if not self._info_available("libido"):
+            _hidden_score_headers.extend(["Sex", "Lib"])
+        if not self._info_available("aggression"):
+            _hidden_score_headers.append("Aggro")
+        if not self._info_available("relationships"):
+            _hidden_score_headers.extend(["💗", "💥"])
+        for _hdr in ("Sex", "Lib", "Aggro", "💗", "💥"):
+            if _hdr in _SCORE_COLS:
+                self._score_table.setColumnHidden(
+                    _COL_SCORE_START + _SCORE_COLS.index(_hdr),
+                    _hdr in _hidden_score_headers,
+                )
 
     @staticmethod
     def _score_col_alignment(col_idx: int):
@@ -1983,6 +2004,49 @@ class BreedPriorityView(QWidget):
                 self.recompute()
 
     # ── Data ─────────────────────────────────────────────────────────────────
+
+    def set_info_availability(self, unlocks: Optional[CatInfoUnlocks], use_known_info_only: bool = True):
+        self._cat_info_unlocks = unlocks or CatInfoUnlocks()
+        self._use_known_cat_info_only = bool(use_known_info_only)
+        self._apply_stat_column_visibility()
+        self.recompute()
+
+    def _info_available(self, feature: str) -> bool:
+        return self._cat_info_unlocks.allows(feature, use_known_info_only=self._use_known_cat_info_only)
+
+    def _effective_weights(self) -> dict:
+        weights = dict(self._weights)
+        if not self._info_available("libido"):
+            for key in ("high_libido", "low_libido", "gay_pref", "bi_pref"):
+                weights[key] = 0.0
+        if not self._info_available("aggression"):
+            for key in ("high_aggression", "low_aggression"):
+                weights[key] = 0.0
+        if not self._info_available("relationships"):
+            for key in ("love_interest", "love_interest_room", "rivalry", "rivalry_room"):
+                weights[key] = 0.0
+        return weights
+
+    def _effective_filters(self) -> FilterState:
+        filters = FilterState.from_dict(self._filters.to_dict())
+        if not self._info_available("aggression"):
+            filters.aggro_active = False
+        if not self._info_available("libido"):
+            filters.libido_active = False
+        return filters
+
+    def _effective_complex_weights(self) -> list:
+        unavailable = set()
+        if not self._info_available("libido"):
+            unavailable.update({FIELD_LIBIDO, FIELD_SEXUALITY})
+        if not self._info_available("aggression"):
+            unavailable.add(FIELD_AGGRESSION)
+        if not unavailable:
+            return [cw for cw in self._complex_weights if cw.enabled]
+        return [
+            cw for cw in self._complex_weights
+            if cw.enabled and not any(getattr(cond, "field", None) in unavailable for cond in getattr(cw, "conditions", []))
+        ]
 
     def set_cats(self, cats: list):
         self._cats = cats
@@ -2257,12 +2321,12 @@ class BreedPriorityView(QWidget):
         _top_gene_risks.sort(key=lambda x: x[1], reverse=True)
         return build_cat_tooltip(
             cat, result, scope_cats,
-            weights=self._weights,
+            weights=self._effective_weights(),
             ma_ratings=self._ma_ratings,
             display_name_fn=self._display_name,
             room_display=self._room_display,
-            hated_by_map=self._hated_by_map,
-            loved_by_map=self._loved_by_map,
+            hated_by_map=self._hated_by_map if self._info_available("relationships") else {},
+            loved_by_map=self._loved_by_map if self._info_available("relationships") else {},
             cat_injuries_fn=lambda c: _cat_injuries(c, self._stat_names),
             top_gene_risks=_top_gene_risks[:3],
             cw_items=cw_items or [],
@@ -2275,7 +2339,7 @@ class BreedPriorityView(QWidget):
         """Return (text, sort_val, color) for a column in value mode."""
         return raw_col_value(
             cat, col_idx, scope_gene_risk, all_scope_gene_risks,
-            weights=self._weights,
+            weights=self._effective_weights(),
             room_display=self._room_display,
         )
 
@@ -2315,10 +2379,11 @@ class BreedPriorityView(QWidget):
             scope_set=scope_set,
             ma_ratings=self._ma_ratings,
             stat_names=self._stat_names,
-            weights=self._weights,
+            weights=self._effective_weights(),
             display_name_fn=self._display_name,
             use_current_stats=self._use_current_stats,
             add_mutation_stats=self._add_mutation_stats,
+            use_relationships=self._info_available("relationships"),
             run_revision=self._scoring_revision,
         )
         # Stash the main-thread state needed to render when the worker returns.
@@ -2793,7 +2858,7 @@ class BreedPriorityView(QWidget):
                 self._score_table.setItem(row, col_idx, sub_item)
 
             # ── Complex Weight evaluation (must precede total score) ──────────
-            _enabled_cws = [cw for cw in self._complex_weights if cw.enabled]
+            _enabled_cws = self._effective_complex_weights()
             _cw_matches: list = []
             _cw_delta_total = 0.0
             if _enabled_cws:
@@ -2906,12 +2971,13 @@ class BreedPriorityView(QWidget):
         shh.blockSignals(False)
 
         # Apply row filters
-        if self._filters_enabled and self._filters.is_any_active():
+        effective_filters = self._effective_filters()
+        if self._filters_enabled and effective_filters.is_any_active():
             _alive_by_name = {c.name: c for c in alive}
             _passes = {
                 id(cat): cat_passes_filter(
                     cat, results[id(cat)], children_in_scope_fn(cat),
-                    self._filters, TRAIT_LOW_THRESHOLD, TRAIT_HIGH_THRESHOLD,
+                    effective_filters, TRAIT_LOW_THRESHOLD, TRAIT_HIGH_THRESHOLD,
                     self._room_display,
                 )
                 for cat in alive

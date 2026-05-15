@@ -89,6 +89,7 @@ class OptimizationParams:
     avoid_lovers: bool = True
     prefer_low_aggression: bool = True
     prefer_high_libido: bool = True
+    use_breeding_compatibility: bool = True
     mode_family: bool = False
     use_sa: bool = False
     sa_temperature: float = 8.0

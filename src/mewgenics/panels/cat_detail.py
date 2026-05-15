@@ -290,7 +290,7 @@ class CatDetailPanel(QWidget):
         self.setFixedHeight(0)
         self._show_lineage: bool = False
         self._cat_info_unlocks: CatInfoUnlocks = CatInfoUnlocks()
-        self._respect_cat_info_unlocks: bool = True
+        self._use_known_cat_info_only: bool = False
         self._pair_stimulation: int = int(_load_app_config().get("pair_stimulation", 50) or 50)
         self._current_cats: list[Cat] = []
 
@@ -310,14 +310,14 @@ class CatDetailPanel(QWidget):
     def set_show_lineage(self, show: bool):
         self._show_lineage = show
 
-    def set_info_availability(self, unlocks: CatInfoUnlocks | None, respect_unlocks: bool):
+    def set_info_availability(self, unlocks: CatInfoUnlocks | None, use_known_info_only: bool):
         self._cat_info_unlocks = unlocks or CatInfoUnlocks()
-        self._respect_cat_info_unlocks = bool(respect_unlocks)
+        self._use_known_cat_info_only = bool(use_known_info_only)
         if self._current_cats:
             self.show_cats(self._current_cats)
 
     def _info_available(self, feature: str) -> bool:
-        return self._cat_info_unlocks.allows(feature, respect_unlocks=self._respect_cat_info_unlocks)
+        return self._cat_info_unlocks.allows(feature, use_known_info_only=self._use_known_cat_info_only)
 
     def show_cats(self, cats: list[Cat]):
         self._current_cats = list(cats)

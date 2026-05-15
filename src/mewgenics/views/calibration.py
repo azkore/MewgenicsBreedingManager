@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal, QSize, QRegularExpression
 from PySide6.QtGui import QRegularExpressionValidator
 
-from save_parser import Cat, STAT_NAMES
+from save_parser import Cat, CatInfoUnlocks, STAT_NAMES
 from mewgenics.models.cat_table_model import _SortKeyItem
 from mewgenics.utils.calibration import (
     _CALIBRATION_TRAIT_OPTIONS,
@@ -102,6 +102,8 @@ class CalibrationView(QWidget):
         self._save_path: Optional[str] = None
         self._cats: list[Cat] = []
         self._row_cat: list[Cat] = []
+        self._cat_info_unlocks = CatInfoUnlocks()
+        self._use_known_cat_info_only = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
@@ -248,6 +250,7 @@ class CalibrationView(QWidget):
             hh.setSectionResizeMode(stat_col, QHeaderView.Interactive)
             self._table.setColumnWidth(stat_col, 50)
         self._table.setSortingEnabled(True)
+        self._apply_info_availability_to_columns()
         root.addWidget(self._table, 1)
 
         self.retranslate_ui()
@@ -302,9 +305,31 @@ class CalibrationView(QWidget):
             _tr("calibration.table.override_inbr"),
             "STR", "DEX", "CON", "INT", "SPD", "CHA", "LCK",
         ])
+        self._apply_info_availability_to_columns()
         if self._save_path and self._cats:
             self.set_context(self._save_path, self._cats)
         _enforce_min_font_in_widget_tree(self)
+
+    def set_info_availability(self, unlocks: Optional[CatInfoUnlocks], use_known_info_only: bool = True):
+        self._cat_info_unlocks = unlocks or CatInfoUnlocks()
+        self._use_known_cat_info_only = bool(use_known_info_only)
+        self._apply_info_availability_to_columns()
+
+    def _info_available(self, feature: str) -> bool:
+        return self._cat_info_unlocks.allows(feature, use_known_info_only=self._use_known_cat_info_only)
+
+    def _apply_info_availability_to_columns(self):
+        if not hasattr(self, "_table"):
+            return
+        sexuality_available = self._info_available("libido")
+        aggression_available = self._info_available("aggression")
+        for col in (self.COL_DEFAULT_SEXUALITY, self.COL_OVR_SEXUALITY, self.COL_PARSED_LIB, self.COL_OVR_LIB):
+            self._table.setColumnHidden(col, not sexuality_available)
+        for col in (self.COL_PARSED_AGG, self.COL_OVR_AGG):
+            self._table.setColumnHidden(col, not aggression_available)
+        self._bulk_label.setVisible(sexuality_available)
+        self._bulk_sexuality_combo.setVisible(sexuality_available)
+        self._bulk_apply_btn.setVisible(sexuality_available)
 
     @staticmethod
     def _fmt(v) -> str:

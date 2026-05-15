@@ -104,9 +104,9 @@ class CatInfoUnlocks:
     aggression: bool = False
     relationships: bool = False
 
-    def allows(self, feature: str, *, respect_unlocks: bool = True) -> bool:
+    def allows(self, feature: str, *, use_known_info_only: bool = True) -> bool:
         """Return whether a cat-info feature may be shown/used."""
-        if not respect_unlocks:
+        if not use_known_info_only:
             return True
         # These are intentionally treated as player-known in this app: the
         # player can write down base stats and family trees, derive inbreeding

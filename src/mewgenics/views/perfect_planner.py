@@ -14,7 +14,7 @@ from PySide6.QtCore import Qt, QByteArray, QSize, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QIcon
 
 from save_parser import (
-    Cat, STAT_NAMES, kinship_coi, get_parents,
+    Cat, CatInfoUnlocks, STAT_NAMES, kinship_coi, get_parents,
     shared_ancestor_counts,
 )
 from breeding import (
@@ -1843,6 +1843,8 @@ class PerfectCatPlannerView(QWidget):
         self._session_state: dict = _load_planner_state_value("perfect_planner_state", {})
         self._restoring_session_state = False
         self._import_mutation_btn: Optional[QPushButton] = None
+        self._cat_info_unlocks = CatInfoUnlocks()
+        self._use_known_cat_info_only = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
@@ -2193,6 +2195,7 @@ class PerfectCatPlannerView(QWidget):
         self._set_toggle_button_label(self._avoid_lovers_checkbox, _tr("perfect_planner.toggle.avoid_lovers"))
         self._set_toggle_button_label(self._prefer_low_aggression_checkbox, _tr("perfect_planner.toggle.prefer_low_aggression"))
         self._set_toggle_button_label(self._prefer_high_libido_checkbox, _tr("perfect_planner.toggle.prefer_high_libido"))
+        self._apply_info_availability_to_controls()
         self._details_pane.retranslate_ui()
         self._details_pane.show_stage(None)
         self._cat_locator.retranslate_ui()
@@ -2304,6 +2307,28 @@ class PerfectCatPlannerView(QWidget):
 
     def set_cache(self, cache: Optional[BreedingCache]):
         self._cache = cache
+
+    def set_info_availability(self, unlocks: Optional[CatInfoUnlocks], use_known_info_only: bool = True):
+        self._cat_info_unlocks = unlocks or CatInfoUnlocks()
+        self._use_known_cat_info_only = bool(use_known_info_only)
+        self._apply_info_availability_to_controls()
+        if self._session_state.get("has_run") and self._cats:
+            self._calculate_plan()
+
+    def _info_available(self, feature: str) -> bool:
+        return self._cat_info_unlocks.allows(feature, use_known_info_only=self._use_known_cat_info_only)
+
+    def _apply_info_availability_to_controls(self):
+        if not hasattr(self, "_avoid_lovers_checkbox"):
+            return
+        relationships_available = self._info_available("relationships")
+        aggression_available = self._info_available("aggression")
+        libido_available = self._info_available("libido")
+        self._avoid_lovers_checkbox.setEnabled(relationships_available)
+        self._prefer_low_aggression_checkbox.setEnabled(aggression_available)
+        self._prefer_high_libido_checkbox.setEnabled(libido_available)
+        self._min_compat_input.setEnabled(libido_available)
+        self._min_compat_label.setEnabled(libido_available)
 
     def sync_from_room_config(self, room_config: list[dict], available_rooms: list[str] | None = None):
         room_configs = build_room_configs(room_config, available_rooms=available_rooms)
@@ -2767,16 +2792,18 @@ class PerfectCatPlannerView(QWidget):
         except ValueError:
             pass
 
-        min_compat = max(0.0, min(1.0, float(self._min_compat_input.value()) / 100.0))
+        libido_available = self._info_available("libido")
+        relationships_available = self._info_available("relationships")
+        min_compat = max(0.0, min(1.0, float(self._min_compat_input.value()) / 100.0)) if libido_available else 0.0
 
         starter_pairs = int(self._starter_pairs_input.value())
         stimulation = float(self._stimulation_input.value())
         sa_temperature = _saved_optimizer_search_temperature()
         sa_neighbors = _saved_optimizer_search_neighbors()
         use_sa = self._deep_optimize_btn.isChecked()
-        avoid_lovers = self._avoid_lovers_checkbox.isChecked()
-        prefer_low_aggression = self._prefer_low_aggression_checkbox.isChecked()
-        prefer_high_libido = self._prefer_high_libido_checkbox.isChecked()
+        avoid_lovers = self._avoid_lovers_checkbox.isChecked() and relationships_available
+        prefer_low_aggression = self._prefer_low_aggression_checkbox.isChecked() and self._info_available("aggression")
+        prefer_high_libido = self._prefer_high_libido_checkbox.isChecked() and libido_available
         self._sync_mutation_traits()
         planner_traits = list(self._mutation_planner_traits)
 
@@ -2817,19 +2844,24 @@ class PerfectCatPlannerView(QWidget):
             cat.db_key: {parent.db_key for parent in get_parents(cat)}
             for cat in alive_cats
         }
-        hater_key_map = {
-            cat.db_key: {other.db_key for other in getattr(cat, "haters", [])}
-            for cat in alive_cats
-        }
-        lover_key_map = {
-            cat.db_key: {other.db_key for other in getattr(cat, "lovers", [])}
-            for cat in alive_cats
-        }
-        has_mutual_lover = {
-            cat.db_key
-            for cat in alive_cats
-            if any(cat.db_key in lover_key_map.get(o.db_key, set()) for o in getattr(cat, "lovers", []))
-        }
+        if relationships_available:
+            hater_key_map = {
+                cat.db_key: {other.db_key for other in getattr(cat, "haters", [])}
+                for cat in alive_cats
+            }
+            lover_key_map = {
+                cat.db_key: {other.db_key for other in getattr(cat, "lovers", [])}
+                for cat in alive_cats
+            }
+            has_mutual_lover = {
+                cat.db_key
+                for cat in alive_cats
+                if any(cat.db_key in lover_key_map.get(o.db_key, set()) for o in getattr(cat, "lovers", []))
+            }
+        else:
+            hater_key_map = {cat.db_key: set() for cat in alive_cats}
+            lover_key_map = {cat.db_key: set() for cat in alive_cats}
+            has_mutual_lover = set()
         lover_locked: set[int] = has_mutual_lover if avoid_lovers else set()
         pair_eval_cache: dict[tuple[int, int], tuple[bool, str, float]] = {}
         pair_factor_cache: dict[tuple[int, int, float], object] = {}
@@ -2856,6 +2888,7 @@ class PerfectCatPlannerView(QWidget):
                     prefer_low_aggression=prefer_low_aggression,
                     prefer_high_libido=prefer_high_libido,
                     planner_traits=planner_traits,
+                    use_breeding_compatibility=libido_available,
                 )
                 pair_factor_cache[key] = cached
             return cached
@@ -2866,7 +2899,7 @@ class PerfectCatPlannerView(QWidget):
         for pair_index, (cat_a, cat_b) in enumerate(candidate_pairs):
             if not planner_pair_allows_breeding(cat_a, cat_b):
                 continue
-            if min_compat > 0.0 and pair_breeding_compatibility(cat_a, cat_b) < min_compat:
+            if libido_available and min_compat > 0.0 and pair_breeding_compatibility(cat_a, cat_b) < min_compat:
                 continue
             if avoid_lovers and (cat_a.db_key in lover_locked or cat_b.db_key in lover_locked):
                 if not is_mutual_lover_pair(cat_a, cat_b, lover_key_map):
@@ -2879,6 +2912,7 @@ class PerfectCatPlannerView(QWidget):
             founder_bonus = sum(1.0 for cat in (cat_a, cat_b) if not get_parents(cat)) * 2.0
             must_breed_bonus = 50.0 if cat_a.must_breed or cat_b.must_breed else 0.0
             personality = factors.personality_bonus * 3.0
+            lover_bonus = factors.lover_bonus if relationships_available else 0.0
             planner_bias = planner_pair_bias(cat_a, cat_b)
             ancestry_penalty = planner_inbreeding_penalty(cat_a, cat_b)
             progress_score = (
@@ -2894,7 +2928,7 @@ class PerfectCatPlannerView(QWidget):
                 + planner_bias
                 - ancestry_penalty
                 + factors.trait_bonus
-                + factors.lover_bonus
+                + lover_bonus
             )
 
             evaluated_pairs.append({
@@ -3140,7 +3174,7 @@ class PerfectCatPlannerView(QWidget):
                         continue
                     if not planner_pair_allows_breeding(parent, candidate):
                         continue
-                    if min_compat > 0.0 and pair_breeding_compatibility(parent, candidate) < min_compat:
+                    if libido_available and min_compat > 0.0 and pair_breeding_compatibility(parent, candidate) < min_compat:
                         continue
                     factors = _score_pair_cached(parent, candidate, stimulation)
                     if not factors.compatible or factors.risk > max_risk:
@@ -3449,8 +3483,8 @@ class PerfectCatPlannerView(QWidget):
                         "stats": dict(cat.base_stats),
                         "sum": _cat_base_sum(cat),
                         "traits": {
-                            "aggression": _trait_label_from_value("aggression", cat.aggression) or "unknown",
-                            "libido": _trait_label_from_value("libido", cat.libido) or "unknown",
+                            "aggression": (_trait_label_from_value("aggression", cat.aggression) or "unknown") if self._info_available("aggression") else "locked",
+                            "libido": (_trait_label_from_value("libido", cat.libido) or "unknown") if libido_available else "locked",
                             "inbredness": _trait_label_from_value("inbredness", cat.inbredness) or "unknown",
                         },
                     }
@@ -3490,7 +3524,7 @@ class PerfectCatPlannerView(QWidget):
                         "name": cat.name,
                         "gender_display": cat.gender_display,
                         "db_key": cat.db_key, "tags": list(_cat_tags(cat)),
-                        "has_lover": bool(getattr(cat, "lovers", None)),
+                        "has_lover": relationships_available and bool(getattr(cat, "lovers", None)),
                         "age": cat.age if cat.age is not None else cat.db_key,
                         "current_room": current,
                         "current_room_key": current_room_key,
@@ -3507,7 +3541,7 @@ class PerfectCatPlannerView(QWidget):
                     "name": child.name,
                     "gender_display": child.gender_display,
                     "db_key": child.db_key,
-                    "has_lover": bool(getattr(child, "lovers", None)),
+                    "has_lover": relationships_available and bool(getattr(child, "lovers", None)),
                     "tags": list(_cat_tags(child)),
                     "age": child.age if child.age is not None else child.db_key,
                     "current_room": current,
@@ -3527,7 +3561,7 @@ class PerfectCatPlannerView(QWidget):
                         "name": cat.name,
                         "gender_display": cat.gender_display,
                         "db_key": cat.db_key, "tags": list(_cat_tags(cat)),
-                        "has_lover": bool(getattr(cat, "lovers", None)),
+                        "has_lover": relationships_available and bool(getattr(cat, "lovers", None)),
                         "age": cat.age if cat.age is not None else cat.db_key,
                         "current_room": current,
                         "current_room_key": current_room_key,

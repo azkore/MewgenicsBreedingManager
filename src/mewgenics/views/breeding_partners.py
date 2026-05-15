@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QColor, QBrush, QFont
 
-from save_parser import Cat
+from save_parser import Cat, CatInfoUnlocks
 from breeding import is_mutual_lover_pair
 from mewgenics.utils.localization import _tr
 from mewgenics.utils.tags import _cat_tags, _make_tag_icon
@@ -39,6 +39,8 @@ class BreedingPartnersView(QWidget):
         self._pairs: list[dict[str, object]] = []
         self._all_by_key: dict[int, Cat] = {}
         self._navigate_to_cat_callback = None
+        self._cat_info_unlocks = CatInfoUnlocks()
+        self._use_known_cat_info_only = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
@@ -136,10 +138,21 @@ class BreedingPartnersView(QWidget):
     def set_navigate_to_cat_callback(self, callback):
         self._navigate_to_cat_callback = callback
 
+    def set_info_availability(self, unlocks: Optional[CatInfoUnlocks], use_known_info_only: bool = True):
+        self._cat_info_unlocks = unlocks or CatInfoUnlocks()
+        self._use_known_cat_info_only = bool(use_known_info_only)
+        self.set_cats(self._cats)
+
+    def _info_available(self, feature: str) -> bool:
+        return self._cat_info_unlocks.allows(feature, use_known_info_only=self._use_known_cat_info_only)
+
     def set_cats(self, cats: list[Cat]):
         self._cats = cats
         self._pairs = []
         self._all_by_key = {cat.db_key: cat for cat in cats if cat is not None}
+        if not self._info_available("relationships"):
+            self._refresh_table()
+            return
         seen: set[tuple[str, int, int]] = set()
         all_cats = [cat for cat in cats if cat is not None]
         cat_keys = {cat.db_key for cat in all_cats}
@@ -189,6 +202,14 @@ class BreedingPartnersView(QWidget):
         return None
 
     def _refresh_table(self):
+        if not self._info_available("relationships"):
+            self._table.setRowCount(0)
+            self._summary.setText(_tr(
+                "breeding_partners.summary.locked",
+                default="Relationships locked by in-game cat info unlocks",
+            ))
+            return
+
         query = self._search.text().strip().lower()
         pairs = self._pairs
         if query:

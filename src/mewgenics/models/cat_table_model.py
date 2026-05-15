@@ -618,11 +618,11 @@ class CatTableModel(QAbstractTableModel):
         self._visual_sprite_size: int = 48
         self._accessible_cat_keys: set[int] = set()
         self._cat_info_unlocks: CatInfoUnlocks = CatInfoUnlocks()
-        self._respect_cat_info_unlocks: bool = True
+        self._use_known_cat_info_only: bool = False
 
-    def set_info_availability(self, unlocks: Optional[CatInfoUnlocks], respect_unlocks: bool):
+    def set_info_availability(self, unlocks: Optional[CatInfoUnlocks], use_known_info_only: bool):
         self._cat_info_unlocks = unlocks or CatInfoUnlocks()
-        self._respect_cat_info_unlocks = bool(respect_unlocks)
+        self._use_known_cat_info_only = bool(use_known_info_only)
         if self._cats:
             self.dataChanged.emit(
                 self.index(0, 0),
@@ -631,7 +631,7 @@ class CatTableModel(QAbstractTableModel):
             )
 
     def _info_available(self, feature: str) -> bool:
-        return self._cat_info_unlocks.allows(feature, respect_unlocks=self._respect_cat_info_unlocks)
+        return self._cat_info_unlocks.allows(feature, use_known_info_only=self._use_known_cat_info_only)
 
     def _locked_tooltip(self, label: str) -> str:
         return f"{label}: locked until the matching Tink cat-info reward is unlocked."
