@@ -727,9 +727,10 @@ def _parse_mutation_gon(
 
     idx = 0
     while idx < len(content):
-        # Match any numeric ID (including low IDs like 2); skip non-defect low
-        # IDs below — but include them when they carry `tag birth_defect`.
-        match = re.search(r"(?<!\w)(\d+)\s*\{", content[idx:])
+        # Match non-negative numeric IDs (including low IDs like 2); skip
+        # non-defect low IDs below. Do not let the `-2` missing-part sentinel
+        # be parsed as positive ID 2; it is handled explicitly below.
+        match = re.search(r"(?<![\w-])(\d+)\s*\{", content[idx:])
         if not match:
             break
         slot_id = int(match.group(1))
