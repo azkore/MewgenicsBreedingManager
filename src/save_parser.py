@@ -292,6 +292,54 @@ _STAT_LABELS = {
 _CLASS_STRING_TAIL_OFFSET = 115  # class string ends this many bytes before blob end
 
 
+def _is_identifier_bytes(raw: bytes) -> bool:
+    try:
+        text = raw.decode("ascii")
+    except UnicodeDecodeError:
+        return False
+    return bool(text) and _IDENT_RE.match(text) is not None
+
+
+def _decode_level_block(raw: bytes) -> dict[str, int | str]:
+    """Decode the class/level/birthday block near the tail of a cat blob.
+
+    The game serializes the block as a length-prefixed ASCII class name,
+    followed by the level and 12 bytes of tail fields before the birthday
+    sentinel pair ``<i64 birthday><i64 -1>``.
+    The signed birthday day is the authoritative source for visible age;
+    scanning unsigned creation-day candidates near the end can pick padding or
+    unrelated tail fields on newer saves.
+    """
+    n = len(raw)
+    best: dict[str, int | str] = {}
+    for pos in range(max(0, n - 240), max(0, n - 40)):
+        if pos + 8 > n:
+            continue
+        strlen = struct.unpack_from("<Q", raw, pos)[0]
+        if not (3 <= strlen <= 40):
+            continue
+        start = pos + 8
+        end = start + strlen
+        if end + 28 > n:
+            continue
+        text = raw[start:end]
+        if not _is_identifier_bytes(text):
+            continue
+        birthday_off = end + 12
+        if birthday_off + 16 > n:
+            continue
+        if struct.unpack_from("<q", raw, birthday_off + 8)[0] != -1:
+            continue
+        best = {
+            "class_block_name": text.decode("ascii"),
+            "level": struct.unpack_from("<I", raw, end)[0],
+            "birthday_day": struct.unpack_from("<q", raw, birthday_off)[0],
+            "level_offset": end,
+            "birthday_offset": birthday_off,
+        }
+    return best
+
+
 @dataclass(slots=True)
 class GameData:
     """Resource-backed lookup tables used by parser helpers."""
@@ -1873,19 +1921,31 @@ class Cat:
         self.defects = defect_display_names
         self.defect_chip_items = [(text, tip) for text, tip, is_def in visual_items if is_def]
 
-        # Extract age from creation_day stored near the end of the blob
+        level_info = _decode_level_block(raw)
+        self.level = level_info.get("level")
+        self.birthday_day = level_info.get("birthday_day")
+
+        # Extract visible age from the signed birthday day in the class/level
+        # tail block. Fall back to the older creation-day scan only when that
+        # block is absent, because the scan can confuse nearby padding or tail
+        # fields for the real birthday on newer saves.
         if current_day is not None:
             try:
-                eternal_youth = any(d.lower() == "eternalyouth" for d in (getattr(self, "disorders", None) or []))
-                creation_day_candidates: list[int] = []
-                for offset_from_end in [103, 102, 104, 101, 105, 100, 106, 107, 108, 109, 110]:
-                    pos = len(raw) - offset_from_end
-                    if pos + 4 > len(raw) or pos < 0:
-                        continue
-                    creation_day = struct.unpack_from('<I', raw, pos)[0]
-                    if 0 <= creation_day <= current_day:
-                        creation_day_candidates.append(creation_day)
-                self.age = _choose_age_from_creation_days(current_day, creation_day_candidates, eternal_youth)
+                if isinstance(self.birthday_day, int):
+                    visible_age = int(current_day) - self.birthday_day
+                    if visible_age >= 0:
+                        self.age = visible_age
+                if self.age is None:
+                    eternal_youth = any(d.lower() == "eternalyouth" for d in (getattr(self, "disorders", None) or []))
+                    creation_day_candidates: list[int] = []
+                    for offset_from_end in [103, 102, 104, 101, 105, 100, 106, 107, 108, 109, 110]:
+                        pos = len(raw) - offset_from_end
+                        if pos + 4 > len(raw) or pos < 0:
+                            continue
+                        creation_day = struct.unpack_from('<I', raw, pos)[0]
+                        if 0 <= creation_day <= current_day:
+                            creation_day_candidates.append(creation_day)
+                    self.age = _choose_age_from_creation_days(current_day, creation_day_candidates, eternal_youth)
             except Exception:
                 logger.debug("Cat %s: age extraction failed", cat_key, exc_info=True)
 
@@ -1897,19 +1957,21 @@ class Cat:
         self.cat_class: str = ""
         self.class_stat_mods: dict[str, int] = {}
         try:
-            class_str_end = len(raw) - _CLASS_STRING_TAIL_OFFSET
-            for class_len in range(3, 30):
-                prefix_pos = class_str_end - class_len - 8
-                if prefix_pos < 0:
-                    break
-                length = struct.unpack_from('<I', raw, prefix_pos)[0]
-                zero = struct.unpack_from('<I', raw, prefix_pos + 4)[0]
-                if length == class_len and zero == 0:
-                    class_name = raw[prefix_pos + 8:prefix_pos + 8 + class_len].decode('utf-8', errors='replace')
-                    if class_name != "Colorless":
-                        self.cat_class = class_name
-                        self.class_stat_mods = _CLASS_STAT_MODS.get(class_name, {})
-                    break
+            class_name = str(level_info.get("class_block_name") or "")
+            if not class_name:
+                class_str_end = len(raw) - _CLASS_STRING_TAIL_OFFSET
+                for class_len in range(3, 30):
+                    prefix_pos = class_str_end - class_len - 8
+                    if prefix_pos < 0:
+                        break
+                    length = struct.unpack_from('<I', raw, prefix_pos)[0]
+                    zero = struct.unpack_from('<I', raw, prefix_pos + 4)[0]
+                    if length == class_len and zero == 0:
+                        class_name = raw[prefix_pos + 8:prefix_pos + 8 + class_len].decode('utf-8', errors='replace')
+                        break
+            if class_name and class_name != "Colorless":
+                self.cat_class = class_name
+                self.class_stat_mods = _CLASS_STAT_MODS.get(class_name, {})
         except Exception:
             logger.debug("Cat %s: class extraction failed", cat_key, exc_info=True)
 

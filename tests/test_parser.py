@@ -23,6 +23,7 @@ from save_parser import (
     BinaryReader,
     GameData,
     _choose_age_from_creation_days,
+    _decode_level_block,
     _valid_str,
     _normalize_gender,
     parse_save,
@@ -270,6 +271,35 @@ class TestChooseAgeFromCreationDays:
 
     def test_prefers_largest_valid_creation_day(self):
         assert _choose_age_from_creation_days(69, [1, 57, 12]) == 12
+
+
+class TestDecodeLevelBlock:
+    def test_decodes_signed_birthday_day_from_tail_block(self):
+        raw = (
+            b"\x00" * 80
+            + struct.pack("<Q", len(b"Hunter"))
+            + b"Hunter"
+            + struct.pack("<IIIqq", 3, 0, 84, -2, -1)
+            + b"\x00" * 80
+        )
+
+        info = _decode_level_block(raw)
+
+        assert info["class_block_name"] == "Hunter"
+        assert info["level"] == 3
+        assert info["birthday_day"] == -2
+        assert info["birthday_offset"] == 80 + 8 + len(b"Hunter") + 12
+
+    def test_ignores_identifier_without_birthday_sentinel(self):
+        raw = (
+            b"\x00" * 80
+            + struct.pack("<Q", len(b"Hunter"))
+            + b"Hunter"
+            + struct.pack("<IIIqq", 3, 0, 84, 57, 0)
+            + b"\x00" * 80
+        )
+
+        assert _decode_level_block(raw) == {}
 
 
 # ── Blob scanning tests ─────────────────────────────────────────────────────
