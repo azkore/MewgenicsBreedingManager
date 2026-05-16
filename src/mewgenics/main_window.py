@@ -1705,10 +1705,11 @@ class MainWindow(QMainWindow):
         vs.setStretchFactor(0, 1)
         vs.setStretchFactor(1, 0)
 
-        # Build all secondary views eagerly so every tab is ready when
-        # the user clicks it — no freeze on first navigation.
+        # Secondary views are constructed lazily by their _show_* handlers.
+        # Building every hidden planning tab here makes the splash sit on
+        # "Building interface..." even though the roster view is the only
+        # widget needed for the initial window.
         self._content_vb = vb
-        self._build_all_views()
 
         # Loading overlay — shown during background save parse, dismissed before UI population
         self._loading_overlay = QWidget(w)
@@ -2239,8 +2240,6 @@ class MainWindow(QMainWindow):
     # Secondary views are built lazily so the window appears fast.
     # Each _ensure_*() method constructs the view if it is still None,
     # adds it to the content layout, wires signals, and pushes cat data.
-    # The idle chain (_deferred_build_views) calls them in priority
-    # order after the save finishes loading.
 
     def _push_cats_to_view_if_loaded(self, view_key: str, view):
         """Push current cat data to a freshly-built view if cats are loaded."""
@@ -2251,12 +2250,19 @@ class MainWindow(QMainWindow):
             view.set_cats(self._cats)
             self._view_generation[view_key] = self._cats_generation
 
+    def _prepare_lazy_view(self, view: QWidget):
+        """Apply global widget-tree setup to a view built after startup."""
+        _enforce_min_font_in_widget_tree(view)
+        offset_px = round(self._font_size_offset * 1.333)
+        _apply_font_offset_to_tree(view, offset_px)
+
     def _ensure_room_optimizer_view(self):
         if self._room_optimizer_view is not None:
             return
         self._room_optimizer_view = RoomOptimizerView(self)
         self._room_optimizer_view.hide()
         self._content_vb.addWidget(self._room_optimizer_view, 1)
+        self._prepare_lazy_view(self._room_optimizer_view)
         self._room_optimizer_view.room_priority_panel.configChanged.connect(self._sync_room_config_views)
         self._room_optimizer_view.cat_locator.set_navigate_to_cat_callback(self._navigate_to_cat)
         self._room_optimizer_view.set_navigate_to_pair_callback(self._navigate_to_cat_pair)
@@ -2271,6 +2277,7 @@ class MainWindow(QMainWindow):
         self._mutation_planner_view = MutationDisorderPlannerView(self)
         self._mutation_planner_view.hide()
         self._content_vb.addWidget(self._mutation_planner_view, 1)
+        self._prepare_lazy_view(self._mutation_planner_view)
         self._mutation_planner_view.traitsChanged.connect(self._sync_donation_planner_traits)
         self._mutation_planner_view.set_navigate_to_cat_callback(self._navigate_to_cat)
         # Wire to room optimizer if it was built first (normal order)
@@ -2284,6 +2291,7 @@ class MainWindow(QMainWindow):
         self._manual_scoring_view = ManualScoringView(self)
         self._manual_scoring_view.hide()
         self._content_vb.addWidget(self._manual_scoring_view, 1)
+        self._prepare_lazy_view(self._manual_scoring_view)
         self._manual_scoring_view._auto_calc_chk.toggled.connect(self._sync_manual_scoring_auto_calc_action)
         self._push_cats_to_view_if_loaded("manual_scoring", self._manual_scoring_view)
 
@@ -2299,6 +2307,7 @@ class MainWindow(QMainWindow):
         self._perfect_planner_view = PerfectCatPlannerView(self)
         self._perfect_planner_view.hide()
         self._content_vb.addWidget(self._perfect_planner_view, 1)
+        self._prepare_lazy_view(self._perfect_planner_view)
         self._perfect_planner_view.cat_locator.set_navigate_to_cat_callback(self._navigate_to_cat)
         self._perfect_planner_view.offspring_tracker.set_navigate_to_cat_callback(self._navigate_to_cat)
         if self._mutation_planner_view is not None:
@@ -2312,6 +2321,7 @@ class MainWindow(QMainWindow):
         self._safe_breeding_view.set_navigate_to_pair_callback(self._navigate_to_cat_pair)
         self._safe_breeding_view.hide()
         self._content_vb.addWidget(self._safe_breeding_view, 1)
+        self._prepare_lazy_view(self._safe_breeding_view)
         self._push_cats_to_view_if_loaded("safe_breeding", self._safe_breeding_view)
 
     def _ensure_breeding_partners_view(self):
@@ -2321,6 +2331,7 @@ class MainWindow(QMainWindow):
         self._breeding_partners_view.set_navigate_to_cat_callback(self._navigate_to_cat_by_name)
         self._breeding_partners_view.hide()
         self._content_vb.addWidget(self._breeding_partners_view, 1)
+        self._prepare_lazy_view(self._breeding_partners_view)
         self._push_cats_to_view_if_loaded("breeding_partners", self._breeding_partners_view)
 
     def _ensure_tree_view(self):
@@ -2329,6 +2340,7 @@ class MainWindow(QMainWindow):
         self._tree_view = FamilyTreeBrowserView(self)
         self._tree_view.hide()
         self._content_vb.addWidget(self._tree_view, 1)
+        self._prepare_lazy_view(self._tree_view)
         self._push_cats_to_view_if_loaded("tree", self._tree_view)
 
     def _ensure_furniture_view(self):
@@ -2337,6 +2349,7 @@ class MainWindow(QMainWindow):
         self._furniture_view = FurnitureView(self)
         self._furniture_view.hide()
         self._content_vb.addWidget(self._furniture_view, 1)
+        self._prepare_lazy_view(self._furniture_view)
         # FurnitureView uses set_context(), not set_cats() — pushed in _on_save_loaded
 
     def _ensure_calibration_view(self):
@@ -2346,6 +2359,7 @@ class MainWindow(QMainWindow):
         self._calibration_view.calibrationChanged.connect(self._on_calibration_changed)
         self._calibration_view.hide()
         self._content_vb.addWidget(self._calibration_view, 1)
+        self._prepare_lazy_view(self._calibration_view)
         # CalibrationView uses set_context(), not set_cats() — pushed in _on_save_loaded
 
     def _ensure_breed_priority_view(self):
@@ -2361,11 +2375,16 @@ class MainWindow(QMainWindow):
         )
         self._breed_priority_view.hide()
         self._content_vb.addWidget(self._breed_priority_view, 1)
+        self._prepare_lazy_view(self._breed_priority_view)
         self._breed_priority_view.detailed_scores_updated.connect(self._on_detailed_scores_changed)
         self._push_cats_to_view_if_loaded("breed_priority", self._breed_priority_view)
 
     def _build_all_views(self):
-        """Build all secondary views eagerly during init."""
+        """Build all secondary views.
+
+        Kept for tests/dev diagnostics; normal startup uses the lazy
+        _ensure_*() path from each view's show handler.
+        """
         self._ensure_room_optimizer_view()
         self._ensure_mutation_planner_view()
         self._ensure_manual_scoring_view()

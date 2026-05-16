@@ -1816,7 +1816,7 @@ def test_mutation_planner_trait_table_filters_cats(qt_app, planner_config):
     assert view._trait_table.rowCount() > 0
     row = next(
         i for i in range(view._trait_table.rowCount())
-        if view._trait_table.item(i, 0).text() == "Two-Toed Arm"
+        if view._trait_table.item(i, 1).text() == "Two-Toed Arm"
     )
     view._trait_table.selectRow(row)
     qt_app.processEvents()
@@ -1871,7 +1871,7 @@ def test_mutation_planner_multi_trait_selection_filters_union_and_clear_button(q
 
     rows = []
     for i in range(view._trait_table.rowCount()):
-        name = view._trait_table.item(i, 0).text()
+        name = view._trait_table.item(i, 1).text()
         if name in {"Two-Toed Arm", "Paw Missile"}:
             rows.append(i)
     assert len(rows) == 2
@@ -1952,12 +1952,12 @@ def test_mutation_planner_trait_descriptions_hide_raw_keys(qt_app, planner_confi
         ),
     ])
 
-    assert view._trait_table.columnCount() == 4
+    assert view._trait_table.columnCount() == 5
     row = next(
         i for i in range(view._trait_table.rowCount())
-        if view._trait_table.item(i, 0).text() == "Gym Membership"
+        if view._trait_table.item(i, 1).text() == "Gym Membership"
     )
-    desc = view._trait_table.item(row, 3).text()
+    desc = view._trait_table.item(row, 4).text()
     assert "_DESC" not in desc
     assert desc != "ABILITY_GYMMEMBERSHIP_DESC"
     view._trait_table.selectRow(row)
