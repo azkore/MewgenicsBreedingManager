@@ -2026,21 +2026,25 @@ class Cat:
 
     @property
     def has_adventured(self) -> bool:
-        """Return True if this cat has likely been on at least one adventure.
+        """Return True if this cat has been on at least one adventure.
 
-        Checks for positive ``stat_mod`` values (per-stat int32 deltas written
-        by adventure leveling) AND 4+ abilities (cats gain abilities through
-        adventure leveling; freshly hatched cats have 2-3).
-
-        Positive ``stat_mod`` alone is ambiguous — nightly cat fights also
-        write positive values.  Requiring 4+ abilities eliminates nearly all
-        fight-club false positives: across ~13K cats in test saves, only 6
-        cats with 4+ abilities had zero stat gains.  See GitHub issue #81.
+        Modern saves expose the cat's level in the decoded class-tail block.
+        Adventure and tutorial leveling can leave a cat with too few abilities
+        for the older stat/ability heuristic, so use level whenever it decoded.
 
         If ``not_adventured_override`` is set, this returns False regardless.
+        The old heuristic is kept only for blobs where level was not decoded.
         """
         if getattr(self, "not_adventured_override", False):
             return False
+
+        level = getattr(self, "level", None)
+        if level is not None:
+            try:
+                return int(level) > 0
+            except (TypeError, ValueError):
+                logger.debug("Cat %s: invalid decoded level %r", getattr(self, "db_key", "?"), level)
+
         stat_mod = getattr(self, "stat_mod", None) or []
         has_stat_gains = any(int(x) > 0 for x in stat_mod)
         if not has_stat_gains:

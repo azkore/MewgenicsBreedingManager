@@ -21,6 +21,7 @@ sys.path.insert(0, _proj_root)
 
 from save_parser import (
     BinaryReader,
+    Cat,
     GameData,
     _choose_age_from_creation_days,
     _decode_level_block,
@@ -300,6 +301,45 @@ class TestDecodeLevelBlock:
         )
 
         assert _decode_level_block(raw) == {}
+
+
+class TestHasAdventured:
+    def _cat(self, *, level, stat_mod, abilities, not_adventured_override=False):
+        cat = object.__new__(Cat)
+        cat.db_key = 1
+        cat.level = level
+        cat.stat_mod = stat_mod
+        cat.abilities = abilities
+        cat.not_adventured_override = not_adventured_override
+        return cat
+
+    def test_level_marks_tutorial_adventurer_with_three_abilities(self):
+        cat = self._cat(
+            level=2,
+            stat_mod=[0, 0, 0, 1, 0, 0, 0],
+            abilities=["BasicMelee", "Spit", "Sunburn"],
+        )
+
+        assert cat.has_adventured is True
+
+    def test_decoded_level_zero_is_not_overridden_by_old_heuristic(self):
+        cat = self._cat(
+            level=0,
+            stat_mod=[1, 0, 0, 0, 0, 0, 0],
+            abilities=["BasicMelee", "A", "B", "C"],
+        )
+
+        assert cat.has_adventured is False
+
+    def test_not_adventured_override_still_forces_ready(self):
+        cat = self._cat(
+            level=2,
+            stat_mod=[0, 0, 0, 1, 0, 0, 0],
+            abilities=["BasicMelee", "Spit", "Sunburn"],
+            not_adventured_override=True,
+        )
+
+        assert cat.has_adventured is False
 
 
 # ── Blob scanning tests ─────────────────────────────────────────────────────
